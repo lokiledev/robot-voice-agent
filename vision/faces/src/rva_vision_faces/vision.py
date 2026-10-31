@@ -68,8 +68,8 @@ class FaceVision:
         self._recorder: Final = recorder
         self._record_video: Final = record_video
         self._show_window: Final = show_window
-        # The user's last sentence and when it was said, on the monotonic clock.
-        self._caption: tuple[str, float] | None = None
+        # The user's last sentence, the track of the face in front when it was said, and when.
+        self._caption: tuple[int, str, float] | None = None
         self._on_key: Final = on_key
         self._tracker: Final = Tracker(config.tracker)
         self._gallery = Gallery((), config.matching)
@@ -152,8 +152,13 @@ class FaceVision:
         return revoked
 
     def caption(self, text: str) -> None:
-        """Show a sentence of the user's over the image for a few seconds."""
-        self._caption = (text, time.monotonic())
+        """Show a sentence of the user's on their face's box for a few seconds.
+
+        It goes to the face in front of the robot, taken as the speaker, if there is one.
+        """
+        nearest = next((face for face in self.faces() if face.nearest), None)
+        if nearest is not None:
+            self._caption = (nearest.track_id, text, time.monotonic())
 
     async def _reload(self) -> None:
         self._gallery = Gallery(await asyncio.to_thread(self._database.load), self._config.matching)
@@ -247,14 +252,21 @@ class FaceVision:
                 raise RuntimeError("Could not encode a camera frame as JPEG")
             self._recorder.record(CameraFrame(jpeg=jpeg.tobytes()))
         self._recorder.record(
-            face_boxes(self._tracker.tracks, scale, round(width * scale), round(height * scale))
+            face_boxes(
+                self._tracker.tracks,
+                scale,
+                round(width * scale),
+                round(height * scale),
+                self._current_caption(),
+            )
         )
 
-    def _current_caption(self) -> str | None:
+    def _current_caption(self) -> tuple[int, str] | None:
+        """The track and sentence to show, while still fresh."""
         caption = self._caption
-        if caption is None or time.monotonic() - caption[1] > _CAPTION_S:
+        if caption is None or time.monotonic() - caption[2] > _CAPTION_S:
             return None
-        return caption[0]
+        return caption[0], caption[1]
 
     def _publish(self, events: Sequence[FaceEvent]) -> None:
         for queue in self._subscribers:
@@ -262,8 +274,17 @@ class FaceVision:
                 queue.put_nowait(event)
 
 
-def face_boxes(tracks: Sequence[Track], scale: float, width: int, height: int) -> FaceBoxes:
-    """The tracks' boxes in an image scaled by `scale`, of size `width` by `height`."""
+def face_boxes(
+    tracks: Sequence[Track],
+    scale: float,
+    width: int,
+    height: int,
+    caption: tuple[int, str] | None,
+) -> FaceBoxes:
+    """The tracks' boxes in an image scaled by `scale`, of size `width` by `height`.
+
+    `caption` is a track id and what that person said, shown on their box.
+    """
     return FaceBoxes(
         image_width=width,
         image_height=height,
@@ -278,6 +299,7 @@ def face_boxes(tracks: Sequence[Track], scale: float, width: int, height: int) -
                 ),
                 person=None if track.match is None else track.match.person,
                 confirmed=track.confirmed,
+                said=caption[1] if caption is not None and caption[0] == track.track_id else None,
             )
             for track in tracks
         ),

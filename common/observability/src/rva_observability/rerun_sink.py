@@ -20,7 +20,7 @@ from rva_schemas.record import (
 
 _TIMELINE: Final = "wall"
 _CAMERA: Final = "camera"
-"""Image, face boxes and caption share this entity, so rerun draws them in one 2D view."""
+"""Image and face boxes share this entity, so rerun draws them in one 2D view."""
 # RGB, as in the debug window.
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (255, 165, 0)
@@ -32,16 +32,12 @@ class RerunRecorder:
 
     def __init__(self, recording: rr.RecordingStream) -> None:
         self._recording: Final = recording
-        # Height of the camera image, to place the caption; known once faces were recorded.
-        self._image_height: int | None = None
 
     def record(self, entry: Record) -> None:
         self._recording.set_time(_TIMELINE, timestamp=datetime.now(UTC))
         match entry:
             case DialogueLine():
                 self._recording.log(f"dialogue/{entry.speaker}", rr.TextLog(entry.text))
-                if entry.speaker == "user" and self._image_height is not None:
-                    self._caption(entry.text, self._image_height)
             case ToolInvocation():
                 text = f"{entry.name}({entry.arguments}) -> {entry.result}"
                 self._recording.log("agent/tools", rr.TextLog(text))
@@ -58,7 +54,6 @@ class RerunRecorder:
             case FaceUpdate():
                 self._recording.log("vision/faces", rr.TextLog(entry.event.model_dump_json()))
             case FaceBoxes():
-                self._image_height = entry.image_height
                 self._face_boxes(entry.boxes)
             case CameraFrame():
                 self._recording.log(
@@ -80,24 +75,11 @@ class RerunRecorder:
             ),
         )
 
-    def _caption(self, text: str, image_height: int) -> None:
-        # A labeled point is how rerun puts text over an image.
-        self._recording.log(
-            f"{_CAMERA}/caption",
-            rr.Points2D(
-                [[10, image_height - 20]],
-                labels=[f"User: {text}"],
-                colors=[(255, 255, 255)],
-                radii=1,
-                show_labels=True,
-            ),
-        )
-
 
 def _label(box: FaceBox) -> str:
-    if box.person is None:
-        return f"#{box.track_id} unknown"
-    return f"#{box.track_id} {box.person.name} ({str(box.person.user_id)[:8]})"
+    who = "unknown" if box.person is None else f"{box.person.name} ({str(box.person.user_id)[:8]})"
+    said = "" if box.said is None else f': "{box.said}"'
+    return f"#{box.track_id} {who}{said}"
 
 
 def _color(box: FaceBox) -> tuple[int, int, int]:

@@ -354,9 +354,8 @@ agent.log     loguru log
 | `/vla/task` | status changes (TextLog) |
 | `/latency/<stage>` | per-stage duration (Scalars) |
 | `/audio/vad` | speech probability (Scalars), for tuning thresholds |
-| `/camera/faces` | every tracked face of every frame (Boxes2D), labeled with track, name and user id; green known, orange unknown, grey not yet confirmed |
+| `/camera/faces` | every tracked face of every frame (Boxes2D), labeled with track, name and user id, and for 6 s with what that person said; green known, orange unknown, grey not yet confirmed |
 | `/camera/image` | with `--video`: the camera frames, scaled to 960 px wide and JPEG-compressed (EncodedImage), under the boxes; about 100 MB per minute |
-| `/camera/caption` | the user's last sentence, as a label over the image |
 | `/vision/faces` | faces appearing and leaving, with their box and person (TextLog) |
 
 Rerun has no audio type, so the WAV files sit next to the recording and their start times are logged in rerun to line them up. `rva run --viewer` also streams to a live rerun viewer.
@@ -380,7 +379,7 @@ Each part runs on its own, so it can be tried by hand before the whole loop:
 | `rva people` | Lists the user id and name of everyone known, marking admins and operators | done |
 | `rva listen [--viewer]` | Mic → VAD → end of turn → ASR, printing each transcript and its delay; `--viewer` plots the VAD probability | done |
 | `rva say [--voice NAME]` | Typed sentences → TTS → speaker | done |
-| `rva run [--viewer] [--no-camera] [--show] [--video]` | The whole voice agent, with the camera unless `--no-camera`; the user's sentences appear over the camera image in the window and in rerun | done |
+| `rva run [--viewer] [--no-camera] [--show] [--video]` | The whole voice agent, with the camera unless `--no-camera`; what the user says appears under their face's box in the window, and in its label in rerun | done |
 
 All commands take `--profile config/<name>` (default `config/default`).
 

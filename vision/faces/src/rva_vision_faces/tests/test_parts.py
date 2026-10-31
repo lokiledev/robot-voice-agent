@@ -264,10 +264,13 @@ def test_database_renames_and_grants_without_changing_the_user(tmp_path: Path) -
     assert not database.revoke_operator(bob.user_id)
 
 
-def test_face_boxes_are_scaled_to_the_recorded_video() -> None:
-    track = Track(track_id=3, box=BoundingBox(x=100, y=200, width=50, height=80), now=0, samples=1)
+def test_face_boxes_are_scaled_and_carry_what_the_speaker_said() -> None:
+    speaker = Track(
+        track_id=3, box=BoundingBox(x=100, y=200, width=50, height=80), now=0, samples=1
+    )
+    other = Track(track_id=4, box=BoundingBox(x=0, y=0, width=10, height=10), now=0, samples=1)
 
-    boxes = face_boxes([track], scale=0.5, width=960, height=540)
+    boxes = face_boxes([speaker, other], scale=0.5, width=960, height=540, caption=(3, "hello"))
 
     assert boxes == FaceBoxes(
         image_width=960,
@@ -278,6 +281,14 @@ def test_face_boxes_are_scaled_to_the_recorded_video() -> None:
                 box=BoundingBox(x=50, y=100, width=25, height=40),
                 person=None,
                 confirmed=False,
+                said="hello",
+            ),
+            FaceBox(
+                track_id=4,
+                box=BoundingBox(x=0, y=0, width=5, height=5),
+                person=None,
+                confirmed=False,
+                said=None,
             ),
         ),
     )

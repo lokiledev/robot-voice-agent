@@ -50,6 +50,8 @@ class FaceBox(RVABaseModel):
     person: KnownPerson | None
     confirmed: bool
     """Whether the face was seen long enough to be announced."""
+    said: str | None
+    """What this person said last, while it is still shown."""
 
 
 class FaceBoxes(RVABaseModel):

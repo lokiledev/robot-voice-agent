@@ -11,7 +11,7 @@ from rva_schemas.record import CameraFrame, DialogueLine, FaceBox, FaceBoxes
 from rva_schemas.vision import BoundingBox, KnownPerson
 
 
-def test_camera_image_faces_and_caption_share_one_view(tmp_path: Path) -> None:
+def test_camera_image_and_faces_share_one_view(tmp_path: Path) -> None:
     path = tmp_path / "session.rrd"
     recording = rr.RecordingStream("test")
     recording.save(path)
@@ -30,6 +30,7 @@ def test_camera_image_faces_and_caption_share_one_view(tmp_path: Path) -> None:
                     box=BoundingBox(x=1, y=2, width=3, height=4),
                     person=alice,
                     confirmed=True,
+                    said="authorize Bob",
                 ),
             ),
         )
@@ -39,4 +40,4 @@ def test_camera_image_faces_and_caption_share_one_view(tmp_path: Path) -> None:
     recording.disconnect()
 
     entities = {chunk.entity_path for chunk in RrdReader(path).stream()}
-    assert {"/camera/image", "/camera/faces", "/camera/caption", "/dialogue/user"} <= entities
+    assert {"/camera/image", "/camera/faces", "/dialogue/user"} <= entities
