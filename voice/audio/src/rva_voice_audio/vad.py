@@ -1,9 +1,9 @@
-from importlib.resources import files
 from pathlib import Path
 from typing import Final
 
 import numpy as np
 import numpy.typing as npt
+from huggingface_hub import hf_hub_download
 
 from rva_voice_audio.onnx import cpu_session
 
@@ -11,14 +11,18 @@ SAMPLE_RATE: Final = 16000
 FRAME_SAMPLES: Final = 512
 """Silero VAD scores 32 ms windows at 16 kHz."""
 _CONTEXT_SAMPLES: Final = 64
-_MODEL: Final = Path(str(files("rva_voice_audio").joinpath("assets", "silero_vad.onnx")))
+_REPO: Final = "istupakov/silero-vad-onnx"
+_REVISION: Final = "b3e3ee3cce4c11ceb63b1a0b229d916069c1ddf6"
+"""Silero VAD v6.2, MIT: pinned, since the thresholds in `runtime.yaml` are tuned to it."""
 
 
 class SileroVad:
     """Speech probability of consecutive frames of one 16 kHz stream, with Silero VAD v6."""
 
     def __init__(self) -> None:
-        self._session: Final = cpu_session(_MODEL)
+        """Load the model, downloaded from the Hugging Face Hub on first use."""
+        model = hf_hub_download(_REPO, "silero_vad.onnx", revision=_REVISION)
+        self._session: Final = cpu_session(Path(model))
         self._sample_rate: Final = np.array(SAMPLE_RATE, dtype=np.int64)
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._context = np.zeros((1, _CONTEXT_SAMPLES), dtype=np.float32)
