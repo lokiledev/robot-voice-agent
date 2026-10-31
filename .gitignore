@@ -13,3 +13,6 @@ models/
 *.wav
 # Admins live outside the source tree: see config/admins.example.yaml.
 admins.yaml
+# MediaMTX's self-signed certificate, should it run from the source tree.
+auto.crt
+auto.key

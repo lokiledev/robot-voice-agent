@@ -2044,6 +2044,8 @@ version = "0.1.0"
 source = { editable = "ui" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
+    { name = "loguru" },
     { name = "pydantic" },
     { name = "rva-pydantic" },
     { name = "rva-schemas" },
@@ -2051,23 +2053,17 @@ dependencies = [
     { name = "websockets" },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "loguru", specifier = ">=0.7" },
     { name = "pydantic", specifier = ">=2.11" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-schemas", editable = "schemas" },
     { name = "uvicorn", specifier = ">=0.35" },
     { name = "websockets", specifier = ">=15" },
 ]
-
-[package.metadata.requires-dev]
-dev = [{ name = "httpx", specifier = ">=0.28" }]
 
 [[package]]
 name = "rva-vision-faces"

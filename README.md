@@ -56,12 +56,16 @@ fail. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) zooms in on each part.
 
 ### Requirements
 
-- Linux and an NVIDIA GPU with 24 GB of memory. Lune was built on an RTX 4090; some of the LLM's
-  layers stay in system RAM, so 64 GB of RAM is comfortable.
-- [uv](https://docs.astral.sh/uv/), and llama.cpp's `llama-server` built with CUDA (see
-  [llama.cpp's build guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md)).
-- A microphone, speakers or headphones, and a webcam.
-- For the camera on the session page: Docker and `ffmpeg`.
+Lune runs on Linux only for now.
+
+- **GPU:** an NVIDIA GPU with at least 24 GB of VRAM. Lune was built on an RTX 4090.
+- **Memory:** some of the LLM's layers stay in system RAM, so 64 GB of RAM is comfortable.
+- **NVIDIA driver** with CUDA 13 support (version 580 or newer). The CUDA libraries the Python
+  packages need come with them; the CUDA toolkit is only needed to build llama.cpp.
+- **llama.cpp's `llama-server`**, built with CUDA: see
+  [llama.cpp's build guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md).
+- **Tools:** [uv](https://docs.astral.sh/uv/) and `ffmpeg`.
+- **Devices:** a microphone, speakers or headphones, and a webcam.
 
 ### Install
 
@@ -81,7 +85,8 @@ curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
 ```
 
-The voice activity and face models download themselves on first use.
+The voice activity and face models, and MediaMTX, which streams the camera to the session page,
+download themselves on first use.
 
 With speakers rather than headphones, Lune needs echo cancellation, or she hears herself and
 keeps interrupting her own speech. PipeWire's WebRTC echo canceller does it:
@@ -96,27 +101,18 @@ to use the system's default devices instead.
 
 ### Run
 
-Each server in its own terminal:
-
 ```bash
-uv run rva serve-llm
+uv run rva up
 ```
 
-```bash
-uv run rva-vla-mock --interactive
-```
+It starts the LLM server, the mock robot and MediaMTX, waits until they are ready, then runs Lune
+with her session page: open <http://127.0.0.1:8700> and talk to her. Ctrl+C stops everything. No
+microphone at hand? `uv run rva up --text` lets you type, in the terminal or on the page.
 
-```bash
-uv run rva serve-video
-```
-
-```bash
-uv run rva run --ui
-```
-
-Then open <http://127.0.0.1:8700> and talk to Lune. No microphone at hand? `uv run rva text --ui`
-lets you type, in the terminal or on the page. In the mock robot's terminal, type `s`, `f
-<reason>` or `t` to make the running action succeed, fail or time out.
+The servers' output goes to `~/Captures/robot-voice-agent/servers/`. A server you start yourself
+is left alone, so you can keep one running between sessions or watch it in a terminal of its own,
+for instance the mock robot with `uv run rva-vla-mock --interactive`, where typing `s`, `f
+<reason>` or `t` makes the running action succeed, fail or time out.
 
 ### Become an operator
 
@@ -134,6 +130,10 @@ Then authorize others by voice: "Lune, authorize Bob."
 
 | Command | What it does |
 |---|---|
+| `rva up` | Everything: the servers below, then the voice agent with its session page |
+| `rva serve-llm` | The LLM server |
+| `rva-vla-mock` | The mock robot; `--interactive` to end actions from the terminal |
+| `rva serve-video` | MediaMTX, for the camera on the session page |
 | `rva listen` | Prints what the microphone hears, turn by turn |
 | `rva say` | Speaks each line you type; `--voice` tries another Kokoro voice |
 | `rva llm` | Chat with the LLM alone; tool calls are shown, not run |
@@ -143,9 +143,9 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `rva text` | The whole agent, typing instead of talking |
 | `rva run` | The whole voice agent |
 
-`rva run` and `rva text` take `--ui` for the session page, `--viewer` to watch the recording
-live in rerun, `--show` for a camera window, `--video` to record the camera frames, and
-`--no-camera`. Every command takes `--profile` to use another robot profile than
+`rva run` and `rva text` need the servers running, and take `--ui` for the session page.
+These and `rva up` take `--viewer` to watch the recording live in rerun, `--show` for a camera
+window, `--video` to record the camera frames, and `--no-camera`. Every command takes `--profile` to use another robot profile than
 `config/default`.
 
 ## Where data lives
@@ -158,6 +158,8 @@ Nothing the robot learns or records is written to the source tree. The paths are
 | Admins' user ids | `~/.config/robot-voice-agent/admins.yaml` |
 | Known faces, names and operators | `~/.local/share/robot-voice-agent/faces.sqlite3` |
 | Session recordings and logs | `~/Captures/robot-voice-agent/` |
+| Servers' output, with `rva up` | `~/Captures/robot-voice-agent/servers/` |
+| MediaMTX | `~/.local/share/robot-voice-agent/mediamtx/` |
 | Kokoro model | `~/.cache/robot-voice-agent/kokoro/` |
 | Other models | `~/.cache/huggingface/` |
 

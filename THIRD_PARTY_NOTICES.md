@@ -30,7 +30,7 @@ smart-turn expects.
 | Program | Used for | License |
 |---|---|---|
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` | Serving the LLM | MIT |
-| [MediaMTX](https://github.com/bluenviron/mediamtx), Docker image `bluenviron/mediamtx` | Camera stream to the session page | MIT |
+| [MediaMTX](https://github.com/bluenviron/mediamtx), downloaded from its GitHub releases on first use | Camera stream to the session page | MIT |
 | [FFmpeg](https://ffmpeg.org) | Encoding the camera stream; run as a separate process | LGPL-2.1-or-later or GPL-2.0-or-later, depending on the build |
 | [PipeWire](https://pipewire.org) echo-cancel module | Echo cancellation | MIT |
 

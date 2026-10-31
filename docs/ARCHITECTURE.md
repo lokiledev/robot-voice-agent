@@ -43,7 +43,7 @@ flowchart LR
     subgraph pc ["Lune, on one PC"]
         agent["Agent process<br/>[Python, asyncio]<br/>voice, vision, dialogue, tools,<br/>session page server"]
         llm["LLM server<br/>[llama.cpp]<br/>Qwen3.5-35B-A3B"]
-        mtx["MediaMTX<br/>[Docker]<br/>RTSP in, WebRTC out"]
+        mtx["MediaMTX<br/>[Go binary]<br/>RTSP in, WebRTC out"]
         page["Session page<br/>[HTML, JavaScript, in a browser]"]
         data[("Local data<br/>[YAML, SQLite, rerun]<br/>profile, admins, faces,<br/>recordings")]
     end
@@ -72,9 +72,13 @@ flowchart LR
 | Agent process | `rva run` (voice) or `rva text` (typing) | One asyncio loop; the camera has a thread of its own |
 | LLM server | `rva serve-llm` | OpenAI-compatible API; another model is a config change |
 | Robot API | `rva-vla-mock` | Replace with the real robot's API |
-| MediaMTX | `rva serve-video` | Only for the camera on the session page |
+| MediaMTX | `rva serve-video` | Only for the camera on the session page; downloaded on first use |
 | Session page | `--ui`, then <http://127.0.0.1:8700> | Served by the agent process |
 | Local data | paths in `runtime.yaml` | Profile, admins, face database, recordings; all but the profile outside the source tree |
+
+`rva up` runs them all: it starts each server that is not running yet, waits until it is ready
+(for the LLM server, until its health check passes, since it answers while the model still
+loads), runs the agent, and stops on exit what it started.
 
 The profile is the robot's story (`character.yaml`, `environment.yaml`, `capabilities.yaml`,
 rendered into the system prompt) plus the machine (`runtime.yaml`: models, devices, thresholds,

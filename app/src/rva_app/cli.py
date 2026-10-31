@@ -8,8 +8,10 @@ from contextlib import AbstractAsyncContextManager, aclosing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, assert_never
+from urllib.parse import urlsplit
 
 import cyclopts
+import httpx
 from loguru import logger
 
 from rva_agent.agent import Agent
@@ -19,6 +21,7 @@ from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig, load_admins
 from rva_app.page import MergedInput, Recorders, serve_page
 from rva_app.servers import Server, ServersUnavailableError, require_servers
+from rva_app.services import Service, ServiceFailedError, services_running
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
 from rva_app.voice import open_voice_input, open_voice_output, robot_speech
 from rva_body_client.client import HttpBodyClient
@@ -39,7 +42,13 @@ from rva_schemas.dialogue import (
 )
 from rva_schemas.profile import Profile
 from rva_schemas.vision import UnknownTrackError
-from rva_ui.media import media_server_command
+from rva_ui.media import (
+    MEDIA_SERVER_ENVIRONMENT,
+    MediaServerConfig,
+    install_media_server,
+    media_server_command,
+    media_server_directory,
+)
 from rva_ui.server import UiServer
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
@@ -72,9 +81,41 @@ def serve_llm(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
 
 @app.command
 def serve_video(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
-    """Run MediaMTX in Docker in the foreground, to show the camera on the session page."""
-    command = media_server_command(RuntimeConfig.load(profile).media_server)
-    os.execvp(command[0], command)
+    """Run MediaMTX in the foreground, to show the camera on the session page.
+
+    It is downloaded from its GitHub releases on first use.
+    """
+    config = RuntimeConfig.load(profile).media_server
+    command = media_server_command(_media_server_executable(config))
+    # It writes a self-signed certificate where it runs.
+    os.chdir(media_server_directory(config))
+    os.execve(command[0], command, {**os.environ, **MEDIA_SERVER_ENVIRONMENT})
+
+
+@app.command
+def up(
+    *,
+    profile: ProfileDir = _DEFAULT_PROFILE,
+    text: bool = False,
+    camera: bool = True,
+    viewer: bool = False,
+    show: bool = False,
+    video: bool = False,
+) -> None:
+    """Run everything: the servers the agent needs, then the agent with its session page.
+
+    Starts the LLM server, the mock robot and, with the camera, MediaMTX, unless they already
+    run. Their output goes to `servers/` in the captures directory, and they stop with the agent.
+
+    Args:
+        profile: Robot profile directory.
+        text: Type to the robot instead of talking.
+        camera: Watch for people with the camera.
+        viewer: Stream the recording to a rerun viewer.
+        show: Also show the camera with the tracked faces in a window.
+        video: Record the camera frames with the session, to replay them in rerun.
+    """
+    _run(_up(profile, text, camera, viewer, show, video))
 
 
 @app.command
@@ -159,9 +200,67 @@ def run(
 def _run(main: Coroutine[object, object, None]) -> None:
     try:
         asyncio.run(main)
-    except ServersUnavailableError as error:
+    except (ServersUnavailableError, ServiceFailedError) as error:
         sys.stderr.write(f"{error}\n")
         raise SystemExit(1) from error
+
+
+async def _up(
+    profile_dir: Path, text: bool, camera: bool, viewer: bool, show: bool, video: bool
+) -> None:
+    config = RuntimeConfig.load(profile_dir)
+    logs = config.observability.captures_dir.expanduser() / "servers"
+    async with services_running(_services(config, camera), logs):
+        write(f"Session page: http://{config.ui.host}:{config.ui.port}\n")
+        run_agent = _run_text_agent if text else _run_voice_agent
+        await run_agent(profile_dir, viewer, camera, show, video, True)
+
+
+def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
+    """The servers `rva up` runs: MediaMTX only for the camera."""
+    llm = config.llm_server
+    robot = urlsplit(str(config.vla.base_url))
+    assert robot.hostname is not None and robot.port is not None, "validated as an HTTP URL"
+    mock = Path(sys.executable).with_name("rva-vla-mock")
+    services = [
+        Service(
+            # Its health check fails until the model is loaded, unlike its other routes.
+            server=Server(
+                name="LLM server",
+                url=f"http://{llm.host}:{llm.port}/health",
+                how_to_start="start it with `uv run rva serve-llm`",
+                ready_when="succeeds",
+            ),
+            command=lambda: llama_server_command(llm),
+            environment={},
+            directory=None,
+            startup_s=300,
+        ),
+        Service(
+            server=_body_server(config),
+            command=lambda: [str(mock), "--host", robot.hostname, "--port", str(robot.port)],
+            environment={},
+            directory=None,
+            startup_s=30,
+        ),
+    ]
+    if camera:
+        services.append(
+            Service(
+                server=_media_server(config),
+                command=lambda: media_server_command(_media_server_executable(config.media_server)),
+                environment=MEDIA_SERVER_ENVIRONMENT,
+                # It writes a self-signed certificate where it runs.
+                directory=media_server_directory(config.media_server),
+                startup_s=30,
+            )
+        )
+    return services
+
+
+def _media_server_executable(config: MediaServerConfig) -> Path:
+    with httpx.Client(follow_redirects=True, timeout=60) as client:
+        return install_media_server(config, client)
 
 
 def _llm_server(config: RuntimeConfig) -> Server:
@@ -169,7 +268,7 @@ def _llm_server(config: RuntimeConfig) -> Server:
         name="LLM server",
         url=f"{config.llm.base_url}",
         how_to_start="start it with `uv run rva serve-llm`",
-        route_must_exist=False,
+        ready_when="answers",
     )
 
 
@@ -178,7 +277,7 @@ def _vla_server(config: RuntimeConfig) -> Server:
         name="VLA",
         url=f"{config.vla.base_url}",
         how_to_start="start the mock with `uv run rva-vla-mock --interactive`, or set vla.base_url in runtime.yaml",
-        route_must_exist=False,
+        ready_when="answers",
     )
 
 
@@ -188,7 +287,7 @@ def _body_server(config: RuntimeConfig) -> Server:
         url=f"{str(config.body.base_url).rstrip('/')}/body/state",
         how_to_start="start the mock with `uv run rva-vla-mock --interactive`; a mock started"
         " before the body API existed must be restarted",
-        route_must_exist=True,
+        ready_when="route_exists",
     )
 
 
@@ -197,7 +296,7 @@ def _media_server(config: RuntimeConfig) -> Server:
         name="MediaMTX",
         url=config.ui.video_page,
         how_to_start="start it with `uv run rva serve-video`, or run with --no-camera",
-        route_must_exist=False,
+        ready_when="answers",
     )
 
 

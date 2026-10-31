@@ -30,12 +30,14 @@ def test_the_default_profile_keeps_its_data_outside_the_source_tree() -> None:
     assert [
         config.admins,
         config.vision.database,
+        config.media_server.directory,
         config.observability.captures_dir,
         config.tts.model_path,
         config.tts.voices_path,
     ] == [
         Path("~/.config/robot-voice-agent/admins.yaml"),
         Path("~/.local/share/robot-voice-agent/faces.sqlite3"),
+        Path("~/.local/share/robot-voice-agent/mediamtx"),
         Path("~/Captures/robot-voice-agent"),
         Path("~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx"),
         Path("~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin"),
