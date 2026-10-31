@@ -17,6 +17,7 @@ dependencies = [
   "rva-voice-asr",
   "rva-voice-audio",
   "rva-voice-tts",
+  "rva-vision-faces",
 ]
 
 [build-system]
@@ -35,6 +36,7 @@ rva-vla-client = {workspace = true}
 rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
 rva-voice-tts = {workspace = true}
+rva-vision-faces = {workspace = true}
 
 [project.scripts]
 rva = "rva_app.cli:app"

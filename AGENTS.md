@@ -29,6 +29,7 @@ The repository is one uv workspace. Each package lives in its domain directory w
 | `voice/audio` | `rva-voice-audio` | Audio I/O, VAD, end of turn, barge-in; implements `UserInput` and `SpeechOutput` |
 | `voice/asr` | `rva-voice-asr` | `SpeechRecognizer` with Parakeet |
 | `voice/tts` | `rva-voice-tts` | `SpeechSynthesizer` with Kokoro |
+| `vision/faces` | `rva-vision-faces` | Camera, face detection, tracking and recognition, face memory; implements `Vision` |
 | `app` | `rva-app` | CLI and composition root; the only package that imports implementations |
 
 ## Package boundaries

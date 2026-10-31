@@ -3,14 +3,17 @@ import asyncio
 from rva_agent.agent import Agent
 from rva_agent.config import AgentConfig
 from rva_agent.tests.fakes import (
+    FakeVision,
     ListRecorder,
     QueueUserInput,
     RecordingSpeech,
     ScriptedLanguageModel,
+    person,
 )
 from rva_schemas.dialogue import AssistantMessage, RobotEventMessage, TextDelta, ToolCall
 from rva_schemas.profile import Capabilities, Character, Environment, Profile, Skill
-from rva_schemas.record import DialogueLine, TaskUpdate, ToolInvocation
+from rva_schemas.record import DialogueLine, FaceUpdate, TaskUpdate, ToolInvocation
+from rva_schemas.vision import BoundingBox, FaceAppeared, FaceLeft, TrackedFace
 from rva_vla_mock.policies import TerminalPolicy
 from rva_vla_mock.runner import TaskRunner
 from rva_vla_schemas.task import TaskCancelled
@@ -27,7 +30,12 @@ PROFILE = Profile(
         constraints=(),
     ),
 )
-CONFIG = AgentConfig(max_history_messages=40, max_tool_rounds=3, stop_words=frozenset({"stop"}))
+CONFIG = AgentConfig(
+    max_history_messages=40,
+    max_tool_rounds=3,
+    stop_words=frozenset({"stop"}),
+    regreet_after_s=300,
+)
 START_PICK_CUP = ToolCall(
     id="call_1", name="start_task", arguments='{"instruction": "pick up the red cup"}'
 )
@@ -39,6 +47,7 @@ def _agent(
     user: QueueUserInput,
     speech: RecordingSpeech,
     recorder: ListRecorder,
+    vision: FakeVision | None,
 ) -> Agent:
     return Agent(
         llm=llm,
@@ -46,6 +55,7 @@ def _agent(
         user_input=user,
         speech=speech,
         recorder=recorder,
+        vision=vision,
         profile=PROFILE,
         config=CONFIG,
     )
@@ -59,7 +69,9 @@ async def test_answers_a_question() -> None:
     user.say("What's your name?")
     user.leave()
 
-    await _agent(llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder).run()
+    await _agent(
+        llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, None
+    ).run()
 
     assert speech.said == ["I'm Lune.", "Nice to meet you."]
     assert recorder.entries == [
@@ -79,7 +91,7 @@ async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     commands = asyncio.Queue[str]()
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
-        _agent(llm, TaskRunner(TerminalPolicy(commands)), user, speech, recorder).run()
+        _agent(llm, TaskRunner(TerminalPolicy(commands)), user, speech, recorder, None).run()
     )
 
     user.say("Grab the red cup please.")
@@ -111,7 +123,7 @@ async def test_stop_word_cancels_the_task_without_the_llm() -> None:
     llm = ScriptedLanguageModel([[TextDelta(text="On it."), START_PICK_CUP]])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
-        _agent(llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder).run()
+        _agent(llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, None).run()
     )
 
     user.say("Grab the red cup.")
@@ -142,7 +154,85 @@ async def test_barge_in_keeps_only_what_was_heard_and_skips_the_action() -> None
     user.say("Actually never mind.")
     user.leave()
 
-    await _agent(llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder).run()
+    await _agent(
+        llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, None
+    ).run()
 
     assert llm.requests[1][-2] == AssistantMessage(content="Sure.", tool_calls=())
     assert not any(isinstance(entry, ToolInvocation) for entry in recorder.entries)
+
+
+BOX = BoundingBox(x=800.0, y=300.0, width=200.0, height=240.0)
+
+
+async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Hello! What's your name?")],
+            [
+                ToolCall(
+                    id="call_1",
+                    name="remember_person",
+                    arguments='{"track_id": 8, "name": "Alice"}',
+                )
+            ],
+            [TextDelta(text="Nice to meet you, Alice.")],
+        ]
+    )
+    face = TrackedFace(track_id=8, box=BOX, person=None, nearest=True)
+    vision = FakeVision([face])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, vision
+        ).run()
+    )
+
+    vision.show(FaceAppeared(face=face))
+    await speech.wait_for("Hello!")
+    user.say("I'm Alice.")
+    await speech.wait_for("Nice to meet you, Alice.")
+    user.leave()
+    await running
+
+    assert llm.requests[0][-1] == RobotEventMessage(
+        content="An unknown person is in view (track 8, nearest)."
+    )
+    assert [entry for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
+        ToolInvocation(
+            name="remember_person",
+            arguments='{"track_id": 8, "name": "Alice"}',
+            result='{"status": "remembered", "name": "Alice"}',
+        )
+    ]
+    assert vision.faces() == (face.model_copy(update={"person": person("Alice")}),)
+
+
+async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_again() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Hi Alice.")], [TextDelta(text="You are Alice.")]])
+    alice = TrackedFace(track_id=7, box=BOX, person=person("Alice"), nearest=True)
+    vision = FakeVision([])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, vision
+        ).run()
+    )
+
+    vision.show(FaceAppeared(face=alice))
+    await speech.wait_for("Hi Alice.")
+    vision.show(FaceLeft(track_id=7, person=person("Alice")))
+    vision.show(FaceAppeared(face=alice.model_copy(update={"track_id": 9})))
+    await recorder.wait_until(
+        lambda entries: sum(isinstance(entry, FaceUpdate) for entry in entries) == 3
+    )
+    user.say("Who am I?")
+    await speech.wait_for("You are Alice.")
+    user.leave()
+    await running
+
+    assert speech.said == ["Hi Alice.", "You are Alice."]
+    assert llm.requests[1][-3:-1] == (
+        RobotEventMessage(content="Alice left (track 7)."),
+        RobotEventMessage(content="Alice is in view (track 9, nearest)."),
+    )

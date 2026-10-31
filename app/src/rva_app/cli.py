@@ -2,7 +2,8 @@ import asyncio
 import os
 import sys
 import time
-from collections.abc import AsyncGenerator, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine
+from contextlib import aclosing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, assert_never
@@ -31,6 +32,10 @@ from rva_schemas.dialogue import (
     UserMessage,
 )
 from rva_schemas.profile import Profile
+from rva_schemas.vision import UnknownTrackError
+from rva_vision_faces.config import FaceVisionConfig
+from rva_vision_faces.database import FaceDatabase
+from rva_vision_faces.vision import FaceVision
 from rva_vla_client.client import HttpVlaClient
 
 app = cyclopts.App(name="rva", help="Robot voice agent and tools to try each part on its own.")
@@ -40,9 +45,14 @@ _DEFAULT_PROFILE = Path("config/default")
 
 
 @app.command
-def prompt(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
-    """Print the system prompt rendered from a profile."""
-    write(render_system_prompt(Profile.load(profile)))
+def prompt(*, profile: ProfileDir = _DEFAULT_PROFILE, camera: bool = True) -> None:
+    """Print the system prompt rendered from a profile.
+
+    Args:
+        profile: Robot profile directory.
+        camera: Include what the robot is told about the people it sees.
+    """
+    write(render_system_prompt(Profile.load(profile), vision=camera))
 
 
 @app.command
@@ -64,14 +74,22 @@ def llm(*, profile: ProfileDir = _DEFAULT_PROFILE, system_prompt: bool = True) -
 
 
 @app.command
-def text(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+def text(
+    *,
+    profile: ProfileDir = _DEFAULT_PROFILE,
+    viewer: bool = False,
+    camera: bool = True,
+    show: bool = False,
+) -> None:
     """Run the agent in the terminal: type to talk, read its replies. Needs the LLM and VLA servers.
 
     Args:
         profile: Robot profile directory.
         viewer: Stream the recording to a rerun viewer.
+        camera: Watch for people with the camera.
+        show: Also show the camera with the tracked faces in a window.
     """
-    _run(_run_text_agent(profile, viewer))
+    _run(_run_text_agent(profile, viewer, camera, show))
 
 
 @app.command
@@ -97,14 +115,22 @@ def say(*, profile: ProfileDir = _DEFAULT_PROFILE, voice: str | None = None) -> 
 
 
 @app.command
-def run(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+def run(
+    *,
+    profile: ProfileDir = _DEFAULT_PROFILE,
+    viewer: bool = False,
+    camera: bool = True,
+    show: bool = False,
+) -> None:
     """Run the voice agent. Needs the LLM and VLA servers.
 
     Args:
         profile: Robot profile directory.
         viewer: Stream the recording to a rerun viewer.
+        camera: Watch for people with the camera.
+        show: Also show the camera with the tracked faces in a window.
     """
-    _run(_run_voice_agent(profile, viewer))
+    _run(_run_voice_agent(profile, viewer, camera, show))
 
 
 def _run(main: Coroutine[object, object, None]) -> None:
@@ -154,10 +180,15 @@ async def _say(profile_dir: Path, voice_name: str | None) -> None:
             write(f"[{(time.perf_counter() - started):.1f} s] {spoken.text}\n")
 
 
-async def _run_voice_agent(profile_dir: Path, viewer: bool) -> None:
+async def _run_voice_agent(profile_dir: Path, viewer: bool, camera: bool, show: bool) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
     await require_servers(_llm_server(config), _vla_server(config))
     recorder = start_session(config.observability, "voice", viewer=viewer, console_level="INFO")
+    vision = (
+        await asyncio.to_thread(_face_vision, config.vision, show_window=show, on_key=None)
+        if camera
+        else None
+    )
     speaking = robot_speech(config.audio)
     async with (
         HttpVlaClient(config.vla) as vla,
@@ -170,21 +201,41 @@ async def _run_voice_agent(profile_dir: Path, viewer: bool) -> None:
             user_input=user_input,
             speech=speech,
             recorder=recorder,
+            vision=vision,
             profile=profile,
             config=config.agent,
         )
         logger.info("{} is listening", profile.character.name)
-        await agent.run()
+        await _with_vision(agent.run(), vision)
 
 
 async def _one(text: str) -> AsyncGenerator[str]:
     yield text
 
 
-async def _run_text_agent(profile_dir: Path, viewer: bool) -> None:
+@app.command
+def see(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+    """Show the camera with each tracked face and who it is, without the agent.
+
+    Faces coming and going are logged. Press n in the window to type a name for the nearest face in
+    the terminal, q to quit.
+
+    Args:
+        profile: Robot profile directory.
+        viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
+    """
+    asyncio.run(_see(profile, viewer))
+
+
+async def _run_text_agent(profile_dir: Path, viewer: bool, camera: bool, show: bool) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
     await require_servers(_llm_server(config), _vla_server(config))
     recorder = start_session(config.observability, "text", viewer=viewer, console_level="WARNING")
+    vision = (
+        await asyncio.to_thread(_face_vision, config.vision, show_window=show, on_key=None)
+        if camera
+        else None
+    )
     async with HttpVlaClient(config.vla) as vla:
         agent = Agent(
             llm=OpenAiLanguageModel(config.llm),
@@ -192,10 +243,71 @@ async def _run_text_agent(profile_dir: Path, viewer: bool) -> None:
             user_input=TerminalUserInput(),
             speech=TerminalSpeechOutput(profile.character.name),
             recorder=recorder,
+            vision=vision,
             profile=profile,
             config=config.agent,
         )
-        await agent.run()
+        await _with_vision(agent.run(), vision)
+
+
+async def _see(profile_dir: Path, viewer: bool) -> None:
+    config = RuntimeConfig.load(profile_dir)
+    start_session(config.observability, "see", viewer=viewer, console_level="INFO")
+    keys = asyncio.Queue[str]()
+    vision = await asyncio.to_thread(
+        _face_vision, config.vision, show_window=True, on_key=keys.put_nowait
+    )
+    async with asyncio.TaskGroup() as group:
+        naming = group.create_task(_name_nearest_face(vision, keys))
+        await vision.run()
+        naming.cancel()
+
+
+async def _name_nearest_face(vision: FaceVision, keys: asyncio.Queue[str]) -> None:
+    async with aclosing(read_lines()) as lines:
+        while True:
+            if await keys.get() != "n":
+                continue
+            nearest = next((face for face in vision.faces() if face.nearest), None)
+            if nearest is None:
+                logger.warning("No face is in view to name")
+                continue
+            write(f"Name of track {nearest.track_id}: ")
+            line = await anext(lines, None)
+            if line is None:
+                return
+            if not line.strip():
+                continue
+            try:
+                remembered = await vision.remember(nearest.track_id, line.strip())
+            except UnknownTrackError:
+                logger.warning("Track {} left before it was named", nearest.track_id)
+                continue
+            if remembered.previous is not None:
+                logger.info(
+                    "Track {} was recognized as {}", nearest.track_id, remembered.previous.name
+                )
+
+
+def _face_vision(
+    config: FaceVisionConfig, *, show_window: bool, on_key: Callable[[str], None] | None
+) -> FaceVision:
+    database = FaceDatabase(config.database.expanduser(), config.max_embeddings_per_person)
+    return FaceVision(config, database, show_window=show_window, on_key=on_key)
+
+
+async def _with_vision(main: Coroutine[None, None, None], vision: FaceVision | None) -> None:
+    """Run `main` while the camera is watched.
+
+    A camera failure stops `main`; closing the window stops only the camera.
+    """
+    if vision is None:
+        await main
+        return
+    async with asyncio.TaskGroup() as group:
+        seeing = group.create_task(vision.run())
+        await main
+        seeing.cancel()
 
 
 async def _chat_with_llm(profile_dir: Path, system_prompt: bool) -> None:
@@ -205,7 +317,9 @@ async def _chat_with_llm(profile_dir: Path, system_prompt: bool) -> None:
     tools = TaskTools.specs if system_prompt else ()
     messages: list[Message] = []
     if system_prompt:
-        messages.append(SystemMessage(content=render_system_prompt(Profile.load(profile_dir))))
+        messages.append(
+            SystemMessage(content=render_system_prompt(Profile.load(profile_dir), vision=False))
+        )
     async for line in read_lines():
         messages.append(UserMessage(content=line.strip()))
         text: list[str] = []
