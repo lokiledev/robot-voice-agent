@@ -1,0 +1,23 @@
+[project]
+name = "rva-voice-audio"
+version = "0.1.0"
+description = "Audio capture and playback, voice activity and end-of-turn detection"
+requires-python = ">=3.12"
+dependencies = [
+  "loguru>=0.7",
+  "numpy>=2.0",
+  "onnxruntime-gpu[cuda,cudnn]>=1.22",
+  "rva-pydantic",
+  "rva-schemas",
+  "sounddevice>=0.5",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-schemas = {workspace = true}

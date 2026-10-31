@@ -1,0 +1,72 @@
+[project]
+name = "robot-voice-agent"
+version = "0.1.0"
+description = "Local voice agent for high-level reasoning and user interaction on a humanoid robot"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "rva-app",
+  "rva-vla-mock",
+]
+
+[dependency-groups]
+dev = [
+  "deptry>=0.23",
+  "hypothesis>=6.130",
+  "inline-snapshot>=0.23",
+  "pre-commit>=4.6",
+  "pytest-asyncio>=1.0",
+  "pytest-timeout>=2.4",
+  "pytest>=8",
+  "ruff>=0.15",
+  "ty>=0.0.1",
+]
+
+[tool.uv]
+package = false
+# kokoro-onnx asks for the CPU onnxruntime, which shadows onnxruntime-gpu.
+# Both install the same module, so drop the CPU one.
+override-dependencies = [
+  "onnxruntime; sys_platform == 'never'",
+]
+
+[tool.uv.sources]
+rva-agent = {workspace = true}
+rva-app = {workspace = true}
+rva-llm = {workspace = true}
+rva-observability = {workspace = true}
+rva-pydantic = {workspace = true}
+rva-schemas = {workspace = true}
+rva-vla-client = {workspace = true}
+rva-vla-mock = {workspace = true}
+rva-vla-schemas = {workspace = true}
+rva-voice-asr = {workspace = true}
+rva-voice-audio = {workspace = true}
+rva-voice-tts = {workspace = true}
+
+[tool.uv.workspace]
+members = [
+  "agent",
+  "app",
+  "common/observability",
+  "common/pydantic",
+  "llm",
+  "schemas",
+  "vla/client",
+  "vla/mock",
+  "vla/schemas",
+  "voice/asr",
+  "voice/audio",
+  "voice/tts",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+timeout = 30
+addopts = "--import-mode=importlib"
+markers = [
+  "cuda: needs an NVIDIA GPU",
+  "download: downloads model weights",
+  "audio: needs a sound device",
+]

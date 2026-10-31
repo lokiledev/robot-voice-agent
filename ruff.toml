@@ -1,0 +1,49 @@
+line-length = 100
+target-version = "py312"
+src = ["*/src", "*/*/src"]
+
+[lint]
+preview = true
+explicit-preview-rules = true
+select = [
+  "ANN",     # annotations everywhere
+  "ASYNC",   # no blocking calls in async code
+  "B",       # bugbear
+  "D",       # docstrings, Google style (below)
+  "E",
+  "F",
+  "G",       # log calls format their own arguments
+  "I",       # import order
+  "ICN",
+  "INP",     # every package has an __init__.py
+  "N",       # naming
+  "PGH",
+  "PIE",
+  "PLC0414",
+  "PLC0415", # imports at the top of the file
+  "PLC2701", # no private names from other packages
+  "PLR0402",
+  "RUF100",  # no stale noqa
+  "SLF",     # no private members of other objects
+  "T100",    # no debugger
+  "T20",     # loguru, not print
+  "TID",     # banned APIs (below)
+  "UP",
+  "W",
+]
+# Docstrings are written where they add to the signature, not everywhere; the formatter handles
+# line length.
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107", "D417", "E501"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.isort]
+split-on-trailing-comma = false
+
+[lint.flake8-tidy-imports.banned-api]
+"dataclasses.dataclass".msg = "Data types are pydantic models: subclass RVABaseModel."
+"typing.Any".msg = "Name the type, or use `object`."
+"pytest.skip".msg = "Mark the test (cuda, download, audio) rather than skipping it."
+"pytest.mark.skip".msg = "Mark the test (cuda, download, audio) rather than skipping it."
+"pytest.mark.skipif".msg = "Mark the test (cuda, download, audio) rather than skipping it."

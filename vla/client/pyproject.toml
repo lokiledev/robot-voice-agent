@@ -1,0 +1,21 @@
+[project]
+name = "rva-vla-client"
+version = "0.1.0"
+description = "HTTP and WebSocket client for the VLA task API"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx>=0.28",
+  "rva-pydantic",
+  "rva-vla-schemas",
+  "websockets>=15",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-vla-schemas = {workspace = true}

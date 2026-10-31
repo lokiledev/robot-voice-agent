@@ -1,0 +1,37 @@
+from typing import Annotated, Literal
+
+from pydantic import Field
+
+from rva_pydantic import RVABaseModel
+from rva_vla_schemas.task import TaskEvent
+
+
+class DialogueLine(RVABaseModel):
+    kind: Literal["dialogue"] = "dialogue"
+    speaker: Literal["user", "robot"]
+    text: str
+
+
+class ToolInvocation(RVABaseModel):
+    kind: Literal["tool"] = "tool"
+    name: str
+    arguments: str
+    result: str
+
+
+class TaskUpdate(RVABaseModel):
+    kind: Literal["task"] = "task"
+    event: TaskEvent
+
+
+class Measurement(RVABaseModel):
+    """A sampled value to plot over time, e.g. the voice activity probability."""
+
+    kind: Literal["measurement"] = "measurement"
+    name: str
+    value: float
+
+
+type Record = Annotated[
+    DialogueLine | ToolInvocation | TaskUpdate | Measurement, Field(discriminator="kind")
+]

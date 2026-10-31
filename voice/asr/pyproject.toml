@@ -1,0 +1,22 @@
+[project]
+name = "rva-voice-asr"
+version = "0.1.0"
+description = "Speech recognition with Parakeet"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "onnx-asr>=0.7",
+  "onnxruntime-gpu[cuda,cudnn]>=1.22",
+  "rva-pydantic",
+  "rva-schemas",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-schemas = {workspace = true}

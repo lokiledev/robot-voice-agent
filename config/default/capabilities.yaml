@@ -1,0 +1,30 @@
+# Example skills until the real VLA's training phrasings are known.
+skills:
+  - name: pick
+    description: Pick up a single object within reach.
+    examples:
+      - pick up the red cup
+      - pick up the toolbox
+  - name: place
+    description: Put the held object down on a surface.
+    examples:
+      - put the cup on the shelf
+      - place the toolbox on the workbench
+  - name: open_close
+    description: Open or close a drawer or a cabinet door.
+    examples:
+      - open the drawer
+      - close the drawer
+  - name: navigate
+    description: Walk to a named place in the room.
+    examples:
+      - go to the kitchen counter
+      - go to the workbench
+  - name: handover
+    description: Hand the held object to the person in front of the robot.
+    examples:
+      - hand the cup to the person
+constraints:
+  - Holds one object at a time.
+  - Cannot climb stairs or leave the lab.
+  - Cannot pour liquids.

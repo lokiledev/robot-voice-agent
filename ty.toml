@@ -1,0 +1,9 @@
+[environment]
+python-version = "3.12"
+
+[analysis]
+# Suppressions name a ty rule: `# ty: ignore[rule]`, never `# type: ignore`.
+respect-type-ignore-comments = false
+
+[rules]
+all = "error"

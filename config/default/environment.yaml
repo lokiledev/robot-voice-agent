@@ -1,0 +1,22 @@
+location: Robotics lab, ground floor
+description: >-
+  An open-plan lab with workbenches, a kitchenette and a shelving unit. Researchers come and go
+  during the day and visitors sometimes get demos.
+places:
+  - name: kitchen counter
+    description: Counter by the sink with a coffee machine.
+  - name: shelf
+    description: Three-level shelving unit next to the window.
+  - name: workbench
+    description: The long table in the middle of the room.
+objects:
+  - name: red cup
+    description: A red plastic cup.
+    usual_place: kitchen counter
+  - name: toolbox
+    description: A small blue toolbox with a handle.
+    usual_place: workbench
+  - name: drawer
+    description: The top drawer under the kitchen counter.
+    usual_place: kitchen counter
+people: []

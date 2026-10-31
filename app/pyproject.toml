@@ -1,0 +1,35 @@
+[project]
+name = "rva-app"
+version = "0.1.0"
+description = "Command line entry point that composes the agent, voice, LLM and VLA client"
+requires-python = ">=3.12"
+dependencies = [
+  "cyclopts>=4",
+  "loguru>=0.7",
+  "rva-agent",
+  "rva-llm",
+  "rva-observability",
+  "rva-pydantic",
+  "rva-schemas",
+  "rva-vla-client",
+  "rva-voice-asr",
+  "rva-voice-audio",
+  "rva-voice-tts",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-agent = {workspace = true}
+rva-llm = {workspace = true}
+rva-observability = {workspace = true}
+rva-pydantic = {workspace = true}
+rva-schemas = {workspace = true}
+rva-vla-client = {workspace = true}
+rva-voice-asr = {workspace = true}
+rva-voice-audio = {workspace = true}
+rva-voice-tts = {workspace = true}

@@ -1,0 +1,18 @@
+[project]
+name = "rva-vla-schemas"
+version = "0.1.0"
+description = "Data model and client interface of the VLA task API"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.11",
+  "rva-pydantic",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}

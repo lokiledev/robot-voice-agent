@@ -1,0 +1,292 @@
+# Architecture
+
+A local voice agent that is the high-level reasoning and interaction loop of a humanoid robot. It listens to people, answers them, and sends short-horizon natural-language tasks to the robot's VLA policy. The VLA runs elsewhere; we talk to it through an API, mocked for now.
+
+Everything runs on one PC: RTX 4090 (24 GB), Ryzen 9 7950X3D, 64 GB RAM.
+
+## Why a cascade and not speech-to-speech
+
+Speech-to-speech models like Kyutai's Moshi reason over audio tokens. They have no text dialogue history you can edit, no tool calling, and their system prompt cannot be swapped for your own character and environment. That rules them out for an agent that has to drive a robot.
+
+Kyutai's own answer to this is Unmute, which is a cascade: streaming speech-to-text, any text LLM, streaming text-to-speech. We use the same shape:
+
+```
+VAD → turn detection → ASR → LLM with tools → TTS
+```
+
+The dialogue history is the list of LLM messages. Tool calls are ordinary OpenAI-style function calls handled in Python. No MCP layer.
+
+## System diagram
+
+```mermaid
+flowchart LR
+    subgraph Audio["voice/* packages"]
+        MIC["Mic<br/>(PipeWire echo-cancel source)"] --> VAD["Silero VAD"]
+        VAD --> TURN["smart-turn v3<br/>end-of-turn"]
+        TURN --> ASR["Parakeet TDT 0.6B v2<br/>(onnx-asr)"]
+        SPLIT["Sentence splitter"] --> TTS["Kokoro-82M<br/>(kokoro-onnx)"]
+        TTS --> SPK["Speaker"]
+        VAD -. "speech while robot talks<br/>= barge-in" .-> SPK
+    end
+
+    subgraph Core["rva-agent"]
+        STOP{"Stop word?<br/>stop / freeze"}
+        INBOX[["Agent inbox<br/>user utterances + VLA events"]]
+        AGENT["Agent loop<br/>history, prompt, tool dispatch"]
+        TOOLS["Tools<br/>start_task / cancel_task / get_task_status"]
+        VLAM["VLA manager<br/>one active task"]
+    end
+
+    subgraph LLMProc["llama-server process"]
+        LLM["Qwen3.5-35B-A3B Q4_K_M<br/>OpenAI-compatible API"]
+    end
+
+    subgraph VLAProc["rva-vla-mock process (later: real VLA)"]
+        VLA["FastAPI mock<br/>POST /tasks, WS /events"]
+    end
+
+    ASR --> STOP
+    STOP -- "yes" --> VLAM
+    STOP -- "no" --> INBOX
+    INBOX --> AGENT
+    AGENT <-- "streamed chat + tool calls" --> LLM
+    AGENT --> TOOLS --> VLAM
+    VLAM <-- "VlaClient (rva-vla-client)" --> VLA
+    VLAM -- "succeeded / failed" --> INBOX
+    AGENT -- "streamed text" --> SPLIT
+
+    CFG[("Profile<br/>character.yaml, environment.yaml,<br/>capabilities.yaml, runtime.yaml")] --> AGENT
+    OBS[("Session dir<br/>session.rrd, mic.wav, tts.wav, agent.log")]
+    Core -. "OTel spans + Recorder" .-> OBS
+    Audio -. "VAD prob, audio" .-> OBS
+```
+
+## A turn, end to end
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant V as voice packages
+    participant A as Agent loop
+    participant L as llama-server
+    participant M as VLA manager
+    participant R as VLA (mock)
+
+    U->>V: "Could you put the cup on the shelf?"
+    V->>V: VAD + smart-turn decide the turn ended
+    V->>A: UserUtterance (ASR text)
+    A->>L: chat.completions (stream, tools)
+    L-->>A: "Sure, on it." + tool_call start_task("put the cup on the shelf")
+    A->>V: "Sure, on it." (sentence by sentence to TTS)
+    A->>M: start_task
+    M->>R: POST /tasks
+    R-->>M: task id
+    A->>L: tool result {status: running}
+    Note over U,A: The robot body is busy, the conversation is not
+    U->>V: "What's your name?"
+    V->>A: UserUtterance
+    A->>L: chat.completions
+    L-->>A: "I'm Lune."
+    A->>V: speak
+    R-->>M: WS event: succeeded
+    M->>A: VlaEvent(succeeded), queued until the user is not speaking
+    A->>L: chat.completions with the event as a system message
+    L-->>A: "The cup is on the shelf."
+    A->>V: speak
+```
+
+## Runtime behaviour
+
+**One agent loop, one inbox.** The agent consumes a single asyncio queue of user utterances and VLA events, one turn at a time, so the history is never written by two turns at once. VLA events that arrive while the user is speaking wait until the turn is over.
+
+**VLA tasks are concurrent with dialogue.** `start_task` returns as soon as the VLA accepts the task. The VLA manager watches the status stream and posts the final status to the inbox. The LLM then decides what to say and whether to chain the next step of a longer plan ("clear the table" becomes several short VLA commands, each started when the previous one succeeds).
+
+**One active task.** If the user asks for something physical while a task is running, the LLM chooses between `cancel_task` and asking the user to wait. There is no queue.
+
+**Stop word.** If a transcript is just "stop", "freeze", "halt" or similar, the VLA manager cancels the active task directly, before the LLM sees anything. The LLM is then told it happened.
+
+**Barge-in.** While the robot is speaking, speech detected by the VAD stops playback, cancels the LLM stream, and trims the last assistant message to what was actually said. This relies on PipeWire's `echo-cancel` module so the robot does not hear itself. A headset works as a fallback.
+
+**Turn detection.** About 200 ms after the VAD hears silence, smart-turn v3 judges from the audio whether the user has finished. If it says no, we keep listening, up to a hard 1.5 s silence cutoff. All thresholds live in `runtime.yaml`.
+
+**Streaming to TTS.** LLM tokens are cut into sentences and each sentence goes to TTS as soon as it is complete, so the robot starts speaking before the LLM has finished.
+
+**History.** Only the current session is kept. When the context fills, the oldest turns are dropped (the system prompt is always kept).
+
+**Wake word.** Off by default; the robot listens all the time. openWakeWord can be turned on in `runtime.yaml`.
+
+**Text mode.** `rva run --text` swaps the voice packages for a terminal `UserInput` and `SpeechOutput`, and TTS is optional. Use it to work on prompts and tools, and for scripted tests.
+
+## Models
+
+| Task | Model | Runtime | Device | Approx. VRAM |
+|---|---|---|---|---|
+| Echo cancellation | WebRTC AEC | PipeWire `module-echo-cancel` | CPU | — |
+| Voice activity | Silero VAD v5 | onnxruntime | CPU | — |
+| End of turn | smart-turn v3 (Pipecat) | onnxruntime | CPU | — |
+| Speech to text | Parakeet TDT 0.6B v2 (English) | onnx-asr | GPU | ~2 GB |
+| Dialogue and tools | Qwen3.5-35B-A3B, Q4_K_M GGUF | llama.cpp `llama-server --jinja` | GPU, some experts on CPU | ≤ 16 GB |
+| Text to speech | Kokoro-82M | kokoro-onnx | GPU | ~1 GB |
+| Wake word (optional) | openWakeWord | onnxruntime | CPU | — |
+
+**LLM.** Qwen3.5-35B-A3B is a mixture-of-experts model with about 3B parameters active per token, so it generates much faster than a dense 27B model of similar quality. At Q4_K_M it is about 20 GB, more than fits beside ASR and TTS, so `--n-cpu-moe` keeps some expert layers in system RAM and the 7950X3D runs them. Tune that number until the LLM fits in about 16 GB, and keep context around 16k tokens. Thinking mode is off: these are short dialogue turns and latency matters more. The harness only talks to the OpenAI-compatible endpoint, so another model is a config change.
+
+**ASR.** VAD already decides where an utterance ends, so we do not need a streaming model: Parakeet on a whole utterance takes about 30–60 ms on the 4090 and is among the most accurate English models. NVIDIA's Nemotron Speech Streaming 0.6B is the upgrade path if we later want partial transcripts, but it pulls in NeMo and torch.
+
+**TTS.** Kokoro is far faster than real time, sounds good in English, ships several preset voices and is Apache-licensed. It cannot clone a voice. The `TTS` interface lets Chatterbox-Turbo (500M, voice cloning) replace it later if the robot needs a specific voice.
+
+**Latency target.** Under 1 s from the end of speech to the first audio, 1.5 s at most. Rough budget: 200 ms end-of-turn wait, 50 ms ASR, 300–500 ms to the LLM's first sentence, 100 ms TTS for the first sentence.
+
+## Packages
+
+The repository is one uv workspace. Each domain has a `schemas` package with its data types and its interfaces (`typing.Protocol`s in `abc/`), and implementations sit in sibling packages that depend on the schemas, never on each other. Only `rva-app` imports implementations; it is the composition root.
+
+```mermaid
+flowchart BT
+    PYD["rva-pydantic<br/>common/pydantic"]
+    VLAS["rva-vla-schemas<br/>vla/schemas"]
+    SCH["rva-schemas<br/>schemas"]
+    VLAC["rva-vla-client<br/>vla/client"]
+    MOCK["rva-vla-mock<br/>vla/mock"]
+    AGENT["rva-agent<br/>agent"]
+    LLM["rva-llm<br/>llm"]
+    AUD["rva-voice-audio<br/>voice/audio"]
+    ASR["rva-voice-asr<br/>voice/asr"]
+    TTS["rva-voice-tts<br/>voice/tts"]
+    OBS["rva-observability<br/>common/observability"]
+    APP["rva-app<br/>app"]
+    VLAS --> PYD
+    SCH --> VLAS
+    VLAC --> VLAS
+    MOCK --> VLAS
+    AGENT --> SCH
+    LLM --> SCH
+    AUD --> SCH
+    ASR --> SCH
+    TTS --> SCH
+    OBS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & OBS & VLAC
+```
+
+| Package | Contents | Heavy dependencies |
+|---|---|---|
+| `rva-pydantic` | `RVABaseModel` (frozen, `extra="forbid"`, attribute docstrings), `load_yaml` | — |
+| `rva-vla-schemas` | `TaskRequest`, `Task`, `TaskStatus` (running, succeeded, failed with a reason, cancelled), `TaskEvent`, errors; `abc.VlaClient` | — |
+| `rva-schemas` | `AudioClip`; dialogue messages, `ToolCall`, `ToolSpec`, `UserUtterance`, `Spoken`; `Record` entries; `Profile` models. Interfaces in `abc/`: `UserInput`, `SpeechOutput`, `SpeechRecognizer`, `SpeechSynthesizer`, `LanguageModel`, `Recorder` | numpy |
+| `rva-agent` | Dialogue loop, history, system prompt, tools, task supervisor, stop word | — |
+| `rva-llm` | `LanguageModel` over the OpenAI API; llama-server launch settings | openai |
+| `rva-voice-audio` | Mic and speaker, Silero VAD, smart-turn, barge-in; implements `UserInput` and `SpeechOutput` from a `SpeechRecognizer` and a `SpeechSynthesizer` | onnxruntime-gpu, sounddevice |
+| `rva-voice-asr` | Parakeet `SpeechRecognizer` | onnx-asr |
+| `rva-voice-tts` | Kokoro `SpeechSynthesizer` | kokoro-onnx |
+| `rva-observability` | loguru sinks, OpenTelemetry setup, span-to-rerun processor, rerun `Recorder` | rerun-sdk, opentelemetry-sdk |
+| `rva-vla-client` | HTTP + WebSocket `VlaClient` | httpx, websockets |
+| `rva-vla-mock` | FastAPI mock server and terminal mode | fastapi, uvicorn |
+| `rva-app` | cyclopts CLI (`run`, `run --text`, `up`), runtime config, terminal `UserInput`/`SpeechOutput` for text mode | — |
+
+### Interfaces the agent sees
+
+The agent depends on five Protocols and nothing concrete, so it runs the same with the voice stack, the terminal, or test fakes:
+
+```python
+class UserInput(Protocol):
+    def utterances(self) -> AsyncIterator[UserUtterance]: ...
+
+
+class SpeechOutput(Protocol):
+    async def say(
+        self, sentences: AsyncIterator[str]
+    ) -> Spoken: ...  # Spoken.interrupted on barge-in
+
+
+class LanguageModel(Protocol):
+    def stream(
+        self, messages: Sequence[Message], tools: Sequence[ToolSpec]
+    ) -> AsyncIterator[TextDelta | ToolCall]: ...
+
+
+class VlaClient(Protocol):
+    async def start(self, request: TaskRequest) -> Task: ...  # raises VlaBusyError
+    async def cancel(self, task_id: UUID) -> Task: ...
+    async def get(self, task_id: UUID) -> Task: ...
+    def events(self) -> AsyncIterator[TaskEvent]: ...
+
+
+class Recorder(Protocol):
+    def record(self, entry: Record) -> None: ...
+```
+
+Barge-in stays inside `SpeechOutput.say`: it stops consuming the sentence stream, which in turn stops the LLM stream, and returns what was actually heard so the agent can trim its history. VLA status events become `RobotEventMessage`s in the history; each `LanguageModel` implementation decides how to render them, since chat templates differ on where system messages are allowed.
+
+### Inside rva-agent
+
+| Module | Responsibility |
+|---|---|
+| `prompt` | Render the system prompt from `Profile` with Jinja |
+| `history` | Message list, trimming to the context budget, truncation after barge-in |
+| `tools` | `start_task`, `cancel_task`, `get_task_status`: pydantic argument models, `ToolSpec` generation, dispatch |
+| `tasks` | Task supervisor: one active task, watches `VlaClient.events`, stop-word cancel |
+| `loop` | The agent: one inbox of utterances and task events, one turn at a time |
+
+## Mock VLA API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/tasks` | Start a task: `{"instruction": "pick up the red cup"}` → `{"id": ..., "status": "running"}`. Rejected with 409 if a task is already running. |
+| `GET` | `/tasks/{id}` | Current status. |
+| `POST` | `/tasks/{id}/cancel` | Cancel. |
+| `WS` | `/events` | Stream of `TaskEvent`: `running`, `succeeded`, `failed` (with a reason), `cancelled`. |
+
+## Robot profile
+
+A profile is a directory, chosen with `--profile config/<name>`. Each file is checked by its own pydantic model when it loads.
+
+```
+config/default/
+  character.yaml      name, personality, speaking style, verbosity
+  environment.yaml    location, places, objects, people
+  capabilities.yaml   VLA skills with example commands, constraints
+  runtime.yaml        endpoints, llama-server settings, audio devices,
+                      VAD and turn thresholds, telemetry sinks
+```
+
+The first three are the robot's story; `runtime.yaml` is the machine. The system prompt is a Jinja template filled from the first three. `capabilities.yaml` matters most: the VLA was trained on certain phrasings, and the LLM should send tasks phrased the same way.
+
+## Observability
+
+Each session writes to `~/Captures/robot-voice-agent/<timestamp>/`:
+
+```
+session.rrd   rerun recording
+mic.wav       microphone after echo cancellation
+tts.wav       everything the robot said
+agent.log     loguru log
+```
+
+**Timings** are OpenTelemetry spans. One trace per user turn, with child spans `vad_endpoint`, `asr`, `llm_ttft`, `llm_total`, `tool:<name>`, `tts_first_audio` and `playback`, plus one span per VLA task from start to final status. A custom span processor writes each finished span to rerun. Export to an OTLP backend such as Jaeger is off by default and turned on in `runtime.yaml`.
+
+**Rerun entities**, on a wall-clock timeline plus a `turn` counter:
+
+| Entity | Content |
+|---|---|
+| `/dialogue/user`, `/dialogue/robot` | what was heard and said (TextLog) |
+| `/agent/llm` | messages and tool calls (TextLog) |
+| `/vla/task` | status changes (TextLog) |
+| `/latency/<stage>` | per-stage duration (Scalars) |
+| `/audio/vad` | speech probability (Scalars), for tuning thresholds |
+
+Rerun has no audio type, so the WAV files sit next to the recording and their start times are logged in rerun to line them up. `rva run --viewer` also streams to a live rerun viewer.
+
+## Libraries
+
+pydantic for every schema (events, config, tool arguments, VLA API; tool JSON schemas are generated from the pydantic models), cyclopts for the CLI, loguru for logs, `openai` as the LLM client, rerun-sdk and opentelemetry-sdk for observability, FastAPI and httpx/websockets for the VLA API, sounddevice for audio I/O.
+
+## Commands
+
+```bash
+rva up                          # start llama-server and the VLA mock from runtime.yaml
+rva run --profile config/default
+rva run --text                  # type instead of speak
+rva run --viewer                # also stream to a live rerun viewer
+rva-vla-mock --interactive      # resolve each task by hand
+```
