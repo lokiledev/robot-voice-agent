@@ -1,20 +1,14 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
-class RVABaseModel(
-    BaseModel,
-    extra="forbid",
-    frozen=True,
-    ser_json_inf_nan="strings",
-    use_attribute_docstrings=True,
-    validate_default=True,
-):
-    """A frozen Pydantic model with the project defaults. Base every schema and config on it."""
+class RVABaseModel(BaseModel, extra="forbid", frozen=True, use_attribute_docstrings=True):
+    """An immutable pydantic model that rejects unknown fields. Base every schema and config on it.
 
-    model_config = ConfigDict(serialize_by_alias=True)
+    Attribute docstrings become field descriptions, which the LLM reads in tool schemas.
+    """
 
 
 def load_yaml[TModel: BaseModel](model: type[TModel], path: Path) -> TModel:
