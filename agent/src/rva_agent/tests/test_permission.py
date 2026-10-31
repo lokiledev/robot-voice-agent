@@ -214,9 +214,9 @@ def _body_tools(
     faces: list[TrackedFace], vla: TaskRunner, commands: asyncio.Queue[str]
 ) -> tuple[BodyTools, TaskSupervisor]:
     policy = TerminalPolicy(commands, fallback=None)
-    tasks = TaskSupervisor(vla, lambda task: None)
+    tasks = TaskSupervisor(vla, ListRecorder(), lambda task: None)
     vision = FakeVision(faces)
-    body = BodySupervisor(BodyMock(vla, policy, policy), lambda motion: None)
+    body = BodySupervisor(BodyMock(vla, policy, policy), ListRecorder(), lambda motion: None)
     tools = BodyTools(
         body,
         tasks,

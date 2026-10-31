@@ -7,7 +7,7 @@ from rva_agent.permission import ActionPermission
 from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tasks import TaskSupervisor
-from rva_agent.tests.fakes import PROFILE, FakeVision, person
+from rva_agent.tests.fakes import PROFILE, FakeVision, ListRecorder, person
 from rva_agent.tools import TaskTools
 from rva_schemas.dialogue import AssistantMessage, ToolCall, ToolResultMessage, UserMessage
 from rva_schemas.vision import BoundingBox, TrackedFace
@@ -46,7 +46,9 @@ def test_history_drops_tool_results_orphaned_by_trimming() -> None:
 async def test_tools_report_llm_mistakes_as_results() -> None:
     tools = TaskTools(
         TaskSupervisor(
-            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)), lambda task: None
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            ListRecorder(),
+            lambda task: None,
         ),
         lambda: None,
         ActionPermission(None, PROFILE.admins),
@@ -68,7 +70,9 @@ async def test_tools_report_llm_mistakes_as_results() -> None:
 async def test_busy_vla_names_the_running_task() -> None:
     tools = TaskTools(
         TaskSupervisor(
-            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)), lambda task: None
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            ListRecorder(),
+            lambda task: None,
         ),
         lambda: None,
         ActionPermission(None, PROFILE.admins),

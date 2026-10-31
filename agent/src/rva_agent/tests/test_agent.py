@@ -19,11 +19,19 @@ from rva_schemas.dialogue import (
     ToolCall,
     UserMessage,
 )
-from rva_schemas.record import DialogueLine, FaceUpdate, TaskUpdate, ToolInvocation
+from rva_schemas.record import (
+    AgentStarted,
+    FaceUpdate,
+    RobotLine,
+    Speaker,
+    TaskUpdate,
+    ToolInvocation,
+    UserLine,
+)
 from rva_schemas.vision import BoundingBox, FaceAppeared, FaceLeft, TrackedFace
 from rva_vla_mock.policies import TerminalPolicy
 from rva_vla_mock.runner import TaskRunner
-from rva_vla_schemas.task import TaskCancelled
+from rva_vla_schemas.task import TaskCancelled, TaskRunning
 
 CONFIG = AgentConfig(
     max_history_messages=40,
@@ -77,9 +85,20 @@ async def test_answers_a_question() -> None:
     ).run()
 
     assert speech.said == ["I'm Lune.", "Nice to meet you."]
-    assert recorder.entries == [
-        DialogueLine(speaker="user", text="What's your name?"),
-        DialogueLine(speaker="robot", text="I'm Lune. Nice to meet you."),
+    started, *dialogue = recorder.entries
+    assert isinstance(started, AgentStarted)
+    # Without a camera, nothing about people.
+    assert [tool.name for tool in started.tools] == [
+        "start_task",
+        "cancel_task",
+        "get_task_status",
+        "go_to_location",
+        "stay",
+        "play_animation",
+    ]
+    assert dialogue == [
+        UserLine(text="What's your name?", speaker=None),
+        RobotLine(text="I'm Lune. Nice to meet you.", interrupted=False),
     ]
 
 
@@ -140,14 +159,18 @@ async def test_stop_word_cancels_the_task_without_the_llm() -> None:
     await speech.wait_for("On it.")
     user.say("Stop!")
     await recorder.wait_until(
-        lambda entries: any(isinstance(entry, TaskUpdate) for entry in entries)
+        lambda entries: any(
+            isinstance(entry, TaskUpdate) and entry.task.status == TaskCancelled()
+            for entry in entries
+        )
     )
     user.leave()
     await running
 
     assert speech.said == ["On it.", "Stopping."]
     assert [entry.task.status for entry in recorder.entries if isinstance(entry, TaskUpdate)] == [
-        TaskCancelled()
+        TaskRunning(),
+        TaskCancelled(),
     ]
     assert len(llm.requests) == 1
 
@@ -174,6 +197,7 @@ async def test_barge_in_keeps_only_what_was_heard_and_skips_the_action() -> None
     ).run()
 
     assert llm.requests[1][-2] == AssistantMessage(content="Sure.", tool_calls=())
+    assert RobotLine(text="Sure.", interrupted=True) in recorder.entries
     assert not any(isinstance(entry, ToolInvocation) for entry in recorder.entries)
 
 
@@ -217,6 +241,10 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
 
     assert llm.requests[0][-1] == RobotEventMessage(
         content="An unknown person is in view (track 8, nearest). Greet them: look at them and wave."
+    )
+    assert (
+        UserLine(text="I'm Alice.", speaker=Speaker(track_id=8, person=None, operator=False))
+        in recorder.entries
     )
     assert [entry for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
         ToolInvocation(

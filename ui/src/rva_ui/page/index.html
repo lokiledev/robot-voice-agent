@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot session</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <span id="robot-name">Robot</span>
+      <span class="tagline">local voice agent</span>
+    </div>
+    <div class="status">
+      <div class="pill muted-pill" id="muted-pill" hidden>Muted</div>
+      <div class="pill" id="link"><span class="dot"></span><span id="link-text">Connecting</span></div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card camera">
+      <div class="card-head">
+        <h2>Camera</h2>
+        <div class="legend">
+          <span class="key known">known</span>
+          <span class="key unknown">unknown</span>
+          <span class="key unconfirmed">not sure yet</span>
+        </div>
+      </div>
+      <div class="video" id="video">
+        <div class="video-off" id="video-off">Camera off</div>
+      </div>
+    </section>
+
+    <section class="card actions">
+      <div class="card-head">
+        <h2>Actions</h2>
+        <span class="hint">the tools the LLM can call, by the part of the robot they use</span>
+      </div>
+      <div class="lanes" id="lanes"><p class="waiting">Waiting for the agent…</p></div>
+    </section>
+
+    <section class="card chat">
+      <div class="card-head"><h2>Conversation</h2></div>
+      <ol class="log" id="log" aria-live="polite"></ol>
+      <form class="composer" id="composer" autocomplete="off">
+        <input id="message" type="text" placeholder="Type to the robot…" aria-label="Message to the robot" disabled>
+        <button type="submit" id="send" disabled>Send</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

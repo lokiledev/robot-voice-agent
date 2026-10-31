@@ -4,7 +4,9 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import UTC, datetime
 from typing import Final
 
+from rva_schemas.abc.recorder import Recorder
 from rva_schemas.dialogue import Spoken, UserUtterance
+from rva_schemas.record import RobotSentence
 
 
 class TerminalUserInput:
@@ -20,12 +22,14 @@ class TerminalUserInput:
 class TerminalSpeechOutput:
     """`SpeechOutput` writing what the robot says to the terminal, sentence by sentence."""
 
-    def __init__(self, robot_name: str) -> None:
+    def __init__(self, robot_name: str, recorder: Recorder) -> None:
         self._robot_name: Final = robot_name
+        self._recorder: Final = recorder
 
     async def say(self, sentences: AsyncIterator[str]) -> Spoken:
         said: list[str] = []
         async for sentence in sentences:
+            self._recorder.record(RobotSentence(text=sentence))
             write(f"{self._robot_name}: {sentence}" if not said else f" {sentence}")
             said.append(sentence)
         if said:

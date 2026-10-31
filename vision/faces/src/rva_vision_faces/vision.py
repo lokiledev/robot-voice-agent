@@ -28,6 +28,7 @@ from rva_vision_faces.detector import Detection, Image, YunetDetector
 from rva_vision_faces.embedder import Embedding, SfaceEmbedder
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
+from rva_vision_faces.stream import RtspPublisher
 from rva_vision_faces.tracker import Track, Tracker
 from rva_vision_faces.window import DebugWindow, Timings, draw
 
@@ -49,6 +50,7 @@ class FaceVision:
         *,
         recorder: Recorder,
         record_video: bool,
+        stream_video: bool,
         show_window: bool,
         on_key: Callable[[str], None] | None,
     ) -> None:
@@ -60,6 +62,8 @@ class FaceVision:
             recorder: Receives the faces tracked in each frame, and the frames themselves with
                 `record_video`.
             record_video: Record the camera frames, scaled down and compressed, to replay them.
+            stream_video: Publish the camera with the tracked faces to the RTSP server of the
+                config, e.g. for a web page to show it.
             show_window: Show the camera with the tracked faces in a window.
             on_key: Called in the event loop with each key pressed in the window, except `q`.
         """
@@ -67,6 +71,7 @@ class FaceVision:
         self._database: Final = database
         self._recorder: Final = recorder
         self._record_video: Final = record_video
+        self._stream_video: Final = stream_video
         self._show_window: Final = show_window
         # The user's last sentence, the track of the face in front when it was said, and when.
         self._caption: tuple[int, str, float] | None = None
@@ -176,6 +181,11 @@ class FaceVision:
         )
         camera = Camera(config.camera)
         window = DebugWindow(*_WINDOW_SIZE) if self._show_window else None
+        publisher = (
+            RtspPublisher(config.stream, config.camera.width, config.camera.height)
+            if self._stream_video
+            else None
+        )
         logger.info("Watching {} on {}", config.camera.device, config.device)
         timings = Timings(fps=0.0, capture_ms=0.0, detect_ms=0.0, embed_ms=0.0)
         previous = last_logged = time.perf_counter()
@@ -189,9 +199,13 @@ class FaceVision:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
                 self._record(frame)
-                if window is None:
+                if window is None and publisher is None:
                     continue
                 draw(frame, self._tracker.tracks, timings, self._current_caption())
+                if publisher is not None:
+                    publisher.send(frame)
+                if window is None:
+                    continue
                 key = window.show(frame)
                 if key == "q":
                     return
@@ -199,6 +213,8 @@ class FaceVision:
                     loop.call_soon_threadsafe(self._on_key, key)
         finally:
             camera.close()
+            if publisher is not None:
+                publisher.close()
             if window is not None:
                 window.close()
 

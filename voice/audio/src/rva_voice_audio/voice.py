@@ -13,7 +13,7 @@ from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speech import SpeechRecognizer, SpeechSynthesizer
 from rva_schemas.audio import AudioClip
 from rva_schemas.dialogue import Spoken, UserUtterance
-from rva_schemas.record import Measurement
+from rva_schemas.record import Measurement, RobotSentence
 from rva_voice_audio.devices import Speaker
 from rva_voice_audio.echo import RobotSpeech
 from rva_voice_audio.endpoint import Endpointer, SpeechStarted, TurnEnded
@@ -87,11 +87,17 @@ class VoiceOutput:
     """`SpeechOutput` to a speaker: synthesizes the next sentence while the current one plays."""
 
     def __init__(
-        self, speaker: Speaker, synthesizer: SpeechSynthesizer, robot_speech: RobotSpeech
+        self,
+        speaker: Speaker,
+        synthesizer: SpeechSynthesizer,
+        robot_speech: RobotSpeech,
+        recorder: Recorder,
     ) -> None:
+        """Speak through `speaker`, recording each sentence as it starts playing."""
         self._speaker: Final = speaker
         self._synthesizer: Final = synthesizer
         self._robot_speech: Final = robot_speech
+        self._recorder: Final = recorder
 
     def interrupt(self) -> None:
         """Cut off what the robot is saying; the current `say` returns what was heard."""
@@ -104,15 +110,21 @@ class VoiceOutput:
         synthesizing = asyncio.create_task(self._synthesize(sentences, clips))
         heard: list[str] = []
         interrupted = False
+        # Whether the next clip is the first of its sentence.
+        starting = True
         try:
             with _tracer.start_as_current_span("speak") as span:
                 while (item := await clips.get()) is not None:
                     sentence, clip = item
                     if clip is None:
                         heard.append(sentence)
+                        starting = True
                         continue
                     if not heard:
                         span.add_event("first_audio")
+                    if starting:
+                        self._recorder.record(RobotSentence(text=sentence))
+                        starting = False
                     self._robot_speech.starts(sentence)
                     if not await self._speaker.play(clip):
                         interrupted = True

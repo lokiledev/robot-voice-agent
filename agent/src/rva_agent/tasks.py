@@ -4,6 +4,8 @@ from uuid import UUID
 
 from loguru import logger
 
+from rva_schemas.abc.recorder import Recorder
+from rva_schemas.record import TaskUpdate
 from rva_vla_schemas.abc.client import VlaClient
 from rva_vla_schemas.task import FinalTaskStatus, Task, TaskEvent, TaskRequest, TaskRunning
 
@@ -11,14 +13,16 @@ from rva_vla_schemas.task import FinalTaskStatus, Task, TaskEvent, TaskRequest, 
 class TaskSupervisor:
     """Keeps track of the one task the robot's body is running."""
 
-    def __init__(self, vla: VlaClient, on_end: Callable[[Task], None]) -> None:
+    def __init__(self, vla: VlaClient, recorder: Recorder, on_end: Callable[[Task], None]) -> None:
         """Track tasks of `vla`.
 
         Args:
             vla: The robot's VLA.
+            recorder: Receives each task when it starts and when it ends.
             on_end: Called with the final state of each task started here.
         """
         self._vla: Final = vla
+        self._recorder: Final = recorder
         self._on_end: Final = on_end
         self._active: Task | None = None
         # A fast task can end before `start` returns; its end is held here until then.
@@ -45,6 +49,7 @@ class TaskSupervisor:
         """
         task = await self._vla.start(TaskRequest(instruction=instruction))
         self._active = task
+        self._recorder.record(TaskUpdate(task=task))
         if (status := self._early_ends.pop(task.id, None)) is not None:
             self._end(task.id, status)
         return task
@@ -62,4 +67,5 @@ class TaskSupervisor:
         task = Task(id=task_id, instruction=self._active.instruction, status=status)
         self._active = None
         logger.info("Task {!r} ended: {}", task.instruction, status.state)
+        self._recorder.record(TaskUpdate(task=task))
         self._on_end(task)

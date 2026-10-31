@@ -46,13 +46,13 @@ async def open_voice_input(
 
 @asynccontextmanager
 async def open_voice_output(
-    audio: AudioConfig, tts: KokoroConfig, robot_speech: RobotSpeech
+    audio: AudioConfig, tts: KokoroConfig, robot_speech: RobotSpeech, recorder: Recorder
 ) -> AsyncGenerator[VoiceOutput]:
     synthesizer = KokoroSynthesizer(tts)
     async for _ in synthesizer.synthesize("Ready."):
         pass
     async with Speaker(audio.output_device, _KOKORO_SAMPLE_RATE) as speaker:
-        yield VoiceOutput(speaker, synthesizer, robot_speech)
+        yield VoiceOutput(speaker, synthesizer, robot_speech, recorder)
 
 
 def robot_speech(config: AudioConfig) -> RobotSpeech:

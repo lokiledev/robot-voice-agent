@@ -39,6 +39,7 @@ rva-llm = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}
+rva-ui = {workspace = true}
 rva-vla-client = {workspace = true}
 rva-vla-mock = {workspace = true}
 rva-vla-schemas = {workspace = true}
@@ -57,6 +58,7 @@ members = [
   "common/pydantic",
   "llm",
   "schemas",
+  "ui",
   "vla/client",
   "vla/mock",
   "vla/schemas",

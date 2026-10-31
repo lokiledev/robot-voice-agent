@@ -65,6 +65,21 @@ vision:
   video:
     width: 960
     jpeg_quality: 80
+  # Used with --ui: the camera with the tracked faces, published to MediaMTX for the page.
+  stream:
+    url: rtsp://127.0.0.1:8554/lune
+    width: 960
+
+# The session page of `rva run --ui` and `rva text --ui`.
+ui:
+  host: 127.0.0.1
+  port: 8700
+  # MediaMTX's WebRTC page for vision.stream.url.
+  video_page: http://127.0.0.1:8889/lune/
+
+# Run by `uv run rva serve-video`.
+media_server:
+  image: bluenviron/mediamtx:1.19.1
 
 observability:
   captures_dir: ~/Captures/robot-voice-agent

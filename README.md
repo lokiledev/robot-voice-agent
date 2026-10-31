@@ -67,4 +67,12 @@ uv run rva run
 
 Talk to the robot (or use `uv run rva text` to type instead). Only operators can make Lune act, once the camera recognizes them. Make yourself an admin: name your face once with `uv run rva see` (press `n`), find your user id with `uv run rva people`, and add it to `config/default/admins.yaml`. Admins and other operators can then authorize people by voice ("Lune, authorize Bob"). In the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`, with every tracked face and, with `--video`, the camera frames, so it replays in rerun: open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live. `uv run rva run --show --viewer --video` shows everything at once.
 
+To present a session, add the web page: start MediaMTX in a fourth terminal (it needs Docker, and `ffmpeg` on the path):
+
+```bash
+uv run rva serve-video
+```
+
+then run `uv run rva run --ui` and open <http://127.0.0.1:8700>. It shows the camera with the tracked faces, the conversation with every tool call, and which actions are running; you can also type to Lune there. `--no-camera` needs no MediaMTX.
+
 Each part also runs alone: `rva listen` prints what the microphone hears, `rva say` speaks what you type, `rva llm` chats with the model without the agent, `rva prompt` prints the system prompt, and the mock robot runs VLA tasks, walking and animations with random durations, failures and timeouts, logging every call (`rva-vla-mock --help`).

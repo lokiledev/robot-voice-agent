@@ -36,7 +36,15 @@ flowchart LR
         TRK --> GAL["Gallery<br/>cosine match"]
         DB[("faces.sqlite3<br/>users, names, embeddings")] <--> GAL
         TRK -. "--show / rva see" .-> WIN["Debug window"]
+        TRK -. "--ui" .-> FF["ffmpeg<br/>H.264 over RTSP"]
     end
+
+    subgraph PageProc["rva-ui, in the agent's process"]
+        PAGE["Session page<br/>FastAPI + WebSocket"]
+    end
+    MTX["MediaMTX<br/>(Docker)"]
+    FF --> MTX
+    MTX -- "WebRTC" --> PAGE
 
     subgraph Core["rva-agent"]
         STOP{"Stop word?<br/>stop / freeze"}
@@ -71,6 +79,8 @@ flowchart LR
     CFG[("Profile<br/>character.yaml, environment.yaml,<br/>capabilities.yaml, runtime.yaml")] --> AGENT
     OBS[("Session dir<br/>session.rrd, mic.wav, tts.wav, agent.log")]
     Core -. "OTel spans + Recorder" .-> OBS
+    Core -. "Recorder" .-> PAGE
+    PAGE -- "typed lines" --> INBOX
     Audio -. "VAD prob, audio" .-> OBS
 ```
 
@@ -190,6 +200,7 @@ flowchart BT
     TTS["rva-voice-tts<br/>voice/tts"]
     OBS["rva-observability<br/>common/observability"]
     VIS["rva-vision-faces<br/>vision/faces"]
+    UI["rva-ui<br/>ui"]
     APP["rva-app<br/>app"]
     VLAS --> PYD
     SCH --> VLAS
@@ -202,7 +213,8 @@ flowchart BT
     TTS --> SCH
     OBS --> SCH
     VIS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & OBS & VLAC & VIS
+    UI --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & OBS & VLAC & VIS & UI
 ```
 
 | Package | Contents | Heavy dependencies |
@@ -221,7 +233,8 @@ flowchart BT
 | `rva-vla-mock` | FastAPI mock of the robot (VLA and body) and terminal mode | fastapi, uvicorn |
 | `rva-body-schemas` | Motions (walking, animations), gaze, their statuses, and the `BodyClient` interface | — |
 | `rva-body-client` | HTTP + WebSocket `BodyClient` | httpx, websockets |
-| `rva-app` | cyclopts CLI (`run`, `run --text`, `up`), runtime config, terminal `UserInput`/`SpeechOutput` for text mode | — |
+| `rva-ui` | Session page (FastAPI, WebSocket, static HTML/JS); implements `Recorder` and `UserInput`; MediaMTX launch settings | fastapi, uvicorn |
+| `rva-app` | cyclopts CLI, runtime config, terminal `UserInput`/`SpeechOutput` for text mode | — |
 
 ### Interfaces the agent sees
 
@@ -338,6 +351,22 @@ config/default/
 
 The first three are the robot's story; `runtime.yaml` is the machine. The system prompt is a Jinja template filled from the first three. `capabilities.yaml` matters most: the VLA was trained on certain phrasings, and the LLM should send tasks phrased the same way.
 
+## Session page
+
+`rva run --ui` (or `rva text --ui`) serves a page on <http://127.0.0.1:8700> to present a session: the camera with the tracked faces on the left, the actions board under it, and the conversation on the right, with a box to type to the robot.
+
+**Only the agent reports to it.** The page is one more `Recorder`: every entry goes to rerun and to each open page over a WebSocket, as JSON of the same pydantic models, and a page opened or reloaded mid-session first gets the whole session so far. The agent follows the robot's own task and motion streams, so what the page shows running is the robot's real state, and it alone knows the conversation, the tool calls and who is in view. For the page to show actions live, the supervisors record each task and motion when it starts and as soon as it ends (not when the inbox gets to it), the body supervisor records gaze changes, and the agent records muting and, at start, the tools it offers.
+
+**Conversation.** User lines carry who said them: the face in front at the time, with their name and whether they are an operator. The robot's words appear sentence by sentence as each starts playing (the voice output records it when the sentence's first clip plays, since it synthesizes ahead); the whole reply then replaces them with what was heard, marked "cut off" after a barge-in. Tool calls show their arguments and a short result; a click shows the whole result as the LLM got it. Ends of actions, people coming and going, and muting are lines of their own.
+
+**Actions board.** The tools the agent offers, grouped by the part of the robot they use: the body (a VLA task, walking, a gesture: one at a time; while one runs it glows with what it does and for how long, and the others are dimmed as waiting for the body), the head (gaze, alongside), the voice (speaking, hearing, muted) and people (memory and permissions, instant). Operator-only tools are marked. A tool flashes green or red when called.
+
+**Typed lines** join the microphone's utterances and go through the same path, so they are attributed to the face in front of the camera, the same as speech.
+
+**Camera.** With `--ui`, the vision thread draws the boxes, names and the speaker's last sentence on each frame, as in the debug window, and pipes it to an `ffmpeg` process that encodes it in H.264 (libx264, baseline profile so no B-frames, a keyframe every 30 frames) and publishes it over RTSP to MediaMTX (`rva serve-video`, in Docker). The page plays MediaMTX's WebRTC page for that stream in an iframe, with well under a second of delay. Each frame is stamped when it reaches ffmpeg, since the loop's frame rate varies.
+
+**Why not Streamlit.** It would run in a separate process, so the agent would have to expose its records anyway, and it redraws by rerunning its script, which suits polling, not entries pushed as they happen. The page is plain HTML, CSS and JavaScript, served by FastAPI from the agent's process, with nothing to build and no network access needed.
+
 ## Observability
 
 Each session writes to `~/Captures/robot-voice-agent/<timestamp>/`:
@@ -355,9 +384,12 @@ agent.log     loguru log
 
 | Entity | Content |
 |---|---|
-| `/dialogue/user`, `/dialogue/robot` | what was heard and said (TextLog) |
+| `/dialogue/user`, `/dialogue/robot` | what was heard, tagged with who said it, and what was said (TextLog) |
+| `/dialogue/robot/sentences` | each sentence when it starts playing (TextLog) |
+| `/agent/started`, `/agent/muted` | the tools offered, and muting (TextLog) |
+| `/body/motion`, `/body/gaze` | walking and animations as they start and end, and who the robot looks at (TextLog) |
 | `/agent/llm` | messages and tool calls (TextLog) |
-| `/vla/task` | status changes (TextLog) |
+| `/vla/task` | tasks as they start and end (TextLog) |
 | `/latency/<stage>` | per-stage duration (Scalars) |
 | `/audio/vad` | speech probability (Scalars), for tuning thresholds |
 | `/camera/faces` | every tracked face of every frame (Boxes2D), labeled with track, name and user id, and for 6 s with what that person said; green known, orange unknown, grey not yet confirmed |
@@ -368,7 +400,7 @@ Rerun has no audio type, so the WAV files sit next to the recording and their st
 
 ## Libraries
 
-OpenCV and onnxruntime for vision, SQLite (standard library) for the face memory, pydantic for every schema (events, config, tool arguments, VLA API; tool JSON schemas are generated from the pydantic models), cyclopts for the CLI, loguru for logs, `openai` as the LLM client, rerun-sdk and opentelemetry-sdk for observability, FastAPI and httpx/websockets for the VLA API, sounddevice for audio I/O.
+OpenCV and onnxruntime for vision, SQLite (standard library) for the face memory, pydantic for every schema (events, config, tool arguments, VLA API; tool JSON schemas are generated from the pydantic models), cyclopts for the CLI, loguru for logs, `openai` as the LLM client, rerun-sdk and opentelemetry-sdk for observability, FastAPI and httpx/websockets for the VLA API and the session page, sounddevice for audio I/O, ffmpeg and MediaMTX to stream the camera to the page.
 
 ## Commands
 
@@ -378,14 +410,15 @@ Each part runs on its own, so it can be tried by hand before the whole loop:
 |---|---|---|
 | `rva prompt` | Prints the system prompt rendered from the profile | done |
 | `rva serve-llm` | llama-server in the foreground with `runtime.yaml`'s settings | done |
+| `rva serve-video` | MediaMTX in Docker in the foreground, for the camera on the session page | done |
 | `rva llm` | Chat with the LLM alone; tool calls are shown, not run | done |
 | `rva-vla-mock [--interactive]` | The mock robot: VLA tasks, walking, animations and gaze, all logged; interactive mode also ends each action from typed `s`, `f [reason]` or `t` | done |
-| `rva text [--viewer] [--no-camera] [--show] [--video]` | The whole agent in the terminal, against llama-server and the VLA endpoint, with the camera unless `--no-camera`; `--show` opens the vision window too, `--video` records the camera frames | done |
-| `rva see [--viewer] [--video]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal and prints its user id, `q` quits | done |
+| `rva text [--viewer] [--no-camera] [--show] [--video] [--ui]` | The whole agent in the terminal, against llama-server and the VLA endpoint, with the camera unless `--no-camera`; `--show` opens the vision window too, `--video` records the camera frames, `--ui` serves the session page | done |
+| `rva see [--viewer] [--video] [--stream]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal and prints its user id, `q` quits; `--stream` also publishes the image to MediaMTX, to watch on its WebRTC page | done |
 | `rva people` | Lists the user id and name of everyone known, marking admins and operators | done |
 | `rva listen [--viewer]` | Mic → VAD → end of turn → ASR, printing each transcript and its delay; `--viewer` plots the VAD probability | done |
 | `rva say [--voice NAME]` | Typed sentences → TTS → speaker | done |
-| `rva run [--viewer] [--no-camera] [--show] [--video]` | The whole voice agent, with the camera unless `--no-camera`; what the user says appears under their face's box in the window, and in its label in rerun | done |
+| `rva run [--viewer] [--no-camera] [--show] [--video] [--ui]` | The whole voice agent, with the camera unless `--no-camera`; what the user says appears under their face's box in the window, and in its label in rerun; `--ui` serves the session page | done |
 
 All commands take `--profile config/<name>` (default `config/default`).
 

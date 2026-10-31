@@ -7,7 +7,7 @@ import rerun as rr
 from rerun.chunk import RrdReader
 
 from rva_observability.rerun_sink import RerunRecorder
-from rva_schemas.record import CameraFrame, DialogueLine, FaceBox, FaceBoxes
+from rva_schemas.record import CameraFrame, FaceBox, FaceBoxes, Speaker, UserLine
 from rva_schemas.vision import BoundingBox, KnownPerson
 
 
@@ -35,7 +35,9 @@ def test_camera_image_and_faces_share_one_view(tmp_path: Path) -> None:
             ),
         )
     )
-    recorder.record(DialogueLine(speaker="user", text="authorize Bob"))
+    recorder.record(
+        UserLine(text="authorize Bob", speaker=Speaker(track_id=1, person=alice, operator=True))
+    )
     recording.flush()
     recording.disconnect()
 

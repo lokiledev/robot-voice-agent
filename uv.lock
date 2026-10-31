@@ -18,6 +18,7 @@ members = [
     "rva-observability",
     "rva-pydantic",
     "rva-schemas",
+    "rva-ui",
     "rva-vision-faces",
     "rva-vla-client",
     "rva-vla-mock",
@@ -1865,6 +1866,7 @@ dependencies = [
     { name = "rva-observability" },
     { name = "rva-pydantic" },
     { name = "rva-schemas" },
+    { name = "rva-ui" },
     { name = "rva-vision-faces" },
     { name = "rva-vla-client" },
     { name = "rva-voice-asr" },
@@ -1884,6 +1886,7 @@ requires-dist = [
     { name = "rva-observability", editable = "common/observability" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-schemas", editable = "schemas" },
+    { name = "rva-ui", editable = "ui" },
     { name = "rva-vision-faces", editable = "vision/faces" },
     { name = "rva-vla-client", editable = "vla/client" },
     { name = "rva-voice-asr", editable = "voice/asr" },
@@ -2034,6 +2037,37 @@ requires-dist = [
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-vla-schemas", editable = "vla/schemas" },
 ]
+
+[[package]]
+name = "rva-ui"
+version = "0.1.0"
+source = { editable = "ui" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "rva-pydantic" },
+    { name = "rva-schemas" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.116" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-pydantic", editable = "common/pydantic" },
+    { name = "rva-schemas", editable = "schemas" },
+    { name = "uvicorn", specifier = ">=0.35" },
+    { name = "websockets", specifier = ">=15" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "httpx", specifier = ">=0.28" }]
 
 [[package]]
 name = "rva-vision-faces"

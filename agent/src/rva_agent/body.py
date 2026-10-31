@@ -22,22 +22,29 @@ from rva_body_schemas.motion import (
     describe,
 )
 from rva_pydantic import RVABaseModel
+from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.vision import Vision
 from rva_schemas.dialogue import ToolCall, ToolSpec
+from rva_schemas.record import GazeUpdate, MotionUpdate
+from rva_schemas.vision import KnownPerson
 from rva_vla_schemas.task import FinalTaskStatus, TaskRunning
 
 
 class BodySupervisor:
-    """Keeps track of the one motion the body is making: walking or an animation."""
+    """Keeps track of the one motion the body is making, walking or an animation, and its gaze."""
 
-    def __init__(self, body: BodyClient, on_end: Callable[[Motion], None]) -> None:
+    def __init__(
+        self, body: BodyClient, recorder: Recorder, on_end: Callable[[Motion], None]
+    ) -> None:
         """Track motions of `body`.
 
         Args:
             body: The robot's body.
+            recorder: Receives each motion when it starts and when it ends, and each gaze change.
             on_end: Called with the final state of each motion started here.
         """
         self._body: Final = body
+        self._recorder: Final = recorder
         self._on_end: Final = on_end
         self._active: Motion | None = None
         # A short motion can end before `start` returns; its end is held here until then.
@@ -46,10 +53,6 @@ class BodySupervisor:
     @property
     def active(self) -> Motion | None:
         return self._active
-
-    @property
-    def body(self) -> BodyClient:
-        return self._body
 
     async def watch(self, events: AsyncIterator[MotionEvent]) -> None:
         """Follow motion events until `events` ends. Run it for the whole session."""
@@ -68,6 +71,7 @@ class BodySupervisor:
         """
         motion = await self._body.start(MotionRequest(action=action))
         self._active = motion
+        self._recorder.record(MotionUpdate(motion=motion))
         if (status := self._early_ends.pop(motion.id, None)) is not None:
             self._end(motion.id, status)
         return motion
@@ -76,6 +80,15 @@ class BodySupervisor:
         """Stop the running motion, if any; its end is reported through `on_end`."""
         await self._body.stay()
 
+    async def look_at(self, person: KnownPerson) -> None:
+        """Keep looking at `person`, alongside any motion."""
+        await self._body.look_at(person.user_id)
+        self._recorder.record(GazeUpdate(looking_at=person))
+
+    async def stop_looking(self) -> None:
+        await self._body.stop_looking()
+        self._recorder.record(GazeUpdate(looking_at=None))
+
     def _end(self, motion_id: UUID, status: FinalTaskStatus) -> None:
         if self._active is None or self._active.id != motion_id:
             self._early_ends[motion_id] = status
@@ -83,6 +96,7 @@ class BodySupervisor:
         motion = Motion(id=motion_id, action=self._active.action, status=status)
         self._active = None
         logger.info("Motion {!r} ended: {}", describe(motion.action), status.state)
+        self._recorder.record(MotionUpdate(motion=motion))
         self._on_end(motion)
 
 
@@ -188,7 +202,7 @@ class BodyTools:
                     return await self._look_at(UserArgs.model_validate_json(call.arguments))
                 case "stop_look_at_user":
                     NoArgs.model_validate_json(call.arguments or "{}")
-                    await self._body.body.stop_looking()
+                    await self._body.stop_looking()
                     return _done(status="no longer following anyone with your gaze")
                 case _:
                     return _error(f"There is no tool named {call.name}.")
@@ -215,9 +229,9 @@ class BodyTools:
     async def _go_to_human(self, args: UserArgs) -> ToolResult:
         if (refusal := self._permission.refusal()) is not None:
             return _error(f"{refusal} Only operators can ask you to walk somewhere.")
-        if (name := self._name_in_view(args.user_id)) is None:
+        if (person := self._person_in_view(args.user_id)) is None:
             return _error("Nobody with this user_id is in view. Call who_is_here.")
-        return await self._start(GoToHuman(user_id=args.user_id), name)
+        return await self._start(GoToHuman(user_id=args.user_id), person.name)
 
     async def _play(self, args: PlayAnimationArgs) -> ToolResult:
         if args.animation not in self._animations:
@@ -227,10 +241,10 @@ class BodyTools:
         return await self._start(PlayAnimation(animation=args.animation), None)
 
     async def _look_at(self, args: UserArgs) -> ToolResult:
-        if (name := self._name_in_view(args.user_id)) is None:
+        if (person := self._person_in_view(args.user_id)) is None:
             return _error("Nobody with this user_id is in view. Call who_is_here.")
-        await self._body.body.look_at(args.user_id)
-        return _done(status=f"looking at {name}")
+        await self._body.look_at(person)
+        return _done(status=f"looking at {person.name}")
 
     async def _start(
         self, action: GoToLocation | GoToHuman | PlayAnimation, target: str | None
@@ -245,11 +259,11 @@ class BodyTools:
         what = describe(action) if target is None else f"go to {target}"
         return _done(status="started", motion=what, next="You are told when it ends.")
 
-    def _name_in_view(self, user_id: UUID) -> str | None:
+    def _person_in_view(self, user_id: UUID) -> KnownPerson | None:
         assert self._vision is not None, "people tools are only offered with a camera"
         return next(
             (
-                face.person.name
+                face.person
                 for face in self._vision.faces()
                 if face.person is not None and face.person.user_id == user_id
             ),
