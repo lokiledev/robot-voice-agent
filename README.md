@@ -111,7 +111,7 @@ microphone at hand? `uv run lune --text` lets you type, in the terminal or on th
 
 The servers' output goes to `~/Captures/robot-voice-agent/servers/`. A server you start yourself
 is left alone, so you can keep one running between sessions or watch it in a terminal of its own,
-for instance the mock robot with `uv run rva-vla-mock --interactive`, where typing `s`, `f
+for instance the mock robot with `uv run lune-mock --interactive`, where typing `s`, `f
 <reason>` or `t` makes the running action succeed, fail or time out.
 
 ### Become an operator
@@ -132,7 +132,7 @@ Then authorize others by voice: "Lune, authorize Bob."
 |---|---|
 | `lune` | Everything: the servers below, then the voice agent with its session page |
 | `lune serve-llm` | The LLM server |
-| `rva-vla-mock` | The mock robot; `--interactive` to end actions from the terminal |
+| `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
 | `lune listen` | Prints what the microphone hears, turn by turn |
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |

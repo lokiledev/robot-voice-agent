@@ -27,4 +27,4 @@ rva-pydantic = {workspace = true}
 rva-vla-schemas = {workspace = true}
 
 [project.scripts]
-rva-vla-mock = "rva_vla_mock.cli:app"
+lune-mock = "rva_vla_mock.cli:app"

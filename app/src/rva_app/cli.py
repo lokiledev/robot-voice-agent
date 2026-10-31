@@ -224,7 +224,7 @@ def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
     llm = config.llm_server
     robot = urlsplit(str(config.vla.base_url))
     assert robot.hostname is not None and robot.port is not None, "validated as an HTTP URL"
-    mock = Path(sys.executable).with_name("rva-vla-mock")
+    mock = Path(sys.executable).with_name("lune-mock")
     services = [
         Service(
             # Its health check fails until the model is loaded, unlike its other routes.
@@ -279,7 +279,7 @@ def _vla_server(config: RuntimeConfig) -> Server:
     return Server(
         name="VLA",
         url=f"{config.vla.base_url}",
-        how_to_start="start the mock with `uv run rva-vla-mock --interactive`, or set vla.base_url in runtime.yaml",
+        how_to_start="start the mock with `uv run lune-mock --interactive`, or set vla.base_url in runtime.yaml",
         ready_when="answers",
     )
 
@@ -288,7 +288,7 @@ def _body_server(config: RuntimeConfig) -> Server:
     return Server(
         name="Body API",
         url=f"{str(config.body.base_url).rstrip('/')}/body/state",
-        how_to_start="start the mock with `uv run rva-vla-mock --interactive`; a mock started"
+        how_to_start="start the mock with `uv run lune-mock --interactive`; a mock started"
         " before the body API existed must be restarted",
         ready_when="route_exists",
     )

@@ -11,7 +11,7 @@ from rva_vla_mock.runner import TaskRunner
 from rva_vla_mock.server import build_app
 
 app = cyclopts.App(
-    name="rva-vla-mock", help="Serve a mock of the robot: its VLA task API and its body API."
+    name="lune-mock", help="Serve a mock of the robot: its VLA task API and its body API."
 )
 # Walking and animations, with durations of their own, in seconds.
 _NAVIGATION = RandomPolicyConfig(

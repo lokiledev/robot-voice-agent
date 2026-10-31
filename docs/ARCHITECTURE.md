@@ -71,7 +71,7 @@ flowchart LR
 |---|---|---|
 | Agent process | `lune run` (voice) or `lune text` (typing) | One asyncio loop; the camera has a thread of its own |
 | LLM server | `lune serve-llm` | OpenAI-compatible API; another model is a config change |
-| Robot API | `rva-vla-mock` | Replace with the real robot's API |
+| Robot API | `lune-mock` | Replace with the real robot's API |
 | MediaMTX | `lune serve-video` | Only for the camera on the session page; downloaded on first use |
 | Session page | `--ui`, then <http://127.0.0.1:8700> | Served by the agent process |
 | Local data | paths in `runtime.yaml` | Profile, admins, face database, recordings; all but the profile outside the source tree |
