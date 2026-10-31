@@ -1,4 +1,4 @@
-# Lune
+<h1 align="center"><img src="docs/media/lune-banner.svg" alt="Lune" width="600"></h1>
 
 **A fully local, multimodal agent for a humanoid robot, that knows who may give it orders.**
 
