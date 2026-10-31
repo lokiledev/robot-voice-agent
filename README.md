@@ -76,3 +76,7 @@ uv run rva serve-video
 then run `uv run rva run --ui` and open <http://127.0.0.1:8700>. It shows the camera with the tracked faces, the conversation with every tool call, and which actions are running; you can also type to Lune there. `--no-camera` needs no MediaMTX.
 
 Each part also runs alone: `rva listen` prints what the microphone hears, `rva say` speaks what you type, `rva llm` chats with the model without the agent, `rva prompt` prints the system prompt, and the mock robot runs VLA tasks, walking and animations with random durations, failures and timeouts, logging every call (`rva-vla-mock --help`).
+
+## Third-party software
+
+The models, Python packages and programs the agent uses, with their authors and licenses, are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Speech synthesis pulls in GPL-3.0 components (phonemizer and espeak-ng, through kokoro-onnx); the notice explains what that means.
