@@ -1,15 +1,21 @@
 import asyncio
 import os
+import time
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, assert_never
 
 import cyclopts
+from loguru import logger
 
 from rva_agent.agent import Agent
 from rva_agent.prompt import render_system_prompt
+from rva_agent.sentences import split_sentences
 from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
+from rva_app.voice import open_voice_input, open_voice_output
 from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
 from rva_observability.session import start_session
@@ -64,6 +70,79 @@ def text(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> Non
         viewer: Stream the recording to a rerun viewer.
     """
     asyncio.run(_run_text_agent(profile, viewer))
+
+
+@app.command
+def listen(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+    """Print what the microphone hears, turn by turn: VAD, end of turn and ASR, without the agent.
+
+    Args:
+        profile: Robot profile directory.
+        viewer: Stream the recording, with the VAD probability, to a rerun viewer.
+    """
+    asyncio.run(_listen(profile, viewer))
+
+
+@app.command
+def say(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
+    """Speak each line typed, sentence by sentence, with the profile's voice."""
+    asyncio.run(_say(profile))
+
+
+@app.command
+def run(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+    """Run the voice agent. Needs the LLM and VLA servers.
+
+    Args:
+        profile: Robot profile directory.
+        viewer: Stream the recording to a rerun viewer.
+    """
+    asyncio.run(_run_voice_agent(profile, viewer))
+
+
+async def _listen(profile_dir: Path, viewer: bool) -> None:
+    config = RuntimeConfig.load(profile_dir)
+    recorder = start_session(config.observability, "listen", viewer=viewer, console_level="WARNING")
+    async with open_voice_input(config.audio, recorder, lambda: write("… ")) as voice:
+        write("Listening. Ctrl+C to stop.\n")
+        async for utterance in voice.utterances():
+            delay_ms = (datetime.now(UTC) - utterance.ended_at).total_seconds() * 1000
+            write(f"{utterance.text}  [{delay_ms:.0f} ms after the end of the turn]\n")
+
+
+async def _say(profile_dir: Path) -> None:
+    config = RuntimeConfig.load(profile_dir)
+    async with open_voice_output(config.audio, config.tts) as voice:
+        write("Type sentences to hear them. Ctrl+D to stop.\n")
+        async for line in read_lines():
+            started = time.perf_counter()
+            spoken = await voice.say(split_sentences(_one(line)))
+            write(f"[{(time.perf_counter() - started):.1f} s] {spoken.text}\n")
+
+
+async def _run_voice_agent(profile_dir: Path, viewer: bool) -> None:
+    profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
+    recorder = start_session(config.observability, "voice", viewer=viewer, console_level="INFO")
+    async with (
+        HttpVlaClient(config.vla) as vla,
+        open_voice_output(config.audio, config.tts) as speech,
+        open_voice_input(config.audio, recorder, speech.interrupt) as user_input,
+    ):
+        agent = Agent(
+            llm=OpenAiLanguageModel(config.llm),
+            vla=vla,
+            user_input=user_input,
+            speech=speech,
+            recorder=recorder,
+            profile=profile,
+            config=config.agent,
+        )
+        logger.info("{} is listening", profile.character.name)
+        await agent.run()
+
+
+async def _one(text: str) -> AsyncGenerator[str]:
+    yield text
 
 
 async def _run_text_agent(profile_dir: Path, viewer: bool) -> None:

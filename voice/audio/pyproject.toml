@@ -4,9 +4,11 @@ version = "0.1.0"
 description = "Audio capture and playback, voice activity and end-of-turn detection"
 requires-python = ">=3.12"
 dependencies = [
+  "huggingface-hub>=0.34",
   "loguru>=0.7",
   "numpy>=2.0",
   "onnxruntime-gpu[cuda,cudnn]>=1.22",
+  "opentelemetry-api>=1.36",
   "rva-pydantic",
   "rva-schemas",
   "sounddevice>=0.5",

@@ -64,9 +64,9 @@ members = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 timeout = 30
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not download and not audio'"
 markers = [
   "cuda: needs an NVIDIA GPU",
-  "download: downloads model weights",
+  "download: needs model weights (run with -m download)",
   "audio: needs a sound device",
 ]

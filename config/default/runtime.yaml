@@ -26,3 +26,21 @@ vla:
 
 observability:
   captures_dir: ~/Captures/robot-voice-agent
+
+audio:
+  input_device: null
+  output_device: null
+  endpoint:
+    speech_threshold: 0.5
+    silence_threshold: 0.35
+    min_speech_ms: 200
+    pre_roll_ms: 300
+    turn_check_silence_ms: 200
+    max_silence_ms: 1500
+    turn_complete_threshold: 0.5
+
+tts:
+  model_path: ~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx
+  voices_path: ~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin
+  voice: am_michael
+  speed: 1.0

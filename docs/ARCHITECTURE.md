@@ -301,9 +301,9 @@ Each part runs on its own, so it can be tried by hand before the whole loop:
 | `rva llm` | Chat with the LLM alone; tool calls are shown, not run | done |
 | `rva-vla-mock [--interactive]` | The mock VLA; interactive mode ends each task from typed `s` or `f [reason]` | done |
 | `rva text [--viewer]` | The whole agent in the terminal, against llama-server and the VLA endpoint | done |
-| `rva listen` | Mic → VAD → end of turn → ASR, printing each transcript | with the voice packages |
-| `rva say` | Typed sentences → TTS → speaker | with the voice packages |
-| `rva run [--viewer]` | The whole voice agent | with the voice packages |
+| `rva listen [--viewer]` | Mic → VAD → end of turn → ASR, printing each transcript and its delay; `--viewer` plots the VAD probability | done |
+| `rva say` | Typed sentences → TTS → speaker | done |
+| `rva run [--viewer]` | The whole voice agent | done |
 
 All commands take `--profile config/<name>` (default `config/default`).
 
@@ -314,3 +314,12 @@ On the RTX 4090, with Qwen3.5-35B-A3B Q4_K_M, `n_cpu_moe: 12` and a 16k context:
 - llama-server uses about 16 GB of VRAM and loads in about 1.3 s once the file is in the page cache.
 - Generation: about 120 tokens/s.
 - Time to the first token: 110–175 ms; to the first complete sentence: 180–330 ms, with the system prompt already cached.
+
+Voice, with every model loaded beside llama-server:
+
+- GPU memory for the whole stack: 21.0 GB of 24 GB (LLM 16 GB, Parakeet, Kokoro and CUDA contexts the rest). Startup takes about 2 s once files are cached.
+- Parakeet: about 40 ms per utterance. Kokoro: about 100 ms per sentence. smart-turn: about 35 ms on CPU.
+- End of the user's speech to the robot's first audio: 716, 726 and 859 ms on three turns. The test feeds Kokoro-synthesized questions to `VoiceInput` in real time and plays the replies on the speaker. ASR and TTS are warmed up at startup; without that the first turn took 1.34 s.
+- The numpy Whisper features fed to smart-turn match Hugging Face's `WhisperFeatureExtractor` to within 2e-6.
+
+Not measured yet: barge-in with a real voice, and how smart-turn handles real mid-sentence pauses (synthesized fragments end with a falling intonation, which it reads as complete).

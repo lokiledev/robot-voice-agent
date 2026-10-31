@@ -5,12 +5,17 @@ description = "Command line entry point that composes the agent, voice, LLM and 
 requires-python = ">=3.12"
 dependencies = [
   "cyclopts>=4",
+  "loguru>=0.7",
+  "numpy>=2.0",
   "rva-agent",
   "rva-llm",
   "rva-observability",
   "rva-pydantic",
   "rva-schemas",
   "rva-vla-client",
+  "rva-voice-asr",
+  "rva-voice-audio",
+  "rva-voice-tts",
 ]
 
 [build-system]
@@ -26,6 +31,9 @@ rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}
 rva-vla-client = {workspace = true}
+rva-voice-asr = {workspace = true}
+rva-voice-audio = {workspace = true}
+rva-voice-tts = {workspace = true}
 
 [project.scripts]
 rva = "rva_app.cli:app"

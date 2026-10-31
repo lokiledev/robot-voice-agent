@@ -26,6 +26,22 @@ hf download unsloth/Qwen3.5-35B-A3B-GGUF Qwen3.5-35B-A3B-Q4_K_M.gguf
 
 CUDA 13.0 does not compile against glibc 2.43, which declares `rsqrt` differently. On such a system, build with a private copy of the toolkit whose `crt/math_functions.h` gives `rsqrt` and `rsqrtf` glibc's `noexcept`, and pass `-DCMAKE_CUDA_COMPILER=<copy>/bin/nvcc -DCUDAToolkit_ROOT=<copy>` to the first `cmake`. This machine has one at `~/.local/src/cuda-13.0-glibc243`.
 
+Voice models (about 2.9 GB): Parakeet and smart-turn come from the Hugging Face cache, and Kokoro from the kokoro-onnx release:
+
+```bash
+hf download istupakov/parakeet-tdt-0.6b-v2-onnx --exclude "*.int8.onnx"
+hf download pipecat-ai/smart-turn-v3 smart-turn-v3.2-cpu.onnx
+mkdir -p ~/.cache/robot-voice-agent/kokoro && cd ~/.cache/robot-voice-agent/kokoro
+curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+```
+
+The GPU code calls `onnxruntime.preload_dlls()` so the CUDA 13 libraries from the wheels win over a system cuDNN built for CUDA 12.
+
+Tests that need model weights are skipped by default; run them with `uv run pytest -m download`.
+
+Use headphones for now: without echo cancellation the robot would hear itself and interrupt its own speech.
+
 ## Trying it
 
 Three terminals:
@@ -39,9 +55,9 @@ uv run rva-vla-mock --interactive
 ```
 
 ```bash
-uv run rva text
+uv run rva run
 ```
 
-Type to talk to the robot; in the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`; open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live.
+Talk to the robot (or use `uv run rva text` to type instead); in the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`; open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live.
 
-Each part also runs alone: `rva prompt` prints the system prompt, `rva llm` chats with the model without the agent, and the mock VLA can run with random outcomes (`rva-vla-mock --help`).
+Each part also runs alone: `rva listen` prints what the microphone hears, `rva say` speaks what you type, `rva llm` chats with the model without the agent, `rva prompt` prints the system prompt, and the mock VLA can run with random outcomes (`rva-vla-mock --help`).
