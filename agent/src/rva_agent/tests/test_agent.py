@@ -29,6 +29,8 @@ CONFIG = AgentConfig(
     max_history_messages=40,
     max_tool_rounds=3,
     stop_words=frozenset({"stop"}),
+    mute_phrases=frozenset({"stop talking", "be quiet"}),
+    unmute_phrases=frozenset({"you can talk", "talk again"}),
     regreet_after_s=300,
 )
 START_PICK_CUP = ToolCall(
@@ -107,9 +109,7 @@ async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     await running
 
     assert speech.said == ["Picking up the red cup.", "I'm Lune.", "Done, I have the cup."]
-    assert llm.requests[2][-1] == RobotEventMessage(
-        content="Your body finished: pick up the red cup. It worked."
-    )
+    assert llm.requests[2][-1] == RobotEventMessage(content="You managed to pick up the red cup.")
     assert [entry for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
         ToolInvocation(
             name="start_task",
@@ -267,18 +267,12 @@ async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_agai
 
 
 async def test_muted_robot_says_nothing_until_it_may_talk_again() -> None:
-    llm = ScriptedLanguageModel(
-        [
-            [TextDelta(text="Okay."), ToolCall(id="call_1", name="mute", arguments="{}")],
-            [TextDelta(text="It is noon.")],
-            [ToolCall(id="call_2", name="unmute", arguments="{}")],
-            [TextDelta(text="I'm back.")],
-        ]
-    )
+    # Muting and unmuting never go through the LLM: its only turn is the question.
+    llm = ScriptedLanguageModel([[TextDelta(text="It is noon.")]])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
-    user.say("Stop talking.")
+    user.say("Okay, now stop talking please.")
     user.say("What time is it?")
-    user.say("You can talk again.")
+    user.say("You can talk again!")
     user.leave()
 
     await _agent(
@@ -290,8 +284,40 @@ async def test_muted_robot_says_nothing_until_it_may_talk_again() -> None:
         vision=None,
     ).run()
 
-    assert speech.said == ["Okay.", "I'm back."]
-    assert llm.requests[1][-1] == UserMessage(
+    assert speech.said == ["Okay.", "I can talk again."]
+    assert llm.requests[0][-1] == UserMessage(
         content="What time is it? (You are muted: answer with no words, only with tools if needed.)"
     )
-    assert llm.requests[2][-2] == AssistantMessage(content="", tool_calls=())
+
+
+async def test_a_failed_task_is_reported_to_the_llm_as_its_own_failure() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Picking up the red cup."), START_PICK_CUP],
+            [TextDelta(text="I couldn't pick up the red cup, my grasp slipped.")],
+        ]
+    )
+    commands = asyncio.Queue[str]()
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm,
+            TaskRunner(TerminalPolicy(commands, fallback=None)),
+            user,
+            speech,
+            recorder,
+            vision=None,
+        ).run()
+    )
+
+    user.say("Grab the red cup please.")
+    await speech.wait_for("Picking up the red cup.")
+    commands.put_nowait("f the grasp slipped")
+    await speech.wait_for("I couldn't pick up the red cup, my grasp slipped.")
+    user.leave()
+    await running
+
+    assert llm.requests[1][-1] == RobotEventMessage(
+        content="You could not pick up the red cup: the grasp slipped. Say it as your own failure,"
+        ' like "I couldn\'t ..."; never call it a task.'
+    )

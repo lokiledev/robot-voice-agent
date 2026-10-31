@@ -7,7 +7,6 @@ import pytest
 from rva_agent.agent import Agent
 from rva_agent.body import BodySupervisor, BodyTools
 from rva_agent.config import AgentConfig
-from rva_agent.mute import MuteTools
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
 from rva_agent.tasks import TaskSupervisor
@@ -99,6 +98,8 @@ async def test_a_stranger_cannot_start_a_task_but_can_still_talk() -> None:
             max_history_messages=40,
             max_tool_rounds=3,
             stop_words=frozenset({"stop"}),
+            mute_phrases=frozenset({"stop talking", "be quiet"}),
+            unmute_phrases=frozenset({"you can talk", "talk again"}),
             regreet_after_s=60,
         ),
     ).run()
@@ -303,6 +304,8 @@ async def test_each_user_turn_names_who_was_in_front() -> None:
             max_history_messages=40,
             max_tool_rounds=3,
             stop_words=frozenset({"stop"}),
+            mute_phrases=frozenset({"stop talking", "be quiet"}),
+            unmute_phrases=frozenset({"you can talk", "talk again"}),
             regreet_after_s=60,
         ),
     )
@@ -322,15 +325,38 @@ async def test_each_user_turn_names_who_was_in_front() -> None:
 
 async def test_anyone_may_mute_but_only_an_operator_unmutes() -> None:
     vision = FakeVision([_face(1, person("Bob"), nearest=True)])
-    mute = MuteTools(ActionPermission(vision, ADMINS))
-
-    await mute.call(ToolCall(id="1", name="mute", arguments="{}"))
-    refused = await mute.call(ToolCall(id="2", name="unmute", arguments="{}"))
-    assert (refused.content, mute.muted) == (
-        '{"error": "Bob is not one of your operators. Only operators can let you talk again."}',
-        True,
+    vla = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
+    user, speech = QueueUserInput(), RecordingSpeech(interrupt_after=None)
+    running = asyncio.create_task(
+        Agent(
+            llm=ScriptedLanguageModel([]),
+            vla=vla,
+            body=idle_body(vla),
+            user_input=user,
+            speech=speech,
+            recorder=ListRecorder(),
+            vision=vision,
+            profile=PROFILE,
+            config=AgentConfig(
+                max_history_messages=40,
+                max_tool_rounds=3,
+                stop_words=frozenset({"stop"}),
+                mute_phrases=frozenset({"stop talking"}),
+                unmute_phrases=frozenset({"talk again"}),
+                regreet_after_s=60,
+            ),
+        ).run()
     )
 
+    user.say("Stop talking.")
+    await speech.wait_for("Okay.")
+    user.say("You can talk again.")
+    await asyncio.sleep(0.05)
+    assert speech.said == ["Okay."]
+
     vision.set_faces([_face(2, person("Alice"), nearest=True)])
-    await mute.call(ToolCall(id="3", name="unmute", arguments="{}"))
-    assert not mute.muted
+    user.say("You can talk again.")
+    user.leave()
+    await running
+
+    assert speech.said == ["Okay.", "I can talk again."]

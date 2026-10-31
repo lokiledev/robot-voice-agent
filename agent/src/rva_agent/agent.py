@@ -12,7 +12,6 @@ from opentelemetry import trace
 from rva_agent.body import BodySupervisor, BodyTools
 from rva_agent.config import AgentConfig
 from rva_agent.history import History
-from rva_agent.mute import MuteTools
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
 from rva_agent.prompt import render_system_prompt
@@ -43,6 +42,9 @@ from rva_vla_schemas.task import Task, TaskCancelled, TaskFailed, TaskRunning, T
 
 _tracer: Final = trace.get_tracer("rva_agent")
 _PUNCTUATION: Final = re.compile(r"[^\w\s]")
+# Told with each failure: deep in a long conversation, the LLM otherwise reports some of them from
+# the outside ("the task to gather the cables failed") despite its instructions.
+_OWN_FAILURE: Final = ' Say it as your own failure, like "I couldn\'t ..."; never call it a task.'
 
 
 class Agent:
@@ -89,10 +91,9 @@ class Agent:
             profile.capabilities.animations,
         )
         self._people: Final = None if vision is None else PeopleTools(vision, self._permission)
-        self._mute: Final = MuteTools(self._permission)
+        self._muted = False
         self._tool_specs: Final = (
             TaskTools.specs
-            + MuteTools.specs
             + self._body_tools.specs
             + (() if self._people is None else PeopleTools.specs)
         )
@@ -156,6 +157,13 @@ class Agent:
     async def _on_utterance(self, utterance: UserUtterance) -> None:
         self._recorder.record(DialogueLine(speaker="user", text=utterance.text))
         self._history.append(UserMessage(content=self._attributed(utterance.text)))
+        # Muting is matched in code rather than left to the LLM: it must work every time.
+        if self._muted and _mentions(utterance.text, self._config.unmute_phrases):
+            await self._unmute()
+            return
+        if not self._muted and _mentions(utterance.text, self._config.mute_phrases):
+            await self._mute()
+            return
         busy = self._supervisor.active is not None or self._body.active is not None
         if self._is_stop_word(utterance.text) and busy:
             logger.info("Stop word: stopping the body without the LLM")
@@ -212,11 +220,17 @@ class Agent:
                 await self._respond()
 
     def _attributed(self, text: str) -> str:
-        """`text` prefixed with who was in front of the robot when it was said.
+        """`text` prefixed with who said it and with what the body is busy with, if anything.
 
-        Without it, the LLM keeps answering whoever spoke last after someone else steps in front.
+        Who said it is the face in front of the robot at that moment. Without these, the LLM
+        keeps answering whoever spoke last after someone else steps in front, and promises an action
+        before finding out the body is busy.
         """
-        if self._mute.muted:
+        task = self._supervisor.active
+        busy = task.instruction if task is not None else self._moving()
+        if busy is not None:
+            text = f"(Your body is busy: {busy}.) {text}"
+        if self._muted:
             # Said in the turn itself: the model follows it far more than a rule in its prompt.
             text = f"{text} (You are muted: answer with no words, only with tools if needed.)"
         if self._vision is None:
@@ -239,7 +253,7 @@ class Agent:
             text: list[str] = []
             tool_calls: list[ToolCall] = []
             # Decided per round: a mute or unmute takes effect from the next round of the turn.
-            muted = self._mute.muted
+            muted = self._muted
             with _tracer.start_as_current_span("llm"):
                 async with (
                     aclosing(self._stream_text(text, tool_calls)) as chunks,
@@ -278,8 +292,6 @@ class Agent:
         )
 
     async def _call_tool(self, call: ToolCall) -> ToolResult:
-        if call.name in MuteTools.names:
-            return await self._mute.call(call)
         if self._people is not None and call.name in PeopleTools.names:
             return await self._people.call(call)
         if call.name in BodyTools.names:
@@ -303,7 +315,7 @@ class Agent:
                     assert_never(output)
 
     async def _say_fixed(self, text: str) -> None:
-        if self._mute.muted:
+        if self._muted:
             return
         spoken = await self._speech.say(_single(text))
         self._add_robot_message(AssistantMessage(content=spoken.text, tool_calls=()))
@@ -314,19 +326,44 @@ class Agent:
             self._recorder.record(DialogueLine(speaker="robot", text=message.content))
 
     def _is_stop_word(self, text: str) -> bool:
-        return _PUNCTUATION.sub("", text).strip().lower() in self._config.stop_words
+        return _normalized(text) in self._config.stop_words
+
+    async def _mute(self) -> None:
+        await self._say_fixed("Okay.")
+        self._muted = True
+        logger.info("Muted")
+        self._history.append(
+            RobotEventMessage(content="You are muted: say nothing until an operator lets you talk.")
+        )
+
+    async def _unmute(self) -> None:
+        if (refusal := self._permission.refusal()) is not None:
+            logger.info("Not unmuted: {}", refusal)
+            self._history.append(
+                RobotEventMessage(
+                    content=f"Someone asked you to talk again. {refusal} Only an operator can let"
+                    " you talk again, so you stay quiet."
+                )
+            )
+            return
+        self._muted = False
+        logger.info("Unmuted")
+        self._history.append(RobotEventMessage(content="An operator let you talk again."))
+        await self._say_fixed("I can talk again.")
 
 
 def _describe_end(task: Task) -> str:
     match task.status:
         case TaskSucceeded():
-            return f"Your body finished: {task.instruction}. It worked."
+            return f"You managed to {task.instruction}."
         case TaskFailed(cause="timeout"):
-            return f"Your body gave up, it took too long: {task.instruction}. {task.status.reason}."
+            return (
+                f"You gave up trying to {task.instruction}: it was taking too long.{_OWN_FAILURE}"
+            )
         case TaskFailed():
-            return f"Your body could not finish: {task.instruction}. Reason: {task.status.reason}."
+            return f"You could not {task.instruction}: {task.status.reason}.{_OWN_FAILURE}"
         case TaskCancelled():
-            return f"Your body stopped before finishing: {task.instruction}."
+            return f"You stopped before you could {task.instruction}."
         case TaskRunning():
             raise AssertionError(f"Task {task.id} is still running")
         case _:
@@ -347,9 +384,11 @@ def _describe_motion_end(motion: Motion) -> str:
                 case _:
                     assert_never(action)
         case TaskFailed(cause="timeout"):
-            return f"Your body gave up, it took too long: {describe(action)}."
+            return (
+                f"You gave up trying to {describe(action)}: it was taking too long.{_OWN_FAILURE}"
+            )
         case TaskFailed():
-            return f"Your body could not {describe(action)}. Reason: {motion.status.reason}."
+            return f"You could not {describe(action)}: {motion.status.reason}.{_OWN_FAILURE}"
         case TaskCancelled():
             return f"You stopped before you could {describe(action)}."
         case TaskRunning():
@@ -379,6 +418,16 @@ def _describe_face(event: FaceAppeared | FaceLeft, permission: ActionPermission)
             return f"{event.person.name} left (track {event.track_id})."
         case _:
             assert_never(event)
+
+
+def _normalized(text: str) -> str:
+    return " ".join(_PUNCTUATION.sub("", text).lower().split())
+
+
+def _mentions(text: str, phrases: frozenset[str]) -> bool:
+    """Whether any of `phrases` appears in `text` as whole words, ignoring case and punctuation."""
+    padded = f" {_normalized(text)} "
+    return any(f" {_normalized(phrase)} " in padded for phrase in phrases)
 
 
 async def _silently(sentences: AsyncIterator[str]) -> Spoken:
