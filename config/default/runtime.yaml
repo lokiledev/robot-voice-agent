@@ -74,14 +74,14 @@ vision:
 # Start from config/admins.example.yaml.
 admins: ~/.config/robot-voice-agent/admins.yaml
 
-# The session page of `rva run --ui` and `rva text --ui`.
+# The session page of `lune run --ui` and `lune text --ui`.
 ui:
   host: 127.0.0.1
   port: 8700
   # MediaMTX's WebRTC page for vision.stream.url.
   video_page: http://127.0.0.1:8889/lune/
 
-# Run by `uv run rva up` or `uv run rva serve-video`; downloaded on first use.
+# Run by `uv run lune` or `uv run lune serve-video`; downloaded on first use.
 media_server:
   version: v1.21.2
   directory: ~/.local/share/robot-voice-agent/mediamtx

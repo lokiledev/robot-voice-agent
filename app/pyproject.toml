@@ -44,4 +44,4 @@ rva-voice-tts = {workspace = true}
 rva-vision-faces = {workspace = true}
 
 [project.scripts]
-rva = "rva_app.cli:app"
+lune = "rva_app.cli:app"

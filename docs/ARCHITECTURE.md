@@ -69,14 +69,14 @@ flowchart LR
 
 | Container | Started with | Notes |
 |---|---|---|
-| Agent process | `rva run` (voice) or `rva text` (typing) | One asyncio loop; the camera has a thread of its own |
-| LLM server | `rva serve-llm` | OpenAI-compatible API; another model is a config change |
+| Agent process | `lune run` (voice) or `lune text` (typing) | One asyncio loop; the camera has a thread of its own |
+| LLM server | `lune serve-llm` | OpenAI-compatible API; another model is a config change |
 | Robot API | `rva-vla-mock` | Replace with the real robot's API |
-| MediaMTX | `rva serve-video` | Only for the camera on the session page; downloaded on first use |
+| MediaMTX | `lune serve-video` | Only for the camera on the session page; downloaded on first use |
 | Session page | `--ui`, then <http://127.0.0.1:8700> | Served by the agent process |
 | Local data | paths in `runtime.yaml` | Profile, admins, face database, recordings; all but the profile outside the source tree |
 
-`rva up` runs them all: it starts each server that is not running yet, waits until it is ready
+`lune` runs them all: it starts each server that is not running yet, waits until it is ready
 (for the LLM server, until its health check passes, since it answers while the model still
 loads), runs the agent, and stops on exit what it started.
 

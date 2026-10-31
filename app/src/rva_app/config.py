@@ -46,7 +46,7 @@ def load_admins(path: Path) -> Admins:
     if not path.exists():
         logger.warning(
             "No admins file at {}: with the camera on, nobody can make the robot act. To become an"
-            " admin, copy config/admins.example.yaml there and add your user id from `rva people`.",
+            " admin, copy config/admins.example.yaml there and add your user id from `lune people`.",
             path,
         )
         return Admins(user_ids=frozenset())

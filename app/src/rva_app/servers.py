@@ -19,7 +19,7 @@ class Server(RVABaseModel):
 class ServersUnavailableError(Exception):
     def __init__(self, servers: tuple[Server, ...]) -> None:
         lines = [f"  {server.name} at {server.url}: {server.how_to_start}" for server in servers]
-        hint = "Start them all with `uv run rva up`, or each in a terminal of its own."
+        hint = "Start them all with `uv run lune`, or each in a terminal of its own."
         super().__init__("\n".join(["Not running:", *lines, hint]))
         self.servers = servers
 

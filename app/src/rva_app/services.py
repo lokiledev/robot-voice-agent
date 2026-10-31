@@ -18,7 +18,7 @@ _STOP_TIMEOUT_S: Final = 10.0
 
 
 class Service(RVABaseModel):
-    """A server that `rva up` starts, unless it is running already."""
+    """A server that `lune` starts, unless it is running already."""
 
     server: Server
     """How to tell it is ready."""

@@ -102,12 +102,12 @@ to use the system's default devices instead.
 ### Run
 
 ```bash
-uv run rva up
+uv run lune
 ```
 
 It starts the LLM server, the mock robot and MediaMTX, waits until they are ready, then runs Lune
 with her session page: open <http://127.0.0.1:8700> and talk to her. Ctrl+C stops everything. No
-microphone at hand? `uv run rva up --text` lets you type, in the terminal or on the page.
+microphone at hand? `uv run lune --text` lets you type, in the terminal or on the page.
 
 The servers' output goes to `~/Captures/robot-voice-agent/servers/`. A server you start yourself
 is left alone, so you can keep one running between sessions or watch it in a terminal of its own,
@@ -119,8 +119,8 @@ for instance the mock robot with `uv run rva-vla-mock --interactive`, where typi
 Lune talks with anyone but only acts for operators she recognizes. Make yourself an admin, an
 operator who can never be revoked:
 
-1. Run `uv run rva see`, face the camera and press `n` to type your name.
-2. Run `uv run rva people` to find your user id.
+1. Run `uv run lune see`, face the camera and press `n` to type your name.
+2. Run `uv run lune people` to find your user id.
 3. Copy `config/admins.example.yaml` to `~/.config/robot-voice-agent/admins.yaml` and add your
    id.
 
@@ -130,23 +130,23 @@ Then authorize others by voice: "Lune, authorize Bob."
 
 | Command | What it does |
 |---|---|
-| `rva up` | Everything: the servers below, then the voice agent with its session page |
-| `rva serve-llm` | The LLM server |
+| `lune` | Everything: the servers below, then the voice agent with its session page |
+| `lune serve-llm` | The LLM server |
 | `rva-vla-mock` | The mock robot; `--interactive` to end actions from the terminal |
-| `rva serve-video` | MediaMTX, for the camera on the session page |
-| `rva listen` | Prints what the microphone hears, turn by turn |
-| `rva say` | Speaks each line you type; `--voice` tries another Kokoro voice |
-| `rva llm` | Chat with the LLM alone; tool calls are shown, not run |
-| `rva prompt` | Prints the system prompt built from the profile |
-| `rva see` | Shows the camera with each tracked face and who it is |
-| `rva people` | Lists everyone Lune knows, with admins and operators |
-| `rva text` | The whole agent, typing instead of talking |
-| `rva run` | The whole voice agent |
+| `lune serve-video` | MediaMTX, for the camera on the session page |
+| `lune listen` | Prints what the microphone hears, turn by turn |
+| `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |
+| `lune llm` | Chat with the LLM alone; tool calls are shown, not run |
+| `lune prompt` | Prints the system prompt built from the profile |
+| `lune see` | Shows the camera with each tracked face and who it is |
+| `lune people` | Lists everyone Lune knows, with admins and operators |
+| `lune text` | The whole agent, typing instead of talking |
+| `lune run` | The whole voice agent |
 
-`rva run` and `rva text` need the servers running, and take `--ui` for the session page.
-These and `rva up` take `--viewer` to watch the recording live in rerun, `--show` for a camera
-window, `--video` to record the camera frames, and `--no-camera`. Every command takes `--profile` to use another robot profile than
-`config/default`.
+`lune run` and `lune text` need the servers running, and take `--ui` for the session page.
+These and `lune` take `--viewer` to watch the recording live in rerun, `--show` for a camera
+window, `--video` to record the camera frames, and `--no-camera`. Every command takes
+`--profile` to use another robot profile than `config/default`.
 
 ## Where data lives
 
@@ -158,7 +158,7 @@ Nothing the robot learns or records is written to the source tree. The paths are
 | Admins' user ids | `~/.config/robot-voice-agent/admins.yaml` |
 | Known faces, names and operators | `~/.local/share/robot-voice-agent/faces.sqlite3` |
 | Session recordings and logs | `~/Captures/robot-voice-agent/` |
-| Servers' output, with `rva up` | `~/Captures/robot-voice-agent/servers/` |
+| Servers' output, with `lune` | `~/Captures/robot-voice-agent/servers/` |
 | MediaMTX | `~/.local/share/robot-voice-agent/mediamtx/` |
 | Kokoro model | `~/.cache/robot-voice-agent/kokoro/` |
 | Other models | `~/.cache/huggingface/` |

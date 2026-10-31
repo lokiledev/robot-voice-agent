@@ -8,7 +8,7 @@ from rva_pydantic import RVABaseModel
 from rva_vision_faces.detector import Image
 from rva_vision_faces.tracker import Track
 
-_NAME: Final = "rva see"
+_NAME: Final = "lune see"
 # BGR
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (0, 165, 255)

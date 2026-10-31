@@ -4,8 +4,8 @@
 #
 # Copy this file to the path set as `admins` in runtime.yaml, by default
 # ~/.config/robot-voice-agent/admins.yaml, outside the source tree. Only user ids are kept: names
-# live in the face database. To find yours, name your face with `uv run rva see` (press n), then
-# list ids with `uv run rva people`.
+# live in the face database. To find yours, name your face with `uv run lune see` (press n), then
+# list ids with `uv run lune people`.
 user_ids: []
 # For example:
 # user_ids:

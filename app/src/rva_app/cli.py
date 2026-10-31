@@ -55,7 +55,10 @@ from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.vision import FaceVision
 from rva_vla_client.client import HttpVlaClient
 
-app = cyclopts.App(name="rva", help="Robot voice agent and tools to try each part on its own.")
+app = cyclopts.App(
+    name="lune",
+    help="Lune, a local voice and vision agent for a humanoid robot. Without a command, runs\n    everything; the commands try each part on its own.",
+)
 
 type ProfileDir = Annotated[Path, cyclopts.Parameter(help="Robot profile directory.")]
 _DEFAULT_PROFILE = Path("config/default")
@@ -92,8 +95,8 @@ def serve_video(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
     os.execve(command[0], command, {**os.environ, **MEDIA_SERVER_ENVIRONMENT})
 
 
-@app.command
-def up(
+@app.default
+def everything(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
     text: bool = False,
@@ -217,7 +220,7 @@ async def _up(
 
 
 def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
-    """The servers `rva up` runs: MediaMTX only for the camera."""
+    """The servers `lune` runs: MediaMTX only for the camera."""
     llm = config.llm_server
     robot = urlsplit(str(config.vla.base_url))
     assert robot.hostname is not None and robot.port is not None, "validated as an HTTP URL"
@@ -228,7 +231,7 @@ def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
             server=Server(
                 name="LLM server",
                 url=f"http://{llm.host}:{llm.port}/health",
-                how_to_start="start it with `uv run rva serve-llm`",
+                how_to_start="start it with `uv run lune serve-llm`",
                 ready_when="succeeds",
             ),
             command=lambda: llama_server_command(llm),
@@ -267,7 +270,7 @@ def _llm_server(config: RuntimeConfig) -> Server:
     return Server(
         name="LLM server",
         url=f"{config.llm.base_url}",
-        how_to_start="start it with `uv run rva serve-llm`",
+        how_to_start="start it with `uv run lune serve-llm`",
         ready_when="answers",
     )
 
@@ -295,7 +298,7 @@ def _media_server(config: RuntimeConfig) -> Server:
     return Server(
         name="MediaMTX",
         url=config.ui.video_page,
-        how_to_start="start it with `uv run rva serve-video`, or run with --no-camera",
+        how_to_start="start it with `uv run lune serve-video`, or run with --no-camera",
         ready_when="answers",
     )
 
@@ -488,7 +491,7 @@ def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
     granted = database.granted_operators()
     known = database.people()
     if not known:
-        write("Nobody is known yet. Name a face with `rva see`, then n.\n")
+        write("Nobody is known yet. Name a face with `lune see`, then n.\n")
     for person in known:
         role = (
             "  admin"
@@ -633,6 +636,6 @@ async def _chat_with_llm(profile_dir: Path, system_prompt: bool) -> None:
         write("\n")
         messages.append(AssistantMessage(content="".join(text), tool_calls=tuple(calls)))
         messages.extend(
-            ToolResultMessage(tool_call_id=call.id, content='{"status": "not run in rva llm"}')
+            ToolResultMessage(tool_call_id=call.id, content='{"status": "not run in lune llm"}')
             for call in calls
         )

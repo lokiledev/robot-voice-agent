@@ -40,7 +40,7 @@ async def test_lists_every_missing_server_with_how_to_start_it() -> None:
         "Not running:\n"
         f"  LLM server at http://127.0.0.1:{llm_port}/v1: run A\n"
         f"  VLA at http://127.0.0.1:{vla_port}: run B\n"
-        "Start them all with `uv run rva up`, or each in a terminal of its own."
+        "Start them all with `uv run lune`, or each in a terminal of its own."
     )
 
 
