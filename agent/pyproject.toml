@@ -3,6 +3,7 @@ name = "rva-agent"
 version = "0.1.0"
 description = "Dialogue loop, tools and VLA task supervision"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "rva-body-schemas",
   "jinja2>=3.1",

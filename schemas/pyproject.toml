@@ -3,6 +3,7 @@ name = "rva-schemas"
 version = "0.1.0"
 description = "Data model and interfaces shared by the agent, voice and LLM packages"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "numpy>=2.0",
   "pydantic>=2.11",

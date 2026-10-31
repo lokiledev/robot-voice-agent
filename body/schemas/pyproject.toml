@@ -3,6 +3,7 @@ name = "rva-body-schemas"
 version = "0.1.0"
 description = "Data model and client interface of the robot body's motions, gestures and gaze"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "pydantic>=2.11",
   "rva-pydantic",

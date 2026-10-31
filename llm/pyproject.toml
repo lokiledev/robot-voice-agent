@@ -3,6 +3,7 @@ name = "rva-llm"
 version = "0.1.0"
 description = "Streaming tool-calling client for an OpenAI-compatible local LLM server"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "huggingface-hub>=0.34",
   "openai>=1.100",

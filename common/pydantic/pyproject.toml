@@ -3,6 +3,7 @@ name = "rva-pydantic"
 version = "0.1.0"
 description = "Frozen pydantic base model and YAML loading"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "pydantic>=2.11",
   "pyyaml>=6",

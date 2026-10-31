@@ -80,3 +80,7 @@ Each part also runs alone: `rva listen` prints what the microphone hears, `rva s
 ## Third-party software
 
 The models, Python packages and programs the agent uses, with their authors and licenses, are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Speech synthesis pulls in GPL-3.0 components (phonemizer and espeak-ng, through kokoro-onnx); the notice explains what that means.
+
+## License
+
+Copyright 2026 lokiledev. Licensed under the [Apache License 2.0](LICENSE).

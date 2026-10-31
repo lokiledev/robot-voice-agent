@@ -3,6 +3,7 @@ name = "rva-body-client"
 version = "0.1.0"
 description = "HTTP and WebSocket client for the robot body API"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "httpx>=0.28",
   "pydantic>=2.11",

@@ -3,6 +3,7 @@ name = "rva-voice-asr"
 version = "0.1.0"
 description = "Speech recognition with Parakeet"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "numpy>=2.0",
   "onnx-asr>=0.7",

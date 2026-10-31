@@ -3,6 +3,7 @@ name = "rva-voice-audio"
 version = "0.1.0"
 description = "Audio capture and playback, voice activity and end-of-turn detection"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "huggingface-hub>=0.34",
   "loguru>=0.7",

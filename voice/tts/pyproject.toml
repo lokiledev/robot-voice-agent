@@ -3,6 +3,7 @@ name = "rva-voice-tts"
 version = "0.1.0"
 description = "Speech synthesis with Kokoro"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "kokoro-onnx>=0.4",
   "numpy>=2.0",

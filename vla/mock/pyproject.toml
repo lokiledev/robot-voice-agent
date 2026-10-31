@@ -3,6 +3,7 @@ name = "rva-vla-mock"
 version = "0.1.0"
 description = "Mock VLA task server for experiments"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "rva-body-schemas",
   "cyclopts>=4",

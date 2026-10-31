@@ -3,6 +3,7 @@ name = "rva-observability"
 version = "0.1.0"
 description = "Loguru, OpenTelemetry and rerun setup; records agent events to an rrd file"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "rva-body-schemas",
   "loguru>=0.7",

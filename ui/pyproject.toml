@@ -3,6 +3,7 @@ name = "rva-ui"
 version = "0.1.0"
 description = "Web page showing a session live: conversation, actions and camera, with typed input"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
   "fastapi>=0.116",
   "pydantic>=2.11",

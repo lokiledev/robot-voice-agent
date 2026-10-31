@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Local voice agent for high-level reasoning and user interaction on a humanoid robot"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
   "rva-app",
   "rva-vla-mock",
