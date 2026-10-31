@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from rva_pydantic import RVABaseModel
-from rva_vla_schemas.task import TaskEvent
+from rva_vla_schemas.task import Task
 
 
 class DialogueLine(RVABaseModel):
@@ -21,7 +21,7 @@ class ToolInvocation(RVABaseModel):
 
 class TaskUpdate(RVABaseModel):
     kind: Literal["task"] = "task"
-    event: TaskEvent
+    task: Task
 
 
 class Measurement(RVABaseModel):

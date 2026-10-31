@@ -116,7 +116,7 @@ sequenceDiagram
 
 **Wake word.** Off by default; the robot listens all the time. openWakeWord can be turned on in `runtime.yaml`.
 
-**Text mode.** `rva run --text` swaps the voice packages for a terminal `UserInput` and `SpeechOutput`, and TTS is optional. Use it to work on prompts and tools, and for scripted tests.
+**Text mode.** `rva text` swaps the voice packages for a terminal `UserInput` and `SpeechOutput`, and TTS is optional. Use it to work on prompts and tools, and for scripted tests.
 
 ## Models
 
@@ -292,10 +292,25 @@ pydantic for every schema (events, config, tool arguments, VLA API; tool JSON sc
 
 ## Commands
 
-```bash
-rva up                          # start llama-server and the VLA mock from runtime.yaml
-rva run --profile config/default
-rva run --text                  # type instead of speak
-rva run --viewer                # also stream to a live rerun viewer
-rva-vla-mock --interactive      # end each task by typing s or f [reason]
-```
+Each part runs on its own, so it can be tried by hand before the whole loop:
+
+| Command | What it runs | Status |
+|---|---|---|
+| `rva prompt` | Prints the system prompt rendered from the profile | done |
+| `rva serve-llm` | llama-server in the foreground with `runtime.yaml`'s settings | done |
+| `rva llm` | Chat with the LLM alone; tool calls are shown, not run | done |
+| `rva-vla-mock [--interactive]` | The mock VLA; interactive mode ends each task from typed `s` or `f [reason]` | done |
+| `rva text [--viewer]` | The whole agent in the terminal, against llama-server and the VLA endpoint | done |
+| `rva listen` | Mic → VAD → end of turn → ASR, printing each transcript | with the voice packages |
+| `rva say` | Typed sentences → TTS → speaker | with the voice packages |
+| `rva run [--viewer]` | The whole voice agent | with the voice packages |
+
+All commands take `--profile config/<name>` (default `config/default`).
+
+## Measured so far
+
+On the RTX 4090, with Qwen3.5-35B-A3B Q4_K_M, `n_cpu_moe: 12` and a 16k context:
+
+- llama-server uses about 16 GB of VRAM and loads in about 1.3 s once the file is in the page cache.
+- Generation: about 120 tokens/s.
+- Time to the first token: 110–175 ms; to the first complete sentence: 180–330 ms, with the system prompt already cached.

@@ -12,6 +12,11 @@ dependencies = [
   "rva-vla-schemas",
 ]
 
+[dependency-groups]
+dev = [
+  "rva-vla-mock",
+]
+
 [build-system]
 requires = [
   "uv_build>=0.11,<0.12",
@@ -22,3 +27,4 @@ build-backend = "uv_build"
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}
 rva-vla-schemas = {workspace = true}
+rva-vla-mock = {workspace = true}

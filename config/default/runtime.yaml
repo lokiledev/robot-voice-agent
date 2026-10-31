@@ -1,0 +1,28 @@
+agent:
+  max_history_messages: 60
+  max_tool_rounds: 4
+  stop_words: [stop, freeze, halt, stop stop, robot stop]
+
+llm:
+  base_url: http://127.0.0.1:8080/v1
+  model: qwen3.5-35b-a3b
+  temperature: 0.7
+  max_tokens: 400
+  chat_template_kwargs:
+    enable_thinking: false
+
+llm_server:
+  executable: ~/.local/src/llama.cpp/build/bin/llama-server
+  hf_repo: unsloth/Qwen3.5-35B-A3B-GGUF
+  hf_file: Qwen3.5-35B-A3B-Q4_K_M.gguf
+  host: 127.0.0.1
+  port: 8080
+  context_size: 16384
+  n_cpu_moe: 12
+  extra_args: [--flash-attn, "on", --parallel, "1"]
+
+vla:
+  base_url: http://127.0.0.1:8800
+
+observability:
+  captures_dir: ~/Captures/robot-voice-agent

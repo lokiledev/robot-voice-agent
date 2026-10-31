@@ -41,6 +41,10 @@ The repository is one uv workspace. Each package lives in its domain directory w
 - One `ruff.toml`, one `ty.toml`, one `uv.lock` for the whole workspace. No per-package overrides.
 - Dependencies are declared in `pyproject.toml` with lower bounds.
 
+## Trying parts by hand
+
+Every component gets a command to run it alone (see the table in `docs/ARCHITECTURE.md`), wired in `rva-app`. Add one with each new component, so it can be checked by ear or by eye before it joins the loop.
+
 ## Code style
 
 - `cyclopts` for CLIs.
