@@ -1,441 +1,387 @@
 # Architecture
 
-A local voice agent that is the high-level reasoning and interaction loop of a humanoid robot. It listens to people, answers them, and sends short-horizon natural-language tasks to the robot's VLA policy. The VLA runs elsewhere; we talk to it through an API, mocked for now.
+Lune is the high-level loop of a humanoid robot: she holds the conversation, keeps track of who is
+around, and drives the body through a few long-running actions. A VLA policy and the robot's
+controllers do the moving; Lune decides what to ask them. Three ideas shape the design: every
+model runs locally, voice and vision feed one agent, and who may make the robot act is decided by
+recognizing faces, in code.
 
-Everything runs on one PC: RTX 4090 (24 GB), Ryzen 9 7950X3D, 64 GB RAM.
+This document zooms in step by step, following the [C4 model](https://c4model.com): the system and
+what it talks to, the processes it runs as, the parts of the main process, and the code.
 
-## Why a cascade and not speech-to-speech
-
-Speech-to-speech models like Kyutai's Moshi reason over audio tokens. They have no text dialogue history you can edit, no tool calling, and their system prompt cannot be swapped for your own character and environment. That rules them out for an agent that has to drive a robot.
-
-Kyutai's own answer to this is Unmute, which is a cascade: streaming speech-to-text, any text LLM, streaming text-to-speech. We use the same shape:
-
-```
-VAD → turn detection → ASR → LLM with tools → TTS
-```
-
-The dialogue history is the list of LLM messages. Tool calls are ordinary OpenAI-style function calls handled in Python. No MCP layer.
-
-## System diagram
+## 1. System context
 
 ```mermaid
 flowchart LR
-    subgraph Audio["voice/* packages"]
-        MIC["Mic<br/>(PipeWire echo-cancel source)"] --> VAD["Silero VAD"]
-        VAD --> TURN["smart-turn v3<br/>end-of-turn"]
-        TURN --> ASR["Parakeet TDT 0.6B v2<br/>(onnx-asr)"]
-        SPLIT["Sentence splitter"] --> TTS["Kokoro-82M<br/>(kokoro-onnx)"]
-        TTS --> SPK["Speaker"]
-        VAD -. "speech while robot talks<br/>= barge-in" .-> SPK
-    end
+    human(["Person near the robot<br/>[person]"])
+    presenter(["Presenter<br/>[person]"])
+    lune["Lune<br/>[software system]<br/>holds the conversation, recognizes people,<br/>decides what the body does"]
+    body["Robot body<br/>[external system]<br/>VLA policy, walking, gestures, gaze"]
 
-    subgraph VisionProc["rva-vision-faces (own thread)"]
-        CAM["C920 camera<br/>1920x1080 MJPG"] --> DET["YuNet<br/>face detection"]
-        DET --> TRK["Tracker<br/>IoU + re-id by embedding"]
-        DET --> EMB["SFace<br/>embeddings"] --> TRK
-        TRK --> GAL["Gallery<br/>cosine match"]
-        DB[("faces.sqlite3<br/>users, names, embeddings")] <--> GAL
-        TRK -. "--show / rva see" .-> WIN["Debug window"]
-        TRK -. "--ui" .-> FF["ffmpeg<br/>H.264 over RTSP"]
-    end
+    human -- "speaks (audio in),<br/>is seen (video in)" --> lune
+    lune -- "answers out loud (audio out)" --> human
+    presenter -- "watches the session,<br/>types messages" --> lune
+    lune -- "starts and stops actions" --> body
+    body -- "reports how each one ends" --> lune
 
-    subgraph PageProc["rva-ui, in the agent's process"]
-        PAGE["Session page<br/>FastAPI + WebSocket"]
-    end
-    MTX["MediaMTX<br/>(Docker)"]
-    FF --> MTX
-    MTX -- "WebRTC" --> PAGE
-
-    subgraph Core["rva-agent"]
-        STOP{"Stop word?<br/>stop / freeze"}
-        INBOX[["Agent inbox<br/>user utterances, VLA events,<br/>faces appearing and leaving"]]
-        AGENT["Agent loop<br/>history, prompt, tool dispatch"]
-        TOOLS["Tools<br/>start_task / cancel_task / get_task_status"]
-        PEOPLE["People tools<br/>remember_person / who_is_here / forget_person"]
-        VLAM["VLA manager<br/>one active task"]
-    end
-
-    subgraph LLMProc["llama-server process"]
-        LLM["Qwen3.5-35B-A3B Q4_K_M<br/>OpenAI-compatible API"]
-    end
-
-    subgraph VLAProc["rva-vla-mock process (later: real VLA)"]
-        VLA["FastAPI mock<br/>POST /tasks, WS /events"]
-    end
-
-    ASR --> STOP
-    STOP -- "yes" --> VLAM
-    STOP -- "no" --> INBOX
-    INBOX --> AGENT
-    AGENT <-- "streamed chat + tool calls" --> LLM
-    AGENT --> TOOLS --> VLAM
-    VLAM <-- "VlaClient (rva-vla-client)" --> VLA
-    VLAM -- "succeeded / failed" --> INBOX
-    TRK -- "FaceAppeared / FaceLeft" --> INBOX
-    AGENT --> PEOPLE
-    PEOPLE <-- "Vision" --> GAL
-    AGENT -- "streamed text" --> SPLIT
-
-    CFG[("Profile<br/>character.yaml, environment.yaml,<br/>capabilities.yaml, runtime.yaml")] --> AGENT
-    OBS[("Session dir<br/>session.rrd, mic.wav, tts.wav, agent.log")]
-    Core -. "OTel spans + Recorder" .-> OBS
-    Core -. "Recorder" .-> PAGE
-    PAGE -- "typed lines" --> INBOX
-    Audio -. "VAD prob, audio" .-> OBS
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#fff
+    class human,presenter person
+    class lune system
+    class body external
 ```
+
+Everything runs on one PC with one GPU (an RTX 4090 with 24 GB here); nothing calls a cloud API.
+The robot body is reached through a small HTTP and WebSocket API, served for now by a mock.
+
+## 2. Containers
+
+```mermaid
+flowchart LR
+    human(["Person near the robot<br/>[person]"])
+    subgraph pc ["Lune, on one PC"]
+        agent["Agent process<br/>[Python, asyncio]<br/>voice, vision, dialogue, tools,<br/>session page server"]
+        llm["LLM server<br/>[llama.cpp]<br/>Qwen3.5-35B-A3B"]
+        mtx["MediaMTX<br/>[Docker]<br/>RTSP in, WebRTC out"]
+        page["Session page<br/>[HTML, JavaScript, in a browser]"]
+        data[("Local data<br/>[YAML, SQLite, rerun]<br/>profile, admins, faces,<br/>recordings")]
+    end
+    body["Robot API<br/>[external; a FastAPI mock here]<br/>VLA tasks, motions, gaze"]
+    presenter(["Presenter<br/>[person]"])
+
+    human <-- "audio in and out,<br/>video in" --> agent
+    agent <-- "chat, streamed<br/>[HTTP]" --> llm
+    agent <-- "start, cancel; status events<br/>[HTTP, WebSocket]" --> body
+    agent <--> data
+    agent -- "camera with overlay<br/>[RTSP]" --> mtx
+    mtx -- "[WebRTC]" --> page
+    agent <-- "session entries, typed lines<br/>[WebSocket]" --> page
+    page <-- "watches, types" --> presenter
+
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef container fill:#438dd5,stroke:#2e6295,color:#fff
+    classDef external fill:#8a8a8a,stroke:#6b6b6b,color:#fff
+    class human,presenter person
+    class agent,llm,mtx,page,data container
+    class body external
+```
+
+| Container | Started with | Notes |
+|---|---|---|
+| Agent process | `rva run` (voice) or `rva text` (typing) | One asyncio loop; the camera has a thread of its own |
+| LLM server | `rva serve-llm` | OpenAI-compatible API; another model is a config change |
+| Robot API | `rva-vla-mock` | Replace with the real robot's API |
+| MediaMTX | `rva serve-video` | Only for the camera on the session page |
+| Session page | `--ui`, then <http://127.0.0.1:8700> | Served by the agent process |
+| Local data | paths in `runtime.yaml` | Profile, admins, face database, recordings; all but the profile outside the source tree |
+
+The profile is the robot's story (`character.yaml`, `environment.yaml`, `capabilities.yaml`,
+rendered into the system prompt) plus the machine (`runtime.yaml`: models, devices, thresholds,
+paths). `capabilities.yaml` matters most: the LLM should phrase VLA tasks the way the policy was
+trained.
+
+## 3. Inside the agent process
+
+```mermaid
+flowchart LR
+    mic([Microphone]) --> vin
+    cam([Camera]) --> vision
+    subgraph process ["Agent process"]
+        vin["Voice input<br/>voice activity, end of turn, ASR"]
+        vision["Vision<br/>detect, track, recognize faces"]
+        ui["Session page server"]
+        loop["Agent loop<br/>inbox, history, LLM turns"]
+        tools["Tools<br/>body, tasks, people, permissions"]
+        vout["Voice output<br/>sentences to speech"]
+        rec["Recorder<br/>every part records to it"]
+    end
+    vin -- "utterances" --> loop
+    vision -- "people coming and going" --> loop
+    ui -- "typed lines" --> loop
+    loop -- "sentences" --> vout
+    loop -- "tool calls" --> tools
+    tools -- "how actions end" --> loop
+    loop <--> llm([LLM server])
+    tools <--> robot([Robot API])
+    vout --> spk([Speaker])
+    vision -- "annotated frames" --> mtx([MediaMTX])
+    rec -. "live entries" .-> ui
+    rec -. "rerun file" .-> disk([Recordings])
+
+    classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
+    class vin,vision,loop,tools,vout,ui,rec component
+```
+
+The agent loop depends only on interfaces (`typing.Protocol`s): where utterances come from, where
+sentences go, the LLM, the robot, the camera, the recorder. The same loop runs with the voice
+stack, with a terminal, or with the fakes the tests use.
+
+### Voice
+
+```mermaid
+flowchart TB
+    subgraph hearing ["Hearing"]
+        direction LR
+        mic([Microphone]) --> aec["Echo canceller<br/>[PipeWire, WebRTC AEC]"]
+        aec --> vad["Voice activity<br/>[Silero VAD]"]
+        vad --> turn["End of turn<br/>[smart-turn v3]"]
+        turn --> asr["Speech recognition<br/>[Parakeet TDT 0.6B]"]
+        asr --> echo["Echo filter<br/>drops her own words"]
+    end
+    loop([Agent loop])
+    subgraph speaking ["Speaking"]
+        direction LR
+        split["Sentence splitter"] --> tts["Speech synthesis<br/>[Kokoro-82M]"]
+        tts --> spk([Speaker])
+    end
+    hearing -- "utterances" --> loop
+    loop -- "LLM text, streamed" --> speaking
+    hearing -. "speech while she speaks:<br/>barge-in" .-> speaking
+```
+
+- **End of turn.** About 200 ms into a silence, smart-turn judges from the audio whether the
+  sentence is finished; if not, Lune keeps listening, up to 1.5 s of silence.
+- **Recognition on whole utterances.** The turn detector already says where an utterance ends,
+  so a streaming ASR model is not needed: Parakeet takes about 40 ms per utterance.
+- **Speaking early.** LLM tokens are cut into sentences, and each goes to Kokoro as soon as it is
+  complete while the previous one plays.
+- **Barge-in.** Speech while Lune talks stops the playback and the LLM stream, and the history
+  keeps only what was heard.
+- **Not interrupting herself.** With speakers, three layers keep Lune from hearing her own voice:
+  PipeWire subtracts what she plays from the microphone, a barge-in needs clearer and longer
+  speech while she talks, and a transcript repeating what she said in the last 2 s is dropped.
+
+### Vision
+
+```mermaid
+flowchart LR
+    cam([Camera]) --> det["Face detection<br/>[YuNet, GPU]"]
+    det --> emb["Face embedding<br/>[SFace, GPU]"]
+    det & emb --> trk["Tracker<br/>box overlap, then<br/>re-identification"]
+    trk --> gal["Gallery<br/>cosine match"]
+    db[("Face database")] <--> gal
+    trk -- "appeared, left" --> loop([Agent loop])
+    trk -- "boxes, names,<br/>last sentence" --> ff["ffmpeg<br/>H.264 over RTSP"]
+    ff --> mtx([MediaMTX])
+```
+
+- **Per frame**, 1920x1080 at up to 30 fps: YuNet finds faces in about 6 ms; faces too small to
+  be close are ignored. Each track gets an SFace embedding when it starts, then every second.
+- **Tracking.** A face keeps its track number across frames by box overlap, and across a quick
+  move or occlusion by embedding. It is announced after 0.5 s in view and said to have left after
+  3 s out of view.
+- **Recognition.** A track is someone when its embeddings match that person's closely enough and
+  clearly better than anyone else's. The largest face is taken as the person in front of the
+  robot, and as whoever is speaking.
+- **Memory.** The database is pseudonymous: people are user ids, names sit in a table of their
+  own, and embeddings, operators and admins refer to ids only. No image is stored.
+
+### Agent loop and tools
+
+```mermaid
+flowchart LR
+    utt([Utterances]) --> inbox
+    faces([People coming and going]) --> inbox
+    ends([Actions ending]) --> inbox
+    inbox[["Inbox<br/>one turn at a time"]] --> fixed{"Stop word or<br/>mute phrase?"}
+    fixed -- "yes" --> code["Handled in code:<br/>stop the body, mute, unmute"]
+    fixed -- "no" --> turn["LLM turn<br/>tagged with who speaks<br/>and what the body is doing"]
+    turn <--> llm([LLM server])
+    turn -- "sentences" --> speech([Voice output])
+    turn -- "tool calls" --> tools["Tools<br/>permissions checked in code"]
+    tools --> sup["Supervisors<br/>one body action at a time"]
+    sup <--> robot([Robot API])
+    sup -. "how it ended,<br/>in the first person" .-> ends
+```
+
+**Every body action is a long-running tool call.** It returns as soon as the action starts; the
+action can be asked about and cancelled, and its end comes back through the inbox for the LLM to
+react to. Lune keeps talking meanwhile. Actions that hold the body exclude each other, and a
+second one is refused rather than queued:
+
+| Part | Tools | Runs | Who may |
+|---|---|---|---|
+| Body | `start_task` (VLA), `go_to_location`, `go_to_human`, `play_animation` | One at a time | Operators for tasks and walking; anyone for gestures |
+| Body control | `stay`, `cancel_task`, `get_task_status` | Instant | Anyone |
+| Head | `look_at_user`, `stop_look_at_user` | Alongside the body | Anyone |
+| People | `who_is_here`, `remember_person`, `rename_person`, `forget_person`, `list_operators` | Instant | Anyone |
+| Permissions | `authorize_person`, `revoke_person` | Instant | Operators |
+
+- **Operators** are the admins, listed in a file of the machine, and the people an operator
+  authorized by voice. They are only obeyed while the camera recognizes them as the face in
+  front. The tools check this themselves, so a slip of the LLM cannot bypass it. Without a camera
+  nobody can be recognized, so anyone may make the robot act.
+- **What must always work is handled in code.** "Stop" stops the body, and "stop talking" mutes
+  Lune until an operator lets her talk again, without asking the LLM: as a tool, muting failed
+  in a real session.
+- **Guidance goes where the model reads it.** The LLM follows the text of a turn far more than
+  rules in its system prompt. So each user turn says who is speaking and what the body is busy
+  with; a person arriving in front of the robot comes with "greet them"; and an action's end is
+  told as Lune's own ("You could not pick up the red cup: the grasp slipped. Say it as your own
+  failure."). Replaying a real session, that last hint took replies like "the task failed" from
+  8 in 10 to none.
+- **Initiative.** Lune looks at people and gestures on her own, but starts tasks and walks only
+  when asked.
+- **History.** One session's messages, trimmed from the oldest when the context fills; the
+  system prompt always stays.
+
+### Session page
+
+```mermaid
+flowchart LR
+    parts([Agent components]) -- "records" --> srv["Session page server<br/>[FastAPI, in the agent process]"]
+    srv <-- "entries out, typed lines in<br/>[WebSocket]" --> page["Page<br/>[HTML, CSS, JavaScript]"]
+    mtx([MediaMTX]) -- "camera<br/>[WebRTC]" --> page
+    srv -- "typed lines" --> inbox([Agent inbox])
+```
+
+- **The agent is the only reporter.** The page is one more recorder: it gets the same entries as
+  the rerun recording, and a page opened mid-session first gets the whole session so far. The
+  agent follows the robot's own status streams, so what the page shows running is the robot's
+  real state.
+- **What it shows.** The camera with boxes, names and the last sentence under the speaker's
+  face; the conversation, sentence by sentence as Lune speaks, with each tool call and how
+  actions end; and the actions board, where whatever holds the body glows and the actions it
+  excludes are dimmed.
+- **Typed lines** join the microphone's and are attributed to the face in front, like speech.
+- **Plain HTML served by the agent**, rather than a Streamlit app: entries are pushed as they
+  happen, with no polling and nothing to build.
+
+### Robot API
+
+The mock serves what a real robot would: VLA tasks, and the body's motions and gaze. Every call
+is logged in its terminal.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /tasks`, `POST /tasks/{id}/cancel`, `GET /tasks/{id}` | Start a VLA task from an instruction, cancel it, read it; 409 while the body is busy |
+| `WS /events` | Task status changes: running, succeeded, failed (with a cause and a reason), cancelled |
+| `POST /body/motions`, `POST /body/motions/{id}/cancel`, `POST /body/stay` | Walk to a place or a person, play an animation, stop |
+| `PUT`, `DELETE /body/gaze`; `GET /body/state` | Follow a person with the gaze, or stop; what the body is doing |
+| `WS /body/events` | Motion status changes |
+
+Tasks take 5 s to 2 min, walking 5 to 30 s, animations 2 to 8 s, and some fail or time out at
+random. With `--interactive`, typing `s`, `f <reason>` or `t` ends the running action instead.
 
 ## A turn, end to end
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor U as User
-    participant V as voice packages
+    actor U as Person
+    participant V as Voice
     participant A as Agent loop
-    participant L as llama-server
-    participant M as VLA manager
-    participant R as VLA (mock)
+    participant L as LLM server
+    participant S as Supervisor
+    participant R as Robot API
 
     U->>V: "Could you put the cup on the shelf?"
-    V->>V: VAD + smart-turn decide the turn ended
-    V->>A: UserUtterance (ASR text)
-    A->>L: chat.completions (stream, tools)
-    L-->>A: "Sure, on it." + tool_call start_task("put the cup on the shelf")
-    A->>V: "Sure, on it." (sentence by sentence to TTS)
-    A->>M: start_task
-    M->>R: POST /tasks
-    R-->>M: task id
-    A->>L: tool result {status: running}
-    Note over U,A: The robot body is busy, the conversation is not
+    V->>A: utterance, once the turn has ended
+    A->>L: turn, tagged [Alice, track 3]
+    L-->>A: "Sure." and start_task("put the cup on the shelf")
+    A->>V: "Sure."
+    A->>S: start the task
+    S->>R: POST /tasks
+    Note over U,R: The body is busy, the conversation is not
     U->>V: "What's your name?"
-    V->>A: UserUtterance
-    A->>L: chat.completions
+    V->>A: utterance
+    A->>L: turn, tagged (Your body is busy: put the cup on the shelf.)
     L-->>A: "I'm Lune."
-    A->>V: speak
-    R-->>M: WS event: succeeded
-    M->>A: VlaEvent(succeeded), queued until the user is not speaking
-    A->>L: chat.completions with the event as a system message
+    A->>V: "I'm Lune."
+    R-->>S: succeeded
+    S->>A: "You managed to put the cup on the shelf."
+    A->>L: turn with the event
     L-->>A: "The cup is on the shelf."
-    A->>V: speak
+    A->>V: "The cup is on the shelf."
 ```
 
-## Runtime behaviour
+## 4. Code
 
-**One agent loop, one inbox.** The agent consumes a single asyncio queue of user utterances and VLA events, one turn at a time, so the history is never written by two turns at once. VLA events that arrive while the user is speaking wait until the turn is over.
-
-**VLA tasks are concurrent with dialogue.** `start_task` returns as soon as the VLA accepts the task. The VLA manager watches the status stream and posts the final status to the inbox. The LLM then decides what to say and whether to chain the next step of a longer plan ("clear the table" becomes several short VLA commands, each started when the previous one succeeds).
-
-**Every body tool is a long-running action.** It returns as soon as the action starts; its status can be asked, it can be cancelled, and its end reaches the agent as an event the LLM reacts to. A VLA task is one such action; walking (`go_to_location`, `go_to_human`) and animations (`play_animation`) are others, from the body API. They all hold the body, so only one runs at a time: starting another is refused until it ends or is stopped (`cancel_task`, `stay`). Looking at someone (`look_at_user`) holds the head only and runs alongside, until walking starts or `stop_look_at_user`. There is no queue. Walking needs an operator in front of the robot, like tasks; gestures, looking and `stay` are open to everyone. A finished walk or a failed action starts an LLM turn; a finished animation does not.
-
-**Initiative.** The robot gestures and looks at people on its own: it looks at whoever comes into view or talks to it, follows the speaker when they change, and waves hello and goodbye. Tasks and walking only ever answer a request. A prompt section alone did not get the model to act unasked (it asked "would you like me to dance?" instead), so the event of a person coming into view in front of the robot also says "Greet them: look at them and wave."
-
-**Muting.** Phrases such as "stop talking" or "be quiet" mute the robot, and "you can talk again" unmutes it. They are matched in code as whole words anywhere in what was said (`mute_phrases`, `unmute_phrases` in `runtime.yaml`), like the stop word, because leaving it to the LLM to call a tool failed in a real session: it said "Okay" and never muted. The robot answers a fixed "Okay." and goes silent; while muted, whatever text the LLM produces is dropped before reaching the speaker and is not kept in the history, and each user turn reminds it that it is muted. It still listens, gestures and runs what it is asked. Anyone can mute it, but only an operator in front of it can unmute it (anyone, without a camera).
-
-**Results in the first person.** The end of a task or motion reaches the LLM as the robot's own action: "You managed to pick up the red cup.", "You could not gather the cables on the workbench: the grasp slipped." Failures and timeouts add "Say it as your own failure, like "I couldn't ..."; never call it a task." Replaying a real 45-message session, the robot otherwise said "the task to gather the cables failed" in 8 of 10 replies, against 0 of 10 with the hint.
-
-**Busy state in each turn.** While a task or motion runs, each user turn reaches the LLM prefixed with it (`(Your body is busy: pick up the red cup.) [Alice, track 5] Can you open the drawer?`), so it does not promise a second action before finding out the body is busy.
-
-**Who is speaking.** With a camera, each user turn reaches the LLM tagged with whoever was in front when it was said (`[Alice, track 5] Go to the workbench`), so it answers the right person after someone else steps in. Face events carry user ids, which the tools that walk to or look at someone take.
-
-**Who may make the robot act.** Only operators may start tasks, and only while the camera recognizes them as the nearest face. Operators are the admins, whose user ids are listed in a file of the machine (`admins` in `runtime.yaml`, by default `~/.config/robot-voice-agent/admins.yaml`, outside the source tree like the face database the ids refer to), and the people an operator authorized by voice (`authorize_person`), kept in the face database's `operators` table with who granted them and when. An operator in front of the robot can revoke a granted operator by voice (`revoke_person`), but never an admin. Everyone else can talk with the robot, which declines their physical requests. The tools enforce all of this themselves (`ActionPermission`), so a slip of the LLM cannot bypass it, and face events tell the LLM up front whether a person is an operator so it declines instead of trying. Stopping is open to everyone: the stop word and `cancel_task` are not gated. Without a camera nobody can be recognized, so anyone may make the robot act.
-
-**Correcting a name.** `rename_person` keeps the user id, the face samples and the operator status. Its first call only returns the spelling for the robot to read back; the rename happens when it is called again with the same name, after the person confirmed. Names are often misheard, and forgetting then re-remembering a person used to give them a new id and lose their operator status.
-
-**Stop word.** If a transcript is just "stop", "freeze", "halt" or similar, the VLA manager cancels the active task directly, before the LLM sees anything. The LLM is then told it happened.
-
-**Barge-in.** While the robot is speaking, speech detected by the VAD stops playback, cancels the LLM stream, and trims the last assistant message to what was actually said. Three layers keep the robot from interrupting itself through the speakers:
-- PipeWire's WebRTC echo canceller (`config/pipewire/60-rva-echo-cancel.conf`): the robot plays into `rva_ec_sink` and listens on `rva_ec_source`, from which its own voice is subtracted.
-- While the robot speaks, a barge-in needs clearer and longer speech (`barge_in_threshold`, `barge_in_min_speech_ms`).
-- A transcript that mostly repeats what the robot said in the last 2 s is dropped as its own echo (`RobotSpeech`, `echo_window_ms`).
-
-**Turn detection.** About 200 ms after the VAD hears silence, smart-turn v3 judges from the audio whether the user has finished. If it says no, we keep listening, up to a hard 1.5 s silence cutoff. All thresholds live in `runtime.yaml`.
-
-**Streaming to TTS.** LLM tokens are cut into sentences and each sentence goes to TTS as soon as it is complete, so the robot starts speaking before the LLM has finished.
-
-**History.** Only the current session is kept. When the context fills, the oldest turns are dropped (the system prompt is always kept).
-
-**Wake word.** Off by default; the robot listens all the time. openWakeWord can be turned on in `runtime.yaml`.
-
-**People.** With a camera, faces that stay in view for 0.5 s are announced to the agent and faces out of view for 3 s are said to have left. An appearance starts a turn, so the robot can greet a known person by name or ask the nearest unknown person theirs; a departure only goes into the history. A known person coming back within 5 minutes of leaving is not greeted again. See [Vision](#vision).
-
-**Text mode.** `rva text` swaps the voice packages for a terminal `UserInput` and `SpeechOutput`, and TTS is optional. Use it to work on prompts and tools, and for scripted tests.
-
-## Models
-
-| Task | Model | Runtime | Device | Approx. VRAM |
-|---|---|---|---|---|
-| Echo cancellation | WebRTC AEC | PipeWire `module-echo-cancel` | CPU | — |
-| Voice activity | Silero VAD v5 | onnxruntime | CPU | — |
-| End of turn | smart-turn v3 (Pipecat) | onnxruntime | CPU | — |
-| Speech to text | Parakeet TDT 0.6B v2 (English) | onnx-asr | GPU | ~2 GB |
-| Dialogue and tools | Qwen3.5-35B-A3B, Q4_K_M GGUF | llama.cpp `llama-server --jinja` | GPU, some experts on CPU | ≤ 16 GB |
-| Text to speech | Kokoro-82M | kokoro-onnx | GPU | ~1 GB |
-| Wake word (optional) | openWakeWord | onnxruntime | CPU | — |
-| Face detection | YuNet 2023mar (opencv_zoo), 232 KB | onnxruntime-gpu | GPU | < 0.5 GB with SFace |
-| Face embeddings | SFace 2021dec (opencv_zoo), 38.7 MB | onnxruntime-gpu | GPU | (above) |
-
-**LLM.** Qwen3.5-35B-A3B is a mixture-of-experts model with about 3B parameters active per token, so it generates much faster than a dense 27B model of similar quality. At Q4_K_M it is about 20 GB, more than fits beside ASR and TTS, so `--n-cpu-moe` keeps some expert layers in system RAM and the 7950X3D runs them. Tune that number until the LLM fits in about 16 GB, and keep context around 16k tokens. Thinking mode is off: these are short dialogue turns and latency matters more. The harness only talks to the OpenAI-compatible endpoint, so another model is a config change.
-
-**ASR.** VAD already decides where an utterance ends, so we do not need a streaming model: Parakeet on a whole utterance takes about 30–60 ms on the 4090 and is among the most accurate English models. NVIDIA's Nemotron Speech Streaming 0.6B is the upgrade path if we later want partial transcripts, but it pulls in NeMo and torch.
-
-**TTS.** Kokoro is far faster than real time, sounds good in English, ships several preset voices and is Apache-licensed. It cannot clone a voice. The `TTS` interface lets Chatterbox-Turbo (500M, voice cloning) replace it later if the robot needs a specific voice.
-
-**Latency target.** Under 1 s from the end of speech to the first audio, 1.5 s at most. Rough budget: 200 ms end-of-turn wait, 50 ms ASR, 300–500 ms to the LLM's first sentence, 100 ms TTS for the first sentence.
-
-## Packages
-
-The repository is one uv workspace. Each domain has a `schemas` package with its data types and its interfaces (`typing.Protocol`s in `abc/`), and implementations sit in sibling packages that depend on the schemas, never on each other. Only `rva-app` imports implementations; it is the composition root.
+The repository is one uv workspace. Each domain has a schemas package with its data types and its
+interfaces, and implementations depend on the schemas, never on each other. Only `rva-app`
+imports implementations: it is the composition root.
 
 ```mermaid
 flowchart BT
-    PYD["rva-pydantic<br/>common/pydantic"]
-    VLAS["rva-vla-schemas<br/>vla/schemas"]
-    SCH["rva-schemas<br/>schemas"]
-    VLAC["rva-vla-client<br/>vla/client"]
-    MOCK["rva-vla-mock<br/>vla/mock"]
-    AGENT["rva-agent<br/>agent"]
-    LLM["rva-llm<br/>llm"]
-    AUD["rva-voice-audio<br/>voice/audio"]
-    ASR["rva-voice-asr<br/>voice/asr"]
-    TTS["rva-voice-tts<br/>voice/tts"]
-    OBS["rva-observability<br/>common/observability"]
-    VIS["rva-vision-faces<br/>vision/faces"]
-    UI["rva-ui<br/>ui"]
-    APP["rva-app<br/>app"]
-    VLAS --> PYD
-    SCH --> VLAS
+    PYD["rva-pydantic"]
+    VLAS["rva-vla-schemas"]
+    BODYS["rva-body-schemas"]
+    SCH["rva-schemas"]
+    VLAC["rva-vla-client"]
+    BODYC["rva-body-client"]
+    MOCK["rva-vla-mock"]
+    AGENT["rva-agent"]
+    LLM["rva-llm"]
+    AUD["rva-voice-audio"]
+    ASR["rva-voice-asr"]
+    TTS["rva-voice-tts"]
+    VIS["rva-vision-faces"]
+    UI["rva-ui"]
+    OBS["rva-observability"]
+    APP["rva-app"]
+    VLAS & BODYS --> PYD
+    SCH --> VLAS & BODYS
     VLAC --> VLAS
-    MOCK --> VLAS
-    AGENT --> SCH
-    LLM --> SCH
-    AUD --> SCH
-    ASR --> SCH
-    TTS --> SCH
-    OBS --> SCH
-    VIS --> SCH
-    UI --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & OBS & VLAC & VIS & UI
+    BODYC --> BODYS
+    MOCK --> VLAS & BODYS
+    AGENT & LLM & AUD & ASR & TTS & VIS & UI & OBS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & UI & OBS & VLAC & BODYC
 ```
 
-| Package | Contents | Heavy dependencies |
-|---|---|---|
-| `rva-pydantic` | `RVABaseModel` (frozen, `extra="forbid"`, attribute docstrings), `load_yaml` | — |
-| `rva-vla-schemas` | `TaskRequest`, `Task`, `TaskStatus` (running, succeeded, failed with a reason, cancelled), `TaskEvent`, errors; `abc.VlaClient` | — |
-| `rva-schemas` | `AudioClip`; dialogue messages, `ToolCall`, `ToolSpec`, `UserUtterance`, `Spoken`; `Record` entries; `Profile` models; `TrackedFace`, `KnownPerson`, `FaceAppeared`, `FaceLeft`. Interfaces in `abc/`: `UserInput`, `SpeechOutput`, `SpeechRecognizer`, `SpeechSynthesizer`, `LanguageModel`, `Recorder`, `Vision` | numpy |
-| `rva-agent` | Dialogue loop, history, system prompt, tools, task supervisor, stop word | — |
-| `rva-llm` | `LanguageModel` over the OpenAI API; llama-server launch settings | openai |
-| `rva-voice-audio` | Mic and speaker, Silero VAD, smart-turn, barge-in; implements `UserInput` and `SpeechOutput` from a `SpeechRecognizer` and a `SpeechSynthesizer` | onnxruntime-gpu, sounddevice |
-| `rva-voice-asr` | Parakeet `SpeechRecognizer` | onnx-asr |
-| `rva-voice-tts` | Kokoro `SpeechSynthesizer` | kokoro-onnx |
-| `rva-observability` | loguru sinks, OpenTelemetry setup, span-to-rerun processor, rerun `Recorder` | rerun-sdk, opentelemetry-sdk |
-| `rva-vision-faces` | Camera, YuNet detector, SFace embedder, tracker, gallery, SQLite face database, debug window; implements `Vision` | onnxruntime-gpu, opencv-python, onnx |
-| `rva-vla-client` | HTTP + WebSocket `VlaClient` | httpx, websockets |
-| `rva-vla-mock` | FastAPI mock of the robot (VLA and body) and terminal mode | fastapi, uvicorn |
-| `rva-body-schemas` | Motions (walking, animations), gaze, their statuses, and the `BodyClient` interface | — |
-| `rva-body-client` | HTTP + WebSocket `BodyClient` | httpx, websockets |
-| `rva-ui` | Session page (FastAPI, WebSocket, static HTML/JS); implements `Recorder` and `UserInput`; MediaMTX launch settings | fastapi, uvicorn |
-| `rva-app` | cyclopts CLI, runtime config, terminal `UserInput`/`SpeechOutput` for text mode | — |
-
-### Interfaces the agent sees
-
-The agent depends on five Protocols and nothing concrete, so it runs the same with the voice stack, the terminal, or test fakes:
-
-```python
-class UserInput(Protocol):
-    def utterances(self) -> AsyncIterator[UserUtterance]: ...
-
-
-class SpeechOutput(Protocol):
-    async def say(
-        self, sentences: AsyncIterator[str]
-    ) -> Spoken: ...  # Spoken.interrupted on barge-in
-
-
-class LanguageModel(Protocol):
-    def stream(
-        self, messages: Sequence[Message], tools: Sequence[ToolSpec]
-    ) -> AsyncIterator[TextDelta | ToolCall]: ...
-
-
-class VlaClient(Protocol):
-    async def start(self, request: TaskRequest) -> Task: ...  # raises VlaBusyError
-    async def cancel(self, task_id: UUID) -> Task: ...
-    async def get(self, task_id: UUID) -> Task: ...
-    def events(self) -> AbstractAsyncContextManager[AsyncIterator[TaskEvent]]: ...  # subscription
-
-
-class Recorder(Protocol):
-    def record(self, entry: Record) -> None: ...
-```
-
-Barge-in stays inside `SpeechOutput.say`: it stops consuming the sentence stream, which in turn stops the LLM stream, and returns what was actually heard so the agent can trim its history. VLA status events become `RobotEventMessage`s in the history; each `LanguageModel` implementation decides how to render them, since chat templates differ on where system messages are allowed.
-
-### Inside rva-agent
-
-| Module | Responsibility |
+| Package | Contents |
 |---|---|
-| `prompt` | Render the system prompt from `Profile` with Jinja |
-| `history` | Message list, trimming to the context budget, truncation after barge-in |
-| `tools` | `start_task`, `cancel_task`, `get_task_status`: pydantic argument models, `ToolSpec` generation, dispatch |
-| `people` | `remember_person`, `who_is_here`, `forget_person`, over `Vision`; only offered when there is a camera |
-| `tasks` | Task supervisor: one active task, watches `VlaClient.events`, stop-word cancel |
-| `loop` | The agent: one inbox of utterances and task events, one turn at a time |
+| `rva-schemas` | Shared data types (dialogue, profile, faces, records) and the agent's interfaces |
+| `rva-vla-schemas`, `rva-body-schemas` | The robot API's data types and client interfaces |
+| `rva-agent` | Agent loop, history, system prompt, tools, supervisors, permissions |
+| `rva-llm` | The LLM client over the OpenAI API, and llama-server's launch settings |
+| `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
+| `rva-vision-faces` | Camera, detection, tracking, recognition, face database, camera stream |
+| `rva-ui` | Session page server and page; MediaMTX's launch settings |
+| `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |
+| `rva-vla-client`, `rva-body-client` | HTTP and WebSocket clients of the robot API |
+| `rva-vla-mock` | The mock robot |
+| `rva-app` | Command line, runtime configuration, wiring |
 
-## Vision
+[AGENTS.md](../AGENTS.md) lists the conventions the code follows.
 
-`rva-vision-faces` watches the camera in a thread of its own and implements the `Vision` Protocol:
+## Models
 
-```python
-class Vision(Protocol):
-    def events(self) -> AbstractAsyncContextManager[AsyncIterator[FaceEvent]]: ...  # subscription
-    def faces(self) -> tuple[TrackedFace, ...]: ...
-    async def remember(
-        self, track_id: int, name: str
-    ) -> Remembered: ...  # raises UnknownTrackError
-    async def forget(self, name: str) -> KnownPerson: ...  # raises UnknownPersonError
-```
-
-**Per frame.** The C920 gives 1920x1080 MJPG. YuNet runs on the whole frame in onnxruntime with CUDA (`device: cpu` in `runtime.yaml` moves both models to the CPU; there is no silent fallback). The opencv_zoo export fixes its input to 640x640, so the input dims are made dynamic when the model loads, and the anchor decoding and non-maximum suppression that `cv2.FaceDetectorYN` would do are in `detector.py`. Faces shorter than 12% of the frame are ignored as too far away. pip's OpenCV has no CUDA, so OpenCV only captures, aligns, draws and shows.
-
-**Tracking.** A detection continues the track whose last box it overlaps most (IoU ≥ 0.3). One that overlaps none is compared by embedding with the announced tracks that did not find their face in this frame, so a face keeps its track number across a fast move or a short occlusion; otherwise it starts a new track. A new track must be seen on every frame for 0.5 s to be announced (`FaceAppeared`); an announced track is said to have left after 3 s out of sight (`FaceLeft`). Each track gets an SFace embedding when it starts and then every second, and keeps the last 5.
-
-**Recognition.** A track is someone when the best cosine similarity between its samples and that person's is at least 0.363 (OpenCV's value for SFace) and beats the next person by 0.05; otherwise it is unknown. Two tracks in view never get the same person: the better score wins. The nearest person is the largest face in view; there is no active speaker detection.
-
-**Memory.** Names and embeddings live in a SQLite file, `~/.local/share/robot-voice-agent/faces.sqlite3`. Users are pseudonymous: the `users` table holds only ids, `names` maps an id to a name, and `embeddings`, `operators` and the profile's admin list refer to ids only, so names can be removed without touching identities or faces (embeddings are 128 float32 per row, at most 10 per person). It is loaded into memory and matched with numpy; each change is one transaction followed by a reload. `remember` stores the track's latest samples under the name, creating the person if the name is new; a face recognized as someone else is moved to the new name, and the result says who it was taken for. A misheard name is fixed by forgetting it and remembering again. No image is stored, and no frame goes to the rerun recording.
-
-**What the LLM sees.** Events become `RobotEventMessage`s: "Alice is in view (track 7, nearest).", "An unknown person is in view (track 8).", "Alice left (track 7).". The system prompt section *People around you* tells it to greet known people, ask the nearest unknown person their name once, stay quiet for others or mid-conversation, and call `remember_person(track_id, name)` only with a name it was told.
-
-**Measured** on the 4090 and 7950X3D at 1920x1080: detection about 5.6 ms per frame including the upload, an SFace embedding well under 1 ms, so the loop follows the camera (24 fps in the room's light, 30 fps at most). `rva see` shows these figures over the image; they are also logged every 5 s and recorded as `vision:capture`, `vision:detect` and `vision:embed` spans.
-
-## Mock robot API
-
-The mock serves the VLA and the body side by side.
-
-| Method | Path | Purpose |
+| Task | Model | Runs on |
 |---|---|---|
-| `POST` | `/tasks` | Start a task from `{"instruction": "pick up the red cup"}`. 201 with the `Task`; 409 with the running `Task` if the VLA is busy. |
-| `GET` | `/tasks/{id}` | The `Task` with its current status. 404 if unknown. |
-| `POST` | `/tasks/{id}/cancel` | Cancel the task if it is running; otherwise return it unchanged. 404 if unknown. |
-| `WS` | `/events` | One JSON `TaskEvent` per message: `running`, `succeeded`, `failed` with a cause (`timeout` or `error`) and a reason, `cancelled`. |
-| `POST` | `/body/motions` | Start a motion: `{"action": {"kind": "go_to_location", "location": "shelf"}}`, `go_to_human` with a `user_id`, or `animation`. 409 with what the body is busy with, including a VLA task. |
-| `POST` | `/body/motions/{id}/cancel` | Cancel a motion. |
-| `POST` | `/body/stay` | Stop the running motion, if any. |
-| `PUT`, `DELETE` | `/body/gaze` | Start looking at `{"user_id": ...}`, or stop. |
-| `GET` | `/body/state` | The running motion and who the robot looks at. |
-| `WS` | `/body/events` | One JSON `MotionEvent` per message, with the same statuses as tasks. |
+| Voice activity | Silero VAD v6.2 | CPU |
+| End of turn | smart-turn v3 | CPU |
+| Speech recognition | Parakeet TDT 0.6B v2, English | GPU, about 2 GB |
+| Dialogue and tools | Qwen3.5-35B-A3B, Q4_K_M | GPU, about 16 GB; some expert layers on the CPU |
+| Speech synthesis | Kokoro-82M, voice `af_heart` | GPU, about 1 GB |
+| Face detection and embeddings | YuNet, SFace | GPU, under 0.5 GB |
 
-`VlaClient.events()` is a subscription context rather than a bare iterator: every event emitted after entering it is delivered. The server subscribes before accepting the WebSocket handshake, so once the client is connected it cannot miss the start of a task. The agent enters it once per session, before starting any task.
+**Why a cascade.** Speech-to-speech models such as Kyutai's Moshi reason over audio: they have no
+text history to edit, no tool calls and no system prompt of your own, which an agent driving a
+robot needs.
 
-The mock is a `TaskRunner` (which itself implements `VlaClient`, so text mode and agent tests can use it in process) plus an outcome policy:
-
-- **Random** (default): each task lasts between `--min-duration` and `--max-duration` seconds (5 s to 2 min). Past `--timeout` (90 s) it fails as timed out; otherwise it fails with probability `--failure-rate`, with a plausible reason. Walking (5 to 30 s) and animations (2 to 8 s) behave the same with their own durations. `--seed` makes runs reproducible.
-- **Interactive** (`--interactive`): the same random outcomes, but a command typed in the mock's terminal ends the running task or motion first: `s` to succeed, `f [reason]` to fail, `t` to time out. A command typed while nothing runs ends the next one.
-
-Every call is logged in the mock's terminal, which is where to watch what the LLM decides. `BodyMock` implements `BodyClient` in process, like `TaskRunner` for the VLA.
-
-`HttpVlaClient` in `rva-vla-client` maps 409 to `VlaBusyError` and 404 to `UnknownTaskError`.
-
-## Robot profile
-
-A profile is a directory, chosen with `--profile config/<name>`. Each file is checked by its own pydantic model when it loads.
-
-```
-config/default/
-  character.yaml      name, personality, speaking style, verbosity
-  environment.yaml    location, places, objects, people
-  capabilities.yaml   VLA skills with example commands, constraints
-  runtime.yaml        endpoints, llama-server settings, audio devices,
-                      VAD and turn thresholds, telemetry sinks
-```
-
-The first three are the robot's story; `runtime.yaml` is the machine. What the robot learns or records lives outside the source tree, at paths `runtime.yaml` sets: the admins' user ids (`~/.config/robot-voice-agent/admins.yaml`, started from `config/admins.example.yaml`; without it there are no admins), the face database with its operators (`~/.local/share/robot-voice-agent/faces.sqlite3`) and the session recordings and logs (`~/Captures/robot-voice-agent/`). The system prompt is a Jinja template filled from the first three. `capabilities.yaml` matters most: the VLA was trained on certain phrasings, and the LLM should send tasks phrased the same way.
-
-## Session page
-
-`rva run --ui` (or `rva text --ui`) serves a page on <http://127.0.0.1:8700> to present a session: the camera with the tracked faces on the left, the actions board under it, and the conversation on the right, with a box to type to the robot.
-
-**Only the agent reports to it.** The page is one more `Recorder`: every entry goes to rerun and to each open page over a WebSocket, as JSON of the same pydantic models, and a page opened or reloaded mid-session first gets the whole session so far. The agent follows the robot's own task and motion streams, so what the page shows running is the robot's real state, and it alone knows the conversation, the tool calls and who is in view. For the page to show actions live, the supervisors record each task and motion when it starts and as soon as it ends (not when the inbox gets to it), the body supervisor records gaze changes, and the agent records muting and, at start, the tools it offers.
-
-**Conversation.** User lines carry who said them: the face in front at the time, with their name and whether they are an operator. The robot's words appear sentence by sentence as each starts playing (the voice output records it when the sentence's first clip plays, since it synthesizes ahead); the whole reply then replaces them with what was heard, marked "cut off" after a barge-in. Tool calls show their arguments and a short result; a click shows the whole result as the LLM got it. Ends of actions, people coming and going, and muting are lines of their own.
-
-**Actions board.** The tools the agent offers, grouped by the part of the robot they use: the body (a VLA task, walking, a gesture: one at a time; while one runs it glows with what it does and for how long, and the others are dimmed as waiting for the body), the head (gaze, alongside), the voice (speaking, hearing, muted) and people (memory and permissions, instant). Operator-only tools are marked. A tool flashes green or red when called.
-
-**Typed lines** join the microphone's utterances and go through the same path, so they are attributed to the face in front of the camera, the same as speech.
-
-**Camera.** With `--ui`, the vision thread draws the boxes, names and the speaker's last sentence on each frame, as in the debug window, and pipes it to an `ffmpeg` process that encodes it in H.264 (libx264, baseline profile so no B-frames, a keyframe every 30 frames) and publishes it over RTSP to MediaMTX (`rva serve-video`, in Docker). The page plays MediaMTX's WebRTC page for that stream in an iframe, with well under a second of delay. Each frame is stamped when it reaches ffmpeg, since the loop's frame rate varies.
-
-**Why not Streamlit.** It would run in a separate process, so the agent would have to expose its records anyway, and it redraws by rerunning its script, which suits polling, not entries pushed as they happen. The page is plain HTML, CSS and JavaScript, served by FastAPI from the agent's process, with nothing to build and no network access needed.
+**Why this LLM.** Qwen3.5-35B-A3B is a mixture of experts with about 3B parameters active per
+token, so it answers much faster than a dense model of similar quality. It does not fit beside
+the voice models at Q4_K_M, so llama.cpp keeps some expert layers in system RAM, run by the CPU.
+Thinking is off: the turns are short and latency matters more.
 
 ## Observability
 
-Each session writes to `~/Captures/robot-voice-agent/<timestamp>/`:
+Each session gets a directory under `~/Captures/robot-voice-agent/`, with a rerun recording and
+the log. The recording holds the dialogue, every tool call, the actions as they start and end,
+people coming and going, and the boxes of every tracked face, with `--video` the camera frames
+under them. Durations are OpenTelemetry spans, drawn as plots in the same recording: each turn,
+the LLM call with its time to the first text, the speech with its time to the first audio, ASR,
+each tool, and the vision steps.
 
-```
-session.rrd   rerun recording
-mic.wav       microphone after echo cancellation
-tts.wav       everything the robot said
-agent.log     loguru log
-```
+## Measured
 
-**Timings** are OpenTelemetry spans. One trace per user turn, with child spans `vad_endpoint`, `asr`, `llm_ttft`, `llm_total`, `tool:<name>`, `tts_first_audio` and `playback`, plus one span per VLA task from start to final status. A custom span processor writes each finished span to rerun. Export to an OTLP backend such as Jaeger is off by default and turned on in `runtime.yaml`.
+On the RTX 4090 and a Ryzen 9 7950X3D:
 
-**Rerun entities**, on a wall-clock timeline plus a `turn` counter:
-
-| Entity | Content |
-|---|---|
-| `/dialogue/user`, `/dialogue/robot` | what was heard, tagged with who said it, and what was said (TextLog) |
-| `/dialogue/robot/sentences` | each sentence when it starts playing (TextLog) |
-| `/agent/started`, `/agent/muted` | the tools offered, and muting (TextLog) |
-| `/body/motion`, `/body/gaze` | walking and animations as they start and end, and who the robot looks at (TextLog) |
-| `/agent/llm` | messages and tool calls (TextLog) |
-| `/vla/task` | tasks as they start and end (TextLog) |
-| `/latency/<stage>` | per-stage duration (Scalars) |
-| `/audio/vad` | speech probability (Scalars), for tuning thresholds |
-| `/camera/faces` | every tracked face of every frame (Boxes2D), labeled with track, name and user id, and for 6 s with what that person said; green known, orange unknown, grey not yet confirmed |
-| `/camera/image` | with `--video`: the camera frames, scaled to 960 px wide and JPEG-compressed (EncodedImage), under the boxes; about 100 MB per minute |
-| `/vision/faces` | faces appearing and leaving, with their box and person (TextLog) |
-
-Rerun has no audio type, so the WAV files sit next to the recording and their start times are logged in rerun to line them up. `rva run --viewer` also streams to a live rerun viewer.
-
-## Libraries
-
-OpenCV and onnxruntime for vision, SQLite (standard library) for the face memory, pydantic for every schema (events, config, tool arguments, VLA API; tool JSON schemas are generated from the pydantic models), cyclopts for the CLI, loguru for logs, `openai` as the LLM client, rerun-sdk and opentelemetry-sdk for observability, FastAPI and httpx/websockets for the VLA API and the session page, sounddevice for audio I/O, ffmpeg and MediaMTX to stream the camera to the page.
-
-## Commands
-
-Each part runs on its own, so it can be tried by hand before the whole loop:
-
-| Command | What it runs | Status |
-|---|---|---|
-| `rva prompt` | Prints the system prompt rendered from the profile | done |
-| `rva serve-llm` | llama-server in the foreground with `runtime.yaml`'s settings | done |
-| `rva serve-video` | MediaMTX in Docker in the foreground, for the camera on the session page | done |
-| `rva llm` | Chat with the LLM alone; tool calls are shown, not run | done |
-| `rva-vla-mock [--interactive]` | The mock robot: VLA tasks, walking, animations and gaze, all logged; interactive mode also ends each action from typed `s`, `f [reason]` or `t` | done |
-| `rva text [--viewer] [--no-camera] [--show] [--video] [--ui]` | The whole agent in the terminal, against llama-server and the VLA endpoint, with the camera unless `--no-camera`; `--show` opens the vision window too, `--video` records the camera frames, `--ui` serves the session page | done |
-| `rva see [--viewer] [--video] [--stream]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal and prints its user id, `q` quits; `--stream` also publishes the image to MediaMTX, to watch on its WebRTC page | done |
-| `rva people` | Lists the user id and name of everyone known, marking admins and operators | done |
-| `rva listen [--viewer]` | Mic → VAD → end of turn → ASR, printing each transcript and its delay; `--viewer` plots the VAD probability | done |
-| `rva say [--voice NAME]` | Typed sentences → TTS → speaker | done |
-| `rva run [--viewer] [--no-camera] [--show] [--video] [--ui]` | The whole voice agent, with the camera unless `--no-camera`; what the user says appears under their face's box in the window, and in its label in rerun; `--ui` serves the session page | done |
-
-All commands take `--profile config/<name>` (default `config/default`).
-
-## Measured so far
-
-On the RTX 4090, with Qwen3.5-35B-A3B Q4_K_M, `n_cpu_moe: 12` and a 16k context:
-
-- llama-server uses about 16 GB of VRAM and loads in about 1.3 s once the file is in the page cache.
-- Generation: about 120 tokens/s.
-- Time to the first token: 110–175 ms; to the first complete sentence: 180–330 ms, with the system prompt already cached.
-
-Voice, with every model loaded beside llama-server:
-
-- GPU memory for the whole stack: 21.0 GB of 24 GB (LLM 16 GB, Parakeet, Kokoro and CUDA contexts the rest). Startup takes about 2 s once files are cached.
-- Parakeet: about 40 ms per utterance. Kokoro: about 100 ms per sentence. smart-turn: about 35 ms on CPU.
-- End of the user's speech to the robot's first audio: 716, 726 and 859 ms on three turns. The test feeds Kokoro-synthesized questions to `VoiceInput` in real time and plays the replies on the speaker. ASR and TTS are warmed up at startup; without that the first turn took 1.34 s.
-- The numpy Whisper features fed to smart-turn match Hugging Face's `WhisperFeatureExtractor` to within 2e-6.
-
-Self-interruption, measured by speaking a five-sentence paragraph through the speakers while listening: with the default devices the robot cut itself off in its first sentence and heard its own "Hello" as a user turn; with echo cancellation, alone or with the safeguards, it finished all five sentences with no barge-in and no turn heard.
-
-Not measured yet: barge-in with a real voice over the echo-cancelled microphone, and how smart-turn handles real mid-sentence pauses (synthesized fragments end with a falling intonation, which it reads as complete).
+- From the end of the user's speech to Lune's first audio: 0.72 to 0.86 s.
+- LLM: about 120 tokens/s; first token in 110 to 175 ms, first sentence in 180 to 330 ms.
+- Parakeet about 40 ms per utterance, Kokoro about 100 ms per sentence, smart-turn about 35 ms.
+- GPU memory for the whole stack: 21 of 24 GB.
+- Vision: about 6 ms per frame for detection, so it follows the camera at 24 to 30 fps.
+- Through the speakers with echo cancellation, Lune finished a five-sentence paragraph without
+  interrupting herself; without it, she cut herself off in the first sentence.

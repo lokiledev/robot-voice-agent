@@ -1,34 +1,74 @@
-# robot-voice-agent
+# Lune
 
-Local voice agent for a humanoid robot: listens to the user, reasons with a local LLM, talks back, and sends short-horizon natural-language tasks to the robot's VLA policy.
+**A fully local, multimodal agent for a humanoid robot, that knows who may give it orders.**
 
-Everything runs on this machine (RTX 4090, 64 GB RAM). Nothing calls a cloud API.
+Lune hears and sees the people around her, answers out loud in under a second, and acts in the
+world through the robot's skills, but only for the people she recognizes and trusts. Every model
+runs locally, on one PC with a single GPU.
 
-- Design and measurements: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Conventions and package layout: [AGENTS.md](AGENTS.md)
-- Robot profiles: [config/](config/)
+## Why it's interesting
 
-## Setup
+- **Everything runs locally.** The LLM (Qwen3.5-35B-A3B in llama.cpp), speech recognition
+  (Parakeet), speech synthesis (Kokoro), turn-taking (Silero VAD, smart-turn) and face
+  recognition (YuNet, SFace) all run on one PC with a single GPU. No cloud API, no account, and
+  no audio or video leaves the machine.
+- **She hears and sees.** Voice and camera feed the same agent. Lune knows who is in front of
+  her, greets people by name, learns new ones, and knows who said what.
+- **She knows who may give orders.** Anyone can talk with her, but only operators she recognizes
+  can set the robot in motion, and they can authorize or revoke others by voice ("Lune, authorize
+  Bob"). The rules are enforced in code, so a confused LLM cannot get around them, and "stop" or
+  "stop talking" work every time without asking the LLM.
+- **Conversation that feels live.** A turn-taking model decides when you have finished, and the
+  reply is spoken sentence by sentence: the first word comes about 0.8 s after you stop talking.
+  Talk over Lune and she stops to listen.
+- **Every robot skill is a tool call that runs in the background.** Picking something up (a VLA
+  policy), walking, a gesture, following someone with her gaze: each one starts, reports its
+  status, can be cancelled, and tells the agent when it ends. Lune keeps talking while her body
+  works, and knows which actions cannot run together.
+- **You can watch her think.** A live web page shows the camera with the tracked faces, the
+  conversation with every tool call, and which actions hold the body. Each session is also
+  recorded, to replay in [rerun](https://rerun.io).
+
+## How it works
+
+```mermaid
+flowchart LR
+    mic([Microphone]) -- speech --> lune
+    cam([Camera]) -- video --> lune
+    lune["Lune<br/>listen · see · think · speak"] -- speech --> spk([Speaker])
+    lune <-- "chat and tool calls" --> llm([Local LLM])
+    lune <-- "tasks, motions, gaze,<br/>and how they end" --> body([Robot body])
+    lune <-- "live session,<br/>typed messages" --> page([Session page])
+```
+
+Speech goes through a cascade, voice activity, end of turn, speech recognition, LLM with tools,
+speech synthesis, rather than a speech-to-speech model: driving a robot needs tool calls, an
+editable dialogue history and a character prompt of its own. The robot body here is a mock server
+with the API a real robot would expose; its tasks and motions take a random time and sometimes
+fail. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) zooms in on each part.
+
+## Getting started
+
+### Requirements
+
+- Linux and an NVIDIA GPU with 24 GB of memory. Lune was built on an RTX 4090; some of the LLM's
+  layers stay in system RAM, so 64 GB of RAM is comfortable.
+- [uv](https://docs.astral.sh/uv/), and llama.cpp's `llama-server` built with CUDA (see
+  [llama.cpp's build guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md)).
+- A microphone, speakers or headphones, and a webcam.
+- For the camera on the session page: Docker and `ffmpeg`.
+
+### Install
 
 ```bash
 uv sync
-uv run pytest
 ```
 
-The LLM runs in llama.cpp's `llama-server`, built with CUDA:
+Set `llm_server.executable` in `config/default/runtime.yaml` to your `llama-server`, then fetch
+the models, about 24 GB:
 
 ```bash
-git clone --depth 1 https://github.com/ggml-org/llama.cpp ~/.local/src/llama.cpp
-cmake -S ~/.local/src/llama.cpp -B ~/.local/src/llama.cpp/build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89 -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release
-cmake --build ~/.local/src/llama.cpp/build --target llama-server -j 24
 hf download unsloth/Qwen3.5-35B-A3B-GGUF Qwen3.5-35B-A3B-Q4_K_M.gguf
-```
-
-CUDA 13.0 does not compile against glibc 2.43, which declares `rsqrt` differently. On such a system, build with a private copy of the toolkit whose `crt/math_functions.h` gives `rsqrt` and `rsqrtf` glibc's `noexcept`, and pass `-DCMAKE_CUDA_COMPILER=<copy>/bin/nvcc -DCUDAToolkit_ROOT=<copy>` to the first `cmake`. This machine has one at `~/.local/src/cuda-13.0-glibc243`.
-
-Voice models (about 2.9 GB): Parakeet and smart-turn come from the Hugging Face cache, and Kokoro from the kokoro-onnx release:
-
-```bash
 hf download istupakov/parakeet-tdt-0.6b-v2-onnx --exclude "*.int8.onnx"
 hf download pipecat-ai/smart-turn-v3 smart-turn-v3.2-cpu.onnx
 mkdir -p ~/.cache/robot-voice-agent/kokoro && cd ~/.cache/robot-voice-agent/kokoro
@@ -36,32 +76,22 @@ curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
 ```
 
-The GPU code calls `onnxruntime.preload_dlls()` so the CUDA 13 libraries from the wheels win over a system cuDNN built for CUDA 12.
+The voice activity and face models download themselves on first use.
 
-Tests that need model weights are skipped by default; run them with `uv run pytest -m download`.
-
-With speakers, the robot needs echo cancellation, or it hears itself and keeps interrupting its own speech. Install PipeWire's WebRTC echo canceller once:
+With speakers rather than headphones, Lune needs echo cancellation, or she hears herself and
+keeps interrupting her own speech. PipeWire's WebRTC echo canceller does it:
 
 ```bash
 mkdir -p ~/.config/pipewire/pipewire.conf.d && cp config/pipewire/60-rva-echo-cancel.conf ~/.config/pipewire/pipewire.conf.d/
 systemctl --user restart pipewire pipewire-pulse wireplumber
 ```
 
-It adds the nodes `rva_ec_source` and `rva_ec_sink`, which `config/default/runtime.yaml` uses. Set `audio.input_device` and `audio.output_device` to `null` to use the system defaults instead, for example with headphones.
+With headphones, set `audio.input_device` and `audio.output_device` to `null` in `runtime.yaml`
+to use the system's default devices instead.
 
-Nothing the robot learns or records is written to the source tree; the paths are set in `config/default/runtime.yaml`:
+### Run
 
-| What | Where |
-|---|---|
-| Admins' user ids | `~/.config/robot-voice-agent/admins.yaml`, from `config/admins.example.yaml` |
-| Known faces, names and operators | `~/.local/share/robot-voice-agent/faces.sqlite3` |
-| Session recordings and logs | `~/Captures/robot-voice-agent/<time>-<command>/` |
-| Kokoro model | `~/.cache/robot-voice-agent/kokoro/` |
-| Other models | the Hugging Face cache, `~/.cache/huggingface/` |
-
-## Trying it
-
-Three terminals:
+Each server in its own terminal:
 
 ```bash
 uv run rva serve-llm
@@ -72,24 +102,77 @@ uv run rva-vla-mock --interactive
 ```
 
 ```bash
-uv run rva run
-```
-
-Talk to the robot (or use `uv run rva text` to type instead). Only operators can make Lune act, once the camera recognizes them. Make yourself an admin: name your face once with `uv run rva see` (press `n`), find your user id with `uv run rva people`, copy `config/admins.example.yaml` to `~/.config/robot-voice-agent/admins.yaml` and add your id there. Admins and other operators can then authorize people by voice ("Lune, authorize Bob"). In the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`, with every tracked face and, with `--video`, the camera frames, so it replays in rerun: open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live. `uv run rva run --show --viewer --video` shows everything at once.
-
-To present a session, add the web page: start MediaMTX in a fourth terminal (it needs Docker, and `ffmpeg` on the path):
-
-```bash
 uv run rva serve-video
 ```
 
-then run `uv run rva run --ui` and open <http://127.0.0.1:8700>. It shows the camera with the tracked faces, the conversation with every tool call, and which actions are running; you can also type to Lune there. `--no-camera` needs no MediaMTX.
+```bash
+uv run rva run --ui
+```
 
-Each part also runs alone: `rva listen` prints what the microphone hears, `rva say` speaks what you type, `rva llm` chats with the model without the agent, `rva prompt` prints the system prompt, and the mock robot runs VLA tasks, walking and animations with random durations, failures and timeouts, logging every call (`rva-vla-mock --help`).
+Then open <http://127.0.0.1:8700> and talk to Lune. No microphone at hand? `uv run rva text --ui`
+lets you type, in the terminal or on the page. In the mock robot's terminal, type `s`, `f
+<reason>` or `t` to make the running action succeed, fail or time out.
+
+### Become an operator
+
+Lune talks with anyone but only acts for operators she recognizes. Make yourself an admin, an
+operator who can never be revoked:
+
+1. Run `uv run rva see`, face the camera and press `n` to type your name.
+2. Run `uv run rva people` to find your user id.
+3. Copy `config/admins.example.yaml` to `~/.config/robot-voice-agent/admins.yaml` and add your
+   id.
+
+Then authorize others by voice: "Lune, authorize Bob."
+
+## Try each part on its own
+
+| Command | What it does |
+|---|---|
+| `rva listen` | Prints what the microphone hears, turn by turn |
+| `rva say` | Speaks each line you type; `--voice` tries another Kokoro voice |
+| `rva llm` | Chat with the LLM alone; tool calls are shown, not run |
+| `rva prompt` | Prints the system prompt built from the profile |
+| `rva see` | Shows the camera with each tracked face and who it is |
+| `rva people` | Lists everyone Lune knows, with admins and operators |
+| `rva text` | The whole agent, typing instead of talking |
+| `rva run` | The whole voice agent |
+
+`rva run` and `rva text` take `--ui` for the session page, `--viewer` to watch the recording
+live in rerun, `--show` for a camera window, `--video` to record the camera frames, and
+`--no-camera`. Every command takes `--profile` to use another robot profile than
+`config/default`.
+
+## Where data lives
+
+Nothing the robot learns or records is written to the source tree. The paths are set in
+`config/default/runtime.yaml`:
+
+| What | Where |
+|---|---|
+| Admins' user ids | `~/.config/robot-voice-agent/admins.yaml` |
+| Known faces, names and operators | `~/.local/share/robot-voice-agent/faces.sqlite3` |
+| Session recordings and logs | `~/Captures/robot-voice-agent/` |
+| Kokoro model | `~/.cache/robot-voice-agent/kokoro/` |
+| Other models | `~/.cache/huggingface/` |
+
+## Development
+
+```bash
+uv run pytest
+uv run ruff check . && uv run ruff format .
+uv run ty check
+```
+
+Tests that need model weights or a sound device are skipped by default; `uv run pytest -m
+download` runs those that need weights. [AGENTS.md](AGENTS.md) describes the package layout and
+the conventions the code follows.
 
 ## Third-party software
 
-The models, Python packages and programs the agent uses, with their authors and licenses, are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Speech synthesis pulls in GPL-3.0 components (phonemizer and espeak-ng, through kokoro-onnx); the notice explains what that means.
+The models, Python packages and programs Lune uses, with their authors and licenses, are listed
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Speech synthesis pulls in GPL-3.0 components
+(phonemizer and espeak-ng, through kokoro-onnx); the notice explains what that means.
 
 ## License
 
