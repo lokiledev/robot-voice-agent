@@ -7,6 +7,7 @@ import pytest
 from rva_agent.agent import Agent
 from rva_agent.body import BodySupervisor, BodyTools
 from rva_agent.config import AgentConfig
+from rva_agent.mute import MuteTools
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
 from rva_agent.tasks import TaskSupervisor
@@ -317,3 +318,19 @@ async def test_each_user_turn_names_who_was_in_front() -> None:
         "[Bob, track 1] Go to the shelf.",
         "[unknown person, track 2] Hello?",
     ]
+
+
+async def test_anyone_may_mute_but_only_an_operator_unmutes() -> None:
+    vision = FakeVision([_face(1, person("Bob"), nearest=True)])
+    mute = MuteTools(ActionPermission(vision, ADMINS))
+
+    await mute.call(ToolCall(id="1", name="mute", arguments="{}"))
+    refused = await mute.call(ToolCall(id="2", name="unmute", arguments="{}"))
+    assert (refused.content, mute.muted) == (
+        '{"error": "Bob is not one of your operators. Only operators can let you talk again."}',
+        True,
+    )
+
+    vision.set_faces([_face(2, person("Alice"), nearest=True)])
+    await mute.call(ToolCall(id="3", name="unmute", arguments="{}"))
+    assert not mute.muted

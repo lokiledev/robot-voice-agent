@@ -12,6 +12,7 @@ from opentelemetry import trace
 from rva_agent.body import BodySupervisor, BodyTools
 from rva_agent.config import AgentConfig
 from rva_agent.history import History
+from rva_agent.mute import MuteTools
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
 from rva_agent.prompt import render_system_prompt
@@ -27,6 +28,7 @@ from rva_schemas.abc.vision import Vision
 from rva_schemas.dialogue import (
     AssistantMessage,
     RobotEventMessage,
+    Spoken,
     TextDelta,
     ToolCall,
     ToolResultMessage,
@@ -87,8 +89,10 @@ class Agent:
             profile.capabilities.animations,
         )
         self._people: Final = None if vision is None else PeopleTools(vision, self._permission)
+        self._mute: Final = MuteTools(self._permission)
         self._tool_specs: Final = (
             TaskTools.specs
+            + MuteTools.specs
             + self._body_tools.specs
             + (() if self._people is None else PeopleTools.specs)
         )
@@ -212,6 +216,9 @@ class Agent:
 
         Without it, the LLM keeps answering whoever spoke last after someone else steps in front.
         """
+        if self._mute.muted:
+            # Said in the turn itself: the model follows it far more than a rule in its prompt.
+            text = f"{text} (You are muted: answer with no words, only with tools if needed.)"
         if self._vision is None:
             return text
         nearest = next((face for face in self._vision.faces() if face.nearest), None)
@@ -231,12 +238,17 @@ class Agent:
         for _ in range(self._config.max_tool_rounds):
             text: list[str] = []
             tool_calls: list[ToolCall] = []
+            # Decided per round: a mute or unmute takes effect from the next round of the turn.
+            muted = self._mute.muted
             with _tracer.start_as_current_span("llm"):
                 async with (
                     aclosing(self._stream_text(text, tool_calls)) as chunks,
                     aclosing(split_sentences(chunks)) as sentences,
                 ):
-                    spoken = await self._speech.say(sentences)
+                    spoken = await (_silently(sentences) if muted else self._speech.say(sentences))
+            if muted:
+                # Nothing was heard, so nothing was said.
+                text.clear()
             if spoken.interrupted:
                 # The user talked over the robot: keep what they heard, drop the rest and any action.
                 self._add_robot_message(AssistantMessage(content=spoken.text, tool_calls=()))
@@ -257,14 +269,17 @@ class Agent:
                     ToolResultMessage(tool_call_id=call.id, content=result.content)
                 )
                 needs_reply = needs_reply or result.needs_reply
-            # Asking the LLM again here would only make it repeat what it just announced.
-            if text and not needs_reply:
+            # Asking the LLM again here would only make it repeat what it just announced, or say
+            # nothing while muted.
+            if (text or muted) and not needs_reply:
                 return
         logger.warning(
             "The LLM was still calling tools after {} rounds", self._config.max_tool_rounds
         )
 
     async def _call_tool(self, call: ToolCall) -> ToolResult:
+        if call.name in MuteTools.names:
+            return await self._mute.call(call)
         if self._people is not None and call.name in PeopleTools.names:
             return await self._people.call(call)
         if call.name in BodyTools.names:
@@ -288,6 +303,8 @@ class Agent:
                     assert_never(output)
 
     async def _say_fixed(self, text: str) -> None:
+        if self._mute.muted:
+            return
         spoken = await self._speech.say(_single(text))
         self._add_robot_message(AssistantMessage(content=spoken.text, tool_calls=()))
 
@@ -362,6 +379,13 @@ def _describe_face(event: FaceAppeared | FaceLeft, permission: ActionPermission)
             return f"{event.person.name} left (track {event.track_id})."
         case _:
             assert_never(event)
+
+
+async def _silently(sentences: AsyncIterator[str]) -> Spoken:
+    """Consume the LLM's sentences without speaking them."""
+    async for _ in sentences:
+        pass
+    return Spoken(text="", interrupted=False)
 
 
 async def _single(text: str) -> AsyncIterator[str]:

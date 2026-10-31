@@ -12,7 +12,13 @@ from rva_agent.tests.fakes import (
     idle_body,
     person,
 )
-from rva_schemas.dialogue import AssistantMessage, RobotEventMessage, TextDelta, ToolCall
+from rva_schemas.dialogue import (
+    AssistantMessage,
+    RobotEventMessage,
+    TextDelta,
+    ToolCall,
+    UserMessage,
+)
 from rva_schemas.record import DialogueLine, FaceUpdate, TaskUpdate, ToolInvocation
 from rva_schemas.vision import BoundingBox, FaceAppeared, FaceLeft, TrackedFace
 from rva_vla_mock.policies import TerminalPolicy
@@ -258,3 +264,34 @@ async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_agai
             " one of your operators). Greet them: look at them and wave."
         ),
     )
+
+
+async def test_muted_robot_says_nothing_until_it_may_talk_again() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Okay."), ToolCall(id="call_1", name="mute", arguments="{}")],
+            [TextDelta(text="It is noon.")],
+            [ToolCall(id="call_2", name="unmute", arguments="{}")],
+            [TextDelta(text="I'm back.")],
+        ]
+    )
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("Stop talking.")
+    user.say("What time is it?")
+    user.say("You can talk again.")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        vision=None,
+    ).run()
+
+    assert speech.said == ["Okay.", "I'm back."]
+    assert llm.requests[1][-1] == UserMessage(
+        content="What time is it? (You are muted: answer with no words, only with tools if needed.)"
+    )
+    assert llm.requests[2][-2] == AssistantMessage(content="", tool_calls=())
