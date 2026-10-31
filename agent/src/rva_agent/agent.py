@@ -266,7 +266,7 @@ def _describe_face(event: FaceAppeared | FaceLeft, operators: Operators) -> str:
             if face.person is None:
                 return f"An unknown person is in view ({where})."
             # Said up front so the LLM declines a non-operator's request instead of trying it.
-            role = "one of" if operators.includes(face.person.name) else "not one of"
+            role = "one of" if face.person.user_id in operators.user_ids else "not one of"
             return f"{face.person.name} is in view ({where}, {role} your operators)."
         case FaceLeft():
             if event.person is None:

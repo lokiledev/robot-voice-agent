@@ -250,6 +250,19 @@ async def _run_text_agent(profile_dir: Path, viewer: bool, camera: bool, show: b
         await _with_vision(agent.run(), vision)
 
 
+@app.command
+def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
+    """List the user id and name of everyone the robot knows, and whether they are an operator."""
+    config = RuntimeConfig.load(profile)
+    operators = Profile.load(profile).operators
+    known = _face_database(config.vision).people()
+    if not known:
+        write("Nobody is known yet. Name a face with `rva see`, then n.\n")
+    for person in known:
+        role = "  operator" if person.user_id in operators.user_ids else ""
+        write(f"{person.user_id}  {person.name}{role}\n")
+
+
 async def _see(profile_dir: Path, viewer: bool) -> None:
     config = RuntimeConfig.load(profile_dir)
     start_session(config.observability, "see", viewer=viewer, console_level="INFO")
@@ -287,13 +300,17 @@ async def _name_nearest_face(vision: FaceVision, keys: asyncio.Queue[str]) -> No
                 logger.info(
                     "Track {} was recognized as {}", nearest.track_id, remembered.previous.name
                 )
+            write(f"{remembered.person.name} is user {remembered.person.user_id}\n")
 
 
 def _face_vision(
     config: FaceVisionConfig, *, show_window: bool, on_key: Callable[[str], None] | None
 ) -> FaceVision:
-    database = FaceDatabase(config.database.expanduser(), config.max_embeddings_per_person)
-    return FaceVision(config, database, show_window=show_window, on_key=on_key)
+    return FaceVision(config, _face_database(config), show_window=show_window, on_key=on_key)
+
+
+def _face_database(config: FaceVisionConfig) -> FaceDatabase:
+    return FaceDatabase(config.database.expanduser(), config.max_embeddings_per_person)
 
 
 async def _with_vision(main: Coroutine[None, None, None], vision: FaceVision | None) -> None:

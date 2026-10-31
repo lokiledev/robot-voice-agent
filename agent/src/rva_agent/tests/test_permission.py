@@ -1,4 +1,5 @@
 import asyncio
+from uuid import UUID
 
 import pytest
 
@@ -21,7 +22,7 @@ from rva_vla_mock.policies import TerminalPolicy
 from rva_vla_mock.runner import TaskRunner
 from rva_vla_schemas.task import TaskRequest
 
-OPERATORS = Operators(names=("Alice",))
+OPERATORS = Operators(user_ids=frozenset({person("Alice").user_id}))
 BOX = BoundingBox(x=0, y=0, width=100, height=100)
 
 
@@ -32,7 +33,12 @@ def _face(track_id: int, who: KnownPerson | None, nearest: bool) -> TrackedFace:
 @pytest.mark.parametrize(
     ("faces", "refusal"),
     [
-        ([_face(1, person("alice"), nearest=True)], None),
+        ([_face(1, person("Alice"), nearest=True)], None),
+        # Someone else with the same name is a different user.
+        (
+            [_face(1, KnownPerson(user_id=UUID(int=1), name="Alice"), nearest=True)],
+            "Alice is not one of your operators, so they cannot ask you to move.",
+        ),
         (
             [_face(1, None, nearest=True)],
             "The person in front of you is not one of your operators, so they cannot ask you to move.",

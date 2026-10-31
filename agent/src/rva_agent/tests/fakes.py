@@ -147,5 +147,5 @@ PROFILE = Profile(
         ),
         constraints=(),
     ),
-    operators=Operators(names=("Alice",)),
+    operators=Operators(user_ids=frozenset({person("Alice").user_id})),
 )

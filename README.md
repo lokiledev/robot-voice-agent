@@ -65,6 +65,6 @@ uv run rva-vla-mock --interactive
 uv run rva run
 ```
 
-Talk to the robot (or use `uv run rva text` to type instead). Only operators, listed in `config/default/operators.yaml`, can make Lune act once the camera recognizes them; name your face once with `uv run rva see`, then `n`. In the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`; open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live.
+Talk to the robot (or use `uv run rva text` to type instead). Only operators can make Lune act, once the camera recognizes them: name your face once with `uv run rva see` (press `n`), find your user id with `uv run rva people`, and add it to `config/default/operators.yaml`. In the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`; open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live.
 
 Each part also runs alone: `rva listen` prints what the microphone hears, `rva say` speaks what you type, `rva llm` chats with the model without the agent, `rva prompt` prints the system prompt, and the mock VLA can run with random outcomes (`rva-vla-mock --help`).

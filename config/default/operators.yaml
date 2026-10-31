@@ -1,5 +1,5 @@
-# People allowed to make Lune act, by the name their face is remembered under
-# (name a face with `rva see`, then `n`). Everyone else can only talk with Lune.
-# With the camera off, anyone may make it act.
-names:
-  - Loïk
+# User ids of the people allowed to make Lune act; everyone else can only talk with it.
+# Only ids are kept here: names live in the face database. To find yours, name your face with
+# `uv run rva see` (press n), then list ids with `uv run rva people`.
+# With the camera off, anyone may make Lune act.
+user_ids: []

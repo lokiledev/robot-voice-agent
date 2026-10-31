@@ -12,23 +12,33 @@ import numpy.typing as npt
 from rva_schemas.vision import KnownPerson, UnknownPersonError
 from rva_vision_faces.embedder import Embedding
 
+# Users are pseudonymous ids: names live in their own table, and face samples and the operator
+# list refer to user ids only.
 _SCHEMA: Final = """
-CREATE TABLE IF NOT EXISTS people (
+CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS names (
+    user_id TEXT PRIMARY KEY REFERENCES users (user_id) ON DELETE CASCADE,
+    name TEXT NOT NULL UNIQUE
 );
 CREATE TABLE IF NOT EXISTS embeddings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL REFERENCES people (user_id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
     vector BLOB NOT NULL,
     created_at TEXT NOT NULL
 );
 """
 
 
+_PEOPLE: Final = """
+SELECT users.user_id, names.name FROM users JOIN names USING (user_id) ORDER BY users.created_at
+"""
+
+
 class FaceDatabase:
-    """Known people and samples of their faces in a local SQLite file. No images are stored.
+    """Users, their names and samples of their faces in a local SQLite file. No images are stored.
 
     Each call opens its own connection, so it can run in any thread.
     """
@@ -40,12 +50,17 @@ class FaceDatabase:
         with self._transaction() as connection:
             connection.executescript(_SCHEMA)
 
+    def people(self) -> list[KnownPerson]:
+        """Everyone known, oldest first."""
+        with self._transaction() as connection:
+            rows = connection.execute(_PEOPLE).fetchall()
+        return [KnownPerson(user_id=UUID(user_id), name=name) for user_id, name in rows]
+
     def load(self) -> list[tuple[KnownPerson, npt.NDArray[np.float32]]]:
         """Everyone with at least one sample, with their samples as rows."""
         with self._transaction() as connection:
-            people = connection.execute("SELECT user_id, name FROM people ORDER BY created_at")
             loaded = []
-            for user_id, name in people.fetchall():
+            for user_id, name in connection.execute(_PEOPLE).fetchall():
                 vectors = connection.execute(
                     "SELECT vector FROM embeddings WHERE user_id = ? ORDER BY id", (user_id,)
                 ).fetchall()
@@ -58,14 +73,14 @@ class FaceDatabase:
         """Add samples to the person with this name, creating them if the name is new."""
         now = datetime.now(UTC).isoformat()
         with self._transaction() as connection:
-            row = connection.execute(
-                "SELECT user_id FROM people WHERE name = ?", (name,)
-            ).fetchone()
+            row = connection.execute("SELECT user_id FROM names WHERE name = ?", (name,)).fetchone()
             if row is None:
                 user_id = str(uuid4())
                 connection.execute(
-                    "INSERT INTO people (user_id, name, created_at) VALUES (?, ?, ?)",
-                    (user_id, name, now),
+                    "INSERT INTO users (user_id, created_at) VALUES (?, ?)", (user_id, now)
+                )
+                connection.execute(
+                    "INSERT INTO names (user_id, name) VALUES (?, ?)", (user_id, name)
                 )
             else:
                 (user_id,) = row
@@ -81,18 +96,16 @@ class FaceDatabase:
         return KnownPerson(user_id=UUID(user_id), name=name)
 
     def forget(self, name: str) -> KnownPerson:
-        """Delete a person and their samples.
+        """Delete a user, their name and their samples.
 
         Raises:
             UnknownPersonError: If nobody has this name.
         """
         with self._transaction() as connection:
-            row = connection.execute(
-                "SELECT user_id FROM people WHERE name = ?", (name,)
-            ).fetchone()
+            row = connection.execute("SELECT user_id FROM names WHERE name = ?", (name,)).fetchone()
             if row is None:
                 raise UnknownPersonError(name)
-            connection.execute("DELETE FROM people WHERE user_id = ?", row)
+            connection.execute("DELETE FROM users WHERE user_id = ?", row)
         return KnownPerson(user_id=UUID(row[0]), name=name)
 
     @contextmanager

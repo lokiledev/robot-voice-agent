@@ -34,7 +34,7 @@ flowchart LR
         DET --> TRK["Tracker<br/>IoU + re-id by embedding"]
         DET --> EMB["SFace<br/>embeddings"] --> TRK
         TRK --> GAL["Gallery<br/>cosine match"]
-        DB[("faces.sqlite3<br/>names + embeddings")] <--> GAL
+        DB[("faces.sqlite3<br/>users, names, embeddings")] <--> GAL
         TRK -. "--show / rva see" .-> WIN["Debug window"]
     end
 
@@ -117,7 +117,7 @@ sequenceDiagram
 
 **One active task.** If the user asks for something physical while a task is running, the LLM chooses between `cancel_task` and asking the user to wait. There is no queue.
 
-**Who may make the robot act.** Only operators, the names listed in the profile's `operators.yaml`, may start tasks, and only while the camera recognizes them as the nearest face. Everyone else can talk with the robot, which declines their physical requests. `start_task` enforces this itself (`ActionPermission`), so a slip of the LLM cannot bypass it, and face events tell the LLM up front whether a person is an operator so it declines instead of trying. The robot can learn anyone's name but can never make someone an operator. Stopping is open to everyone: the stop word and `cancel_task` are not gated. Without a camera nobody can be recognized, so anyone may make the robot act.
+**Who may make the robot act.** Only operators, the user ids listed in the profile's `operators.yaml`, may start tasks, and only while the camera recognizes them as the nearest face. Everyone else can talk with the robot, which declines their physical requests. `start_task` enforces this itself (`ActionPermission`), so a slip of the LLM cannot bypass it, and face events tell the LLM up front whether a person is an operator so it declines instead of trying. The robot can learn anyone's name but can never make someone an operator. Stopping is open to everyone: the stop word and `cancel_task` are not gated. Without a camera nobody can be recognized, so anyone may make the robot act.
 
 **Stop word.** If a transcript is just "stop", "freeze", "halt" or similar, the VLA manager cancels the active task directly, before the LLM sees anything. The LLM is then told it happened.
 
@@ -274,7 +274,7 @@ class Vision(Protocol):
 
 **Recognition.** A track is someone when the best cosine similarity between its samples and that person's is at least 0.363 (OpenCV's value for SFace) and beats the next person by 0.05; otherwise it is unknown. Two tracks in view never get the same person: the better score wins. The nearest person is the largest face in view; there is no active speaker detection.
 
-**Memory.** Names and embeddings live in a SQLite file, `~/.local/share/robot-voice-agent/faces.sqlite3` (`people` and `embeddings` tables, 128 float32 per row, at most 10 per person). It is loaded into memory and matched with numpy; each change is one transaction followed by a reload. `remember` stores the track's latest samples under the name, creating the person if the name is new; a face recognized as someone else is moved to the new name, and the result says who it was taken for. A misheard name is fixed by forgetting it and remembering again. No image is stored, and no frame goes to the rerun recording.
+**Memory.** Names and embeddings live in a SQLite file, `~/.local/share/robot-voice-agent/faces.sqlite3`. Users are pseudonymous: the `users` table holds only ids, `names` maps an id to a name, and `embeddings` and the operator list refer to ids only, so names can be removed without touching identities or faces (embeddings are 128 float32 per row, at most 10 per person). It is loaded into memory and matched with numpy; each change is one transaction followed by a reload. `remember` stores the track's latest samples under the name, creating the person if the name is new; a face recognized as someone else is moved to the new name, and the result says who it was taken for. A misheard name is fixed by forgetting it and remembering again. No image is stored, and no frame goes to the rerun recording.
 
 **What the LLM sees.** Events become `RobotEventMessage`s: "Alice is in view (track 7, nearest).", "An unknown person is in view (track 8).", "Alice left (track 7).". The system prompt section *People around you* tells it to greet known people, ask the nearest unknown person their name once, stay quiet for others or mid-conversation, and call `remember_person(track_id, name)` only with a name it was told.
 
@@ -307,7 +307,7 @@ config/default/
   character.yaml      name, personality, speaking style, verbosity
   environment.yaml    location, places, objects, people
   capabilities.yaml   VLA skills with example commands, constraints
-  operators.yaml      who may make the robot act
+  operators.yaml      user ids of who may make the robot act
   runtime.yaml        endpoints, llama-server settings, audio devices,
                       VAD and turn thresholds, telemetry sinks
 ```
@@ -355,7 +355,8 @@ Each part runs on its own, so it can be tried by hand before the whole loop:
 | `rva llm` | Chat with the LLM alone; tool calls are shown, not run | done |
 | `rva-vla-mock [--interactive]` | The mock VLA; interactive mode ends each task from typed `s` or `f [reason]` | done |
 | `rva text [--viewer] [--no-camera] [--show]` | The whole agent in the terminal, against llama-server and the VLA endpoint, with the camera unless `--no-camera`; `--show` opens the vision window too | done |
-| `rva see [--viewer]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal, `q` quits | done |
+| `rva see [--viewer]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal and prints its user id, `q` quits | done |
+| `rva people` | Lists the user id and name of everyone known, marking operators | done |
 | `rva listen [--viewer]` | Mic → VAD → end of turn → ASR, printing each transcript and its delay; `--viewer` plots the VAD probability | done |
 | `rva say [--voice NAME]` | Typed sentences → TTS → speaker | done |
 | `rva run [--viewer] [--no-camera] [--show]` | The whole voice agent, with the camera unless `--no-camera` | done |

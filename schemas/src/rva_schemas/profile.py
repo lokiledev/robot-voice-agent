@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from rva_pydantic import RVABaseModel, load_yaml
 
@@ -50,15 +51,13 @@ class Capabilities(RVABaseModel):
 
 
 class Operators(RVABaseModel):
-    """People allowed to make the robot act, by the name their face is remembered under.
+    """People allowed to make the robot act, by the user id of their face.
 
-    Kept in the profile so the robot can never add one itself: anyone can tell it a name.
+    Only ids are listed, so the profile holds no names. It lives in the profile so the robot can
+    never add an operator itself: anyone can tell it a name.
     """
 
-    names: tuple[str, ...]
-
-    def includes(self, name: str) -> bool:
-        return name.casefold() in {operator.casefold() for operator in self.names}
+    user_ids: frozenset[UUID]
 
 
 class Profile(RVABaseModel):

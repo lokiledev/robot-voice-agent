@@ -24,6 +24,6 @@ class ActionPermission:
             return "Nobody is in front of you, so nobody can ask you to move."
         if nearest.person is None:
             return "The person in front of you is not one of your operators, so they cannot ask you to move."
-        if not self._operators.includes(nearest.person.name):
+        if nearest.person.user_id not in self._operators.user_ids:
             return f"{nearest.person.name} is not one of your operators, so they cannot ask you to move."
         return None

@@ -1,4 +1,6 @@
 import math
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -162,6 +164,25 @@ def test_database_adds_trims_and_forgets(tmp_path: Path) -> None:
     assert [person.name for person, _ in database.load()] == ["Bob"]
     with pytest.raises(UnknownPersonError):
         database.forget("Alice")
+
+
+def test_database_keeps_names_apart_from_users_and_faces(tmp_path: Path) -> None:
+    path = tmp_path / "faces.sqlite3"
+    database = FaceDatabase(path, max_embeddings_per_person=2)
+    alice = database.add("Alice", [_unit(1, 0, 0)])
+
+    def rows(table: str) -> list[tuple[object, ...]]:
+        with closing(sqlite3.connect(path)) as connection:
+            return [tuple(row) for row in connection.execute(f"SELECT * FROM {table}")]
+
+    assert [row[0] for row in rows("users")] == [str(alice.user_id)]
+    assert rows("names") == [(str(alice.user_id), "Alice")]
+    assert [row[1] for row in rows("embeddings")] == [str(alice.user_id)]
+    assert database.people() == [alice]
+
+    database.forget("Alice")
+
+    assert (rows("users"), rows("names"), rows("embeddings")) == ([], [], [])
 
 
 def test_tracker_announces_a_face_seen_long_enough_then_its_departure() -> None:
