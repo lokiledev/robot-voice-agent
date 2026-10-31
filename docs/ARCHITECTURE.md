@@ -1,6 +1,6 @@
 # Architecture
 
-Lune is the high-level loop of a humanoid robot: she holds the conversation, keeps track of who is
+Lune is the high-level loop of a humanoid robot: it holds the conversation, keeps track of who is
 around, and drives the body through a few long-running actions. A VLA policy and the robot's
 controllers do the moving; Lune decides what to ask them. Three ideas shape the design: every
 model runs locally, voice and vision feed one agent, and who may make the robot act is decided by
@@ -131,7 +131,7 @@ flowchart TB
         aec --> vad["Voice activity<br/>[Silero VAD]"]
         vad --> turn["End of turn<br/>[smart-turn v3]"]
         turn --> asr["Speech recognition<br/>[Parakeet TDT 0.6B]"]
-        asr --> echo["Echo filter<br/>drops her own words"]
+        asr --> echo["Echo filter<br/>drops its own words"]
     end
     loop([Agent loop])
     subgraph speaking ["Speaking"]
@@ -141,7 +141,7 @@ flowchart TB
     end
     hearing -- "utterances" --> loop
     loop -- "LLM text, streamed" --> speaking
-    hearing -. "speech while she speaks:<br/>barge-in" .-> speaking
+    hearing -. "speech while it speaks:<br/>barge-in" .-> speaking
 ```
 
 - **End of turn.** About 200 ms into a silence, smart-turn judges from the audio whether the
@@ -152,9 +152,9 @@ flowchart TB
   complete while the previous one plays.
 - **Barge-in.** Speech while Lune talks stops the playback and the LLM stream, and the history
   keeps only what was heard.
-- **Not interrupting herself.** With speakers, three layers keep Lune from hearing her own voice:
-  PipeWire subtracts what she plays from the microphone, a barge-in needs clearer and longer
-  speech while she talks, and a transcript repeating what she said in the last 2 s is dropped.
+- **Not interrupting itself.** With speakers, three layers keep Lune from hearing its own voice:
+  PipeWire subtracts what it plays from the microphone, a barge-in needs clearer and longer
+  speech while it talks, and a transcript repeating what it said in the last 2 s is dropped.
 
 ### Vision
 
@@ -217,7 +217,7 @@ second one is refused rather than queued:
   front. The tools check this themselves, so a slip of the LLM cannot bypass it. Without a camera
   nobody can be recognized, so anyone may make the robot act.
 - **What must always work is handled in code.** "Stop" stops the body, and "stop talking" mutes
-  Lune until an operator lets her talk again, without asking the LLM: as a tool, muting failed
+  Lune until an operator lets it talk again, without asking the LLM: as a tool, muting failed
   in a real session.
 - **Guidance goes where the model reads it.** The LLM follows the text of a turn far more than
   rules in its system prompt. So each user turn says who is speaking and what the body is busy
@@ -225,7 +225,7 @@ second one is refused rather than queued:
   told as Lune's own ("You could not pick up the red cup: the grasp slipped. Say it as your own
   failure."). Replaying a real session, that last hint took replies like "the task failed" from
   8 in 10 to none.
-- **Initiative.** Lune looks at people and gestures on her own, but starts tasks and walks only
+- **Initiative.** Lune looks at people and gestures on its own, but starts tasks and walks only
   when asked.
 - **History.** One session's messages, trimmed from the oldest when the context fills; the
   system prompt always stays.
@@ -388,4 +388,4 @@ On the RTX 4090 and a Ryzen 9 7950X3D:
 - GPU memory for the whole stack: 21 of 24 GB.
 - Vision: about 6 ms per frame for detection, so it follows the camera at 24 to 30 fps.
 - Through the speakers with echo cancellation, Lune finished a five-sentence paragraph without
-  interrupting herself; without it, she cut herself off in the first sentence.
+  interrupting itself. Without echo cancellation, it cut itself off in the first sentence.

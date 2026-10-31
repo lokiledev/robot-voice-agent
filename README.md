@@ -2,14 +2,14 @@
 
 **A fully local, multimodal agent for a humanoid robot, that knows who may give it orders.**
 
-Lune hears and sees the people around her, answers out loud in under a second, and acts in the
-world through the robot's skills, but only for the people she recognizes and trusts. Every model
+Lune hears and sees the people around it, answers out loud in under a second, and acts in the
+world through the robot's skills, but only for the people it recognizes and trusts. Every model
 runs locally, on one PC with a single GPU.
 
 ![The session page during a conversation: the camera with the recognized speaker and what they just said, the robot's actions, and the dialogue with every tool call](docs/media/demo.gif)
 
 *The session page, live: while a VLA task holds the body, the operator asks for the next job and
-Lune answers, her gaze on the speaker; the actions the busy body cannot take are dimmed.*
+Lune answers, its gaze on the speaker; the actions the busy body cannot take are dimmed.*
 
 ## Why it's interesting
 
@@ -17,20 +17,20 @@ Lune answers, her gaze on the speaker; the actions the busy body cannot take are
   (Parakeet), speech synthesis (Kokoro), turn-taking (Silero VAD, smart-turn) and face
   recognition (YuNet, SFace) all run on one PC with a single GPU. No cloud API, no account, and
   no audio or video leaves the machine.
-- **She hears and sees.** Voice and camera feed the same agent. Lune knows who is in front of
-  her, greets people by name, learns new ones, and knows who said what.
-- **She knows who may give orders.** Anyone can talk with her, but only operators she recognizes
+- **It hears and sees.** Voice and camera feed the same agent. Lune knows who is in front of
+  it, greets people by name, learns new ones, and knows who said what.
+- **It knows who may give orders.** Anyone can talk with it, but only operators it recognizes
   can set the robot in motion, and they can authorize or revoke others by voice ("Lune, authorize
   Bob"). The rules are enforced in code, so a confused LLM cannot get around them, and "stop" or
   "stop talking" work every time without asking the LLM.
 - **Conversation that feels live.** A turn-taking model decides when you have finished, and the
   reply is spoken sentence by sentence: the first word comes about 0.8 s after you stop talking.
-  Talk over Lune and she stops to listen.
+  Talk over Lune and it stops to listen.
 - **Every robot skill is a tool call that runs in the background.** Picking something up (a VLA
-  policy), walking, a gesture, following someone with her gaze: each one starts, reports its
-  status, can be cancelled, and tells the agent when it ends. Lune keeps talking while her body
+  policy), walking, a gesture, following someone with its gaze: each one starts, reports its
+  status, can be cancelled, and tells the agent when it ends. Lune keeps talking while its body
   works, and knows which actions cannot run together.
-- **You can watch her think.** A live web page shows the camera with the tracked faces, the
+- **You can watch it think.** A live web page shows the camera with the tracked faces, the
   conversation with every tool call, and which actions hold the body. Each session is also
   recorded, to replay in [rerun](https://rerun.io).
 
@@ -88,8 +88,8 @@ curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 The voice activity and face models, and MediaMTX, which streams the camera to the session page,
 download themselves on first use.
 
-With speakers rather than headphones, Lune needs echo cancellation, or she hears herself and
-keeps interrupting her own speech. PipeWire's WebRTC echo canceller does it:
+With speakers rather than headphones, Lune needs echo cancellation, or it hears itself and
+keeps interrupting its own speech. PipeWire's WebRTC echo canceller does it:
 
 ```bash
 mkdir -p ~/.config/pipewire/pipewire.conf.d && cp config/pipewire/60-rva-echo-cancel.conf ~/.config/pipewire/pipewire.conf.d/
@@ -106,7 +106,7 @@ uv run lune
 ```
 
 It starts the LLM server, the mock robot and MediaMTX, waits until they are ready, then runs Lune
-with her session page: open <http://127.0.0.1:8700> and talk to her. Ctrl+C stops everything. No
+with its session page: open <http://127.0.0.1:8700> and talk to it. Ctrl+C stops everything. No
 microphone at hand? `uv run lune --text` lets you type, in the terminal or on the page.
 
 The servers' output goes to `~/Captures/robot-voice-agent/servers/`. A server you start yourself
@@ -116,7 +116,7 @@ for instance the mock robot with `uv run lune-mock --interactive`, where typing 
 
 ### Become an operator
 
-Lune talks with anyone but only acts for operators she recognizes. Make yourself an admin, an
+Lune talks with anyone but only acts for operators it recognizes. Make yourself an admin, an
 operator who can never be revoked:
 
 1. Run `uv run lune see`, face the camera and press `n` to type your name.
