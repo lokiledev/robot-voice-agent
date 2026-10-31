@@ -56,8 +56,9 @@ class Capabilities(RVABaseModel):
 class Admins(RVABaseModel):
     """Operators who cannot be revoked by voice, by the user id of their face.
 
-    Only ids are listed, so the profile holds no names. It lives in the profile so the robot can
-    never make someone an admin: other operators are granted by an operator, by voice.
+    They are listed in a file of the machine, outside the profile and the source tree, since the ids
+    refer to its face database; only ids, so it holds no names. The robot can never make someone an
+    admin: other operators are granted by an operator, by voice.
     """
 
     user_ids: frozenset[UUID]
@@ -69,7 +70,6 @@ class Profile(RVABaseModel):
     character: Character
     environment: Environment
     capabilities: Capabilities
-    admins: Admins
 
     @classmethod
     def load(cls, directory: Path) -> "Profile":
@@ -77,5 +77,4 @@ class Profile(RVABaseModel):
             character=load_yaml(Character, directory / "character.yaml"),
             environment=load_yaml(Environment, directory / "environment.yaml"),
             capabilities=load_yaml(Capabilities, directory / "capabilities.yaml"),
-            admins=load_yaml(Admins, directory / "admins.yaml"),
         )

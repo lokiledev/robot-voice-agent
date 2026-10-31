@@ -3,6 +3,7 @@ import asyncio
 from rva_agent.agent import Agent
 from rva_agent.config import AgentConfig
 from rva_agent.tests.fakes import (
+    ADMINS,
     PROFILE,
     FakeVision,
     ListRecorder,
@@ -63,6 +64,7 @@ def _agent(
         recorder=recorder,
         vision=vision,
         profile=PROFILE,
+        admins=ADMINS,
         config=CONFIG,
     )
 

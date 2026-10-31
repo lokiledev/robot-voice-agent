@@ -9,7 +9,8 @@ from rva_schemas.vision import KnownPerson
 class ActionPermission:
     """Who may make the robot act, and authorize or revoke others: operators.
 
-    Operators are the admins listed in the profile and the people an operator authorized. They
+    Operators are the admins, listed in a file of the machine, and the people an operator
+    authorized. They
     are only obeyed while the camera recognizes them as the nearest face. Without a camera nobody
     can be recognized, so anyone may make the robot act.
     """

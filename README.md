@@ -49,6 +49,16 @@ systemctl --user restart pipewire pipewire-pulse wireplumber
 
 It adds the nodes `rva_ec_source` and `rva_ec_sink`, which `config/default/runtime.yaml` uses. Set `audio.input_device` and `audio.output_device` to `null` to use the system defaults instead, for example with headphones.
 
+Nothing the robot learns or records is written to the source tree; the paths are set in `config/default/runtime.yaml`:
+
+| What | Where |
+|---|---|
+| Admins' user ids | `~/.config/robot-voice-agent/admins.yaml`, from `config/admins.example.yaml` |
+| Known faces, names and operators | `~/.local/share/robot-voice-agent/faces.sqlite3` |
+| Session recordings and logs | `~/Captures/robot-voice-agent/<time>-<command>/` |
+| Kokoro model | `~/.cache/robot-voice-agent/kokoro/` |
+| Other models | the Hugging Face cache, `~/.cache/huggingface/` |
+
 ## Trying it
 
 Three terminals:
@@ -65,7 +75,7 @@ uv run rva-vla-mock --interactive
 uv run rva run
 ```
 
-Talk to the robot (or use `uv run rva text` to type instead). Only operators can make Lune act, once the camera recognizes them. Make yourself an admin: name your face once with `uv run rva see` (press `n`), find your user id with `uv run rva people`, and add it to `config/default/admins.yaml`. Admins and other operators can then authorize people by voice ("Lune, authorize Bob"). In the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`, with every tracked face and, with `--video`, the camera frames, so it replays in rerun: open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live. `uv run rva run --show --viewer --video` shows everything at once.
+Talk to the robot (or use `uv run rva text` to type instead). Only operators can make Lune act, once the camera recognizes them. Make yourself an admin: name your face once with `uv run rva see` (press `n`), find your user id with `uv run rva people`, copy `config/admins.example.yaml` to `~/.config/robot-voice-agent/admins.yaml` and add your id there. Admins and other operators can then authorize people by voice ("Lune, authorize Bob"). In the mock's terminal, type `s` or `f <reason>` to end each task. The session is recorded under `~/Captures/robot-voice-agent/`, with every tracked face and, with `--video`, the camera frames, so it replays in rerun: open `session.rrd` with `uv run rerun`, or pass `--viewer` to watch it live. `uv run rva run --show --viewer --video` shows everything at once.
 
 To present a session, add the web page: start MediaMTX in a fourth terminal (it needs Docker, and `ffmpeg` on the path):
 

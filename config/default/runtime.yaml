@@ -70,6 +70,10 @@ vision:
     url: rtsp://127.0.0.1:8554/lune
     width: 960
 
+# User ids of the admins, kept on this machine like the face database they refer to.
+# Start from config/admins.example.yaml.
+admins: ~/.config/robot-voice-agent/admins.yaml
+
 # The session page of `rva run --ui` and `rva text --ui`.
 ui:
   host: 127.0.0.1

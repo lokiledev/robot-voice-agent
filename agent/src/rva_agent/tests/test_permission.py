@@ -94,6 +94,7 @@ async def test_a_stranger_cannot_start_a_task_but_can_still_talk() -> None:
         recorder=ListRecorder(),
         vision=FakeVision([_face(4, person("Bob"), nearest=True)]),
         profile=PROFILE,
+        admins=ADMINS,
         config=AgentConfig(
             max_history_messages=40,
             max_tool_rounds=3,
@@ -171,7 +172,7 @@ async def test_an_operator_revokes_a_granted_operator_but_not_an_admin() -> None
     await vision.grant_operator(bob.user_id, person("Alice").user_id)
 
     assert await _call(tools, "revoke_person", '{"name": "Alice"}') == (
-        '{"error": "Alice is an admin: admins can only be changed in your profile."}'
+        '{"error": "Alice is an admin: admins are only changed in the admins file, not by voice."}'
     )
     assert await _call(tools, "revoke_person", '{"name": "bob"}') == (
         '{"status": "revoked", "name": "Bob"}'
@@ -300,6 +301,7 @@ async def test_each_user_turn_names_who_was_in_front() -> None:
         recorder=ListRecorder(),
         vision=vision,
         profile=PROFILE,
+        admins=ADMINS,
         config=AgentConfig(
             max_history_messages=40,
             max_tool_rounds=3,
@@ -337,6 +339,7 @@ async def test_anyone_may_mute_but_only_an_operator_unmutes() -> None:
             recorder=ListRecorder(),
             vision=vision,
             profile=PROFILE,
+            admins=ADMINS,
             config=AgentConfig(
                 max_history_messages=40,
                 max_tool_rounds=3,

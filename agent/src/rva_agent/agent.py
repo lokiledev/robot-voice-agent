@@ -34,7 +34,7 @@ from rva_schemas.dialogue import (
     UserMessage,
     UserUtterance,
 )
-from rva_schemas.profile import Profile
+from rva_schemas.profile import Admins, Profile
 from rva_schemas.record import (
     AgentStarted,
     FaceUpdate,
@@ -72,6 +72,7 @@ class Agent:
         recorder: Recorder,
         vision: Vision | None,
         profile: Profile,
+        admins: Admins,
         config: AgentConfig,
     ) -> None:
         self._llm: Final = llm
@@ -89,7 +90,7 @@ class Agent:
         ]()
         self._supervisor: Final = TaskSupervisor(vla, recorder, self._inbox.put_nowait)
         self._body: Final = BodySupervisor(body, recorder, self._inbox.put_nowait)
-        self._permission: Final = ActionPermission(vision, profile.admins)
+        self._permission: Final = ActionPermission(vision, admins)
         self._tools: Final = TaskTools(self._supervisor, self._moving, self._permission)
         self._body_tools: Final = BodyTools(
             self._body,

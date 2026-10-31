@@ -1,0 +1,12 @@
+# Admins: operators who can never be revoked by voice. Admins and other operators may make the
+# robot act and may authorize or revoke other operators by voice; everyone else can only talk
+# with it. With the camera off, anyone may make the robot act.
+#
+# Copy this file to the path set as `admins` in runtime.yaml, by default
+# ~/.config/robot-voice-agent/admins.yaml, outside the source tree. Only user ids are kept: names
+# live in the face database. To find yours, name your face with `uv run rva see` (press n), then
+# list ids with `uv run rva people`.
+user_ids: []
+# For example:
+# user_ids:
+#   - 00000000-0000-0000-0000-000000000000

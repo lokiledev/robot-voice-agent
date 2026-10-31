@@ -7,7 +7,7 @@ from rva_agent.permission import ActionPermission
 from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tasks import TaskSupervisor
-from rva_agent.tests.fakes import PROFILE, FakeVision, ListRecorder, person
+from rva_agent.tests.fakes import ADMINS, PROFILE, FakeVision, ListRecorder, person
 from rva_agent.tools import TaskTools
 from rva_schemas.dialogue import AssistantMessage, ToolCall, ToolResultMessage, UserMessage
 from rva_schemas.vision import BoundingBox, TrackedFace
@@ -51,7 +51,7 @@ async def test_tools_report_llm_mistakes_as_results() -> None:
             lambda task: None,
         ),
         lambda: None,
-        ActionPermission(None, PROFILE.admins),
+        ActionPermission(None, ADMINS),
     )
 
     assert (await tools.call(ToolCall(id="1", name="fly", arguments="{}"))).content == (
@@ -75,7 +75,7 @@ async def test_busy_vla_names_the_running_task() -> None:
             lambda task: None,
         ),
         lambda: None,
-        ActionPermission(None, PROFILE.admins),
+        ActionPermission(None, ADMINS),
     )
     start = '{"instruction": "pick up the red cup"}'
 
@@ -103,7 +103,7 @@ async def test_people_tools_list_who_is_here_and_report_mistakes() -> None:
             ),
         ]
     )
-    tools = PeopleTools(vision, ActionPermission(vision, PROFILE.admins))
+    tools = PeopleTools(vision, ActionPermission(vision, ADMINS))
 
     assert (await tools.call(ToolCall(id="1", name="who_is_here", arguments=""))).content == (
         '{"people": [{"track_id": 7, "name": "Alice", "user_id": "cd736558-bc50-5e7f-a2ce-297e9d7b1465",'

@@ -11,3 +11,5 @@ models/
 *.onnx
 *.gguf
 *.wav
+# Admins live outside the source tree: see config/admins.example.yaml.
+admins.yaml

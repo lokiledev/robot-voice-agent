@@ -16,7 +16,7 @@ from rva_agent.agent import Agent
 from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tools import TaskTools
-from rva_app.config import RuntimeConfig
+from rva_app.config import RuntimeConfig, load_admins
 from rva_app.page import MergedInput, Recorders, serve_page
 from rva_app.servers import Server, ServersUnavailableError, require_servers
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
@@ -310,6 +310,7 @@ async def _run_agent(
         recorder=recorder,
         vision=vision,
         profile=profile,
+        admins=load_admins(config.admins),
         config=config.agent,
     )
     logger.info("{} is up", profile.character.name)
@@ -382,8 +383,9 @@ async def _run_text_agent(
 @app.command
 def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
     """List the user id and name of everyone the robot knows, marking admins and operators."""
-    database = _face_database(RuntimeConfig.load(profile).vision)
-    admins = Profile.load(profile).admins.user_ids
+    config = RuntimeConfig.load(profile)
+    database = _face_database(config.vision)
+    admins = load_admins(config.admins).user_ids
     granted = database.granted_operators()
     known = database.people()
     if not known:

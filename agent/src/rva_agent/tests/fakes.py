@@ -187,8 +187,8 @@ PROFILE = Profile(
         constraints=(),
         animations=("wave_right_hand", "dance"),
     ),
-    admins=Admins(user_ids=frozenset({person("Alice").user_id})),
 )
+ADMINS = Admins(user_ids=frozenset({person("Alice").user_id}))
 
 
 def idle_body(vla: TaskRunner) -> BodyMock:

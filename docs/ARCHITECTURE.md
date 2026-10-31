@@ -137,7 +137,7 @@ sequenceDiagram
 
 **Who is speaking.** With a camera, each user turn reaches the LLM tagged with whoever was in front when it was said (`[Alice, track 5] Go to the workbench`), so it answers the right person after someone else steps in. Face events carry user ids, which the tools that walk to or look at someone take.
 
-**Who may make the robot act.** Only operators may start tasks, and only while the camera recognizes them as the nearest face. Operators are the admins, whose user ids are listed in the profile's `admins.yaml`, and the people an operator authorized by voice (`authorize_person`), kept in the face database's `operators` table with who granted them and when. An operator in front of the robot can revoke a granted operator by voice (`revoke_person`), but never an admin. Everyone else can talk with the robot, which declines their physical requests. The tools enforce all of this themselves (`ActionPermission`), so a slip of the LLM cannot bypass it, and face events tell the LLM up front whether a person is an operator so it declines instead of trying. Stopping is open to everyone: the stop word and `cancel_task` are not gated. Without a camera nobody can be recognized, so anyone may make the robot act.
+**Who may make the robot act.** Only operators may start tasks, and only while the camera recognizes them as the nearest face. Operators are the admins, whose user ids are listed in a file of the machine (`admins` in `runtime.yaml`, by default `~/.config/robot-voice-agent/admins.yaml`, outside the source tree like the face database the ids refer to), and the people an operator authorized by voice (`authorize_person`), kept in the face database's `operators` table with who granted them and when. An operator in front of the robot can revoke a granted operator by voice (`revoke_person`), but never an admin. Everyone else can talk with the robot, which declines their physical requests. The tools enforce all of this themselves (`ActionPermission`), so a slip of the LLM cannot bypass it, and face events tell the LLM up front whether a person is an operator so it declines instead of trying. Stopping is open to everyone: the stop word and `cancel_task` are not gated. Without a camera nobody can be recognized, so anyone may make the robot act.
 
 **Correcting a name.** `rename_person` keeps the user id, the face samples and the operator status. Its first call only returns the spelling for the robot to read back; the rename happens when it is called again with the same name, after the person confirmed. Names are often misheard, and forgetting then re-remembering a person used to give them a new id and lose their operator status.
 
@@ -344,12 +344,11 @@ config/default/
   character.yaml      name, personality, speaking style, verbosity
   environment.yaml    location, places, objects, people
   capabilities.yaml   VLA skills with example commands, constraints
-  admins.yaml         user ids of the admins
   runtime.yaml        endpoints, llama-server settings, audio devices,
                       VAD and turn thresholds, telemetry sinks
 ```
 
-The first three are the robot's story; `runtime.yaml` is the machine. The system prompt is a Jinja template filled from the first three. `capabilities.yaml` matters most: the VLA was trained on certain phrasings, and the LLM should send tasks phrased the same way.
+The first three are the robot's story; `runtime.yaml` is the machine. What the robot learns or records lives outside the source tree, at paths `runtime.yaml` sets: the admins' user ids (`~/.config/robot-voice-agent/admins.yaml`, started from `config/admins.example.yaml`; without it there are no admins), the face database with its operators (`~/.local/share/robot-voice-agent/faces.sqlite3`) and the session recordings and logs (`~/Captures/robot-voice-agent/`). The system prompt is a Jinja template filled from the first three. `capabilities.yaml` matters most: the VLA was trained on certain phrasings, and the LLM should send tasks phrased the same way.
 
 ## Session page
 

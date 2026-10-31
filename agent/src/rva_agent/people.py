@@ -236,7 +236,9 @@ class PeopleTools:
             return _result({"error": f"Nobody named {args.name} is known."})
         if self._permission.is_admin(person.user_id):
             return _result(
-                {"error": f"{person.name} is an admin: admins can only be changed in your profile."}
+                {
+                    "error": f"{person.name} is an admin: admins are only changed in the admins file, not by voice."
+                }
             )
         if not await self._vision.revoke_operator(person.user_id):
             return _result({"error": f"{person.name} is not one of your operators."})
