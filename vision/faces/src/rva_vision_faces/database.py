@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import numpy as np
 import numpy.typing as npt
 
-from rva_schemas.vision import KnownPerson, UnknownPersonError
+from rva_schemas.vision import KnownPerson, NameTakenError, UnknownPersonError
 from rva_vision_faces.embedder import Embedding
 
 # Users are pseudonymous ids: names live in their own table, and face samples and the operator
@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS embeddings (
     user_id TEXT NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
     vector BLOB NOT NULL,
     created_at TEXT NOT NULL
+);
+-- Operators granted by another operator; the founding ones are listed in the profile.
+CREATE TABLE IF NOT EXISTS operators (
+    user_id TEXT PRIMARY KEY REFERENCES users (user_id) ON DELETE CASCADE,
+    granted_by TEXT NOT NULL,
+    granted_at TEXT NOT NULL
 );
 """
 
@@ -107,6 +113,37 @@ class FaceDatabase:
                 raise UnknownPersonError(name)
             connection.execute("DELETE FROM users WHERE user_id = ?", row)
         return KnownPerson(user_id=UUID(row[0]), name=name)
+
+    def rename(self, user_id: UUID, name: str) -> KnownPerson:
+        """Change a user's name, keeping their id, face samples and operator status.
+
+        Raises:
+            NameTakenError: If someone else already has this name.
+        """
+        with self._transaction() as connection:
+            row = connection.execute("SELECT user_id FROM names WHERE name = ?", (name,)).fetchone()
+            if row is not None and row[0] != str(user_id):
+                raise NameTakenError(name)
+            connection.execute("UPDATE names SET name = ? WHERE user_id = ?", (name, str(user_id)))
+        return KnownPerson(user_id=user_id, name=name)
+
+    def granted_operators(self) -> frozenset[UUID]:
+        with self._transaction() as connection:
+            rows = connection.execute("SELECT user_id FROM operators").fetchall()
+        return frozenset(UUID(user_id) for (user_id,) in rows)
+
+    def grant_operator(self, user_id: UUID, granted_by: UUID) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO operators (user_id, granted_by, granted_at) VALUES (?, ?, ?)",
+                (str(user_id), str(granted_by), datetime.now(UTC).isoformat()),
+            )
+
+    def revoke_operator(self, user_id: UUID) -> bool:
+        """Remove a granted operator. Returns whether they were one."""
+        with self._transaction() as connection:
+            cursor = connection.execute("DELETE FROM operators WHERE user_id = ?", (str(user_id),))
+        return cursor.rowcount > 0
 
     @contextmanager
     def _transaction(self) -> Generator[sqlite3.Connection]:

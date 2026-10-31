@@ -30,7 +30,7 @@ from rva_schemas.dialogue import (
     UserMessage,
     UserUtterance,
 )
-from rva_schemas.profile import Operators, Profile
+from rva_schemas.profile import Profile
 from rva_schemas.record import DialogueLine, FaceUpdate, TaskUpdate, ToolInvocation
 from rva_schemas.vision import FaceAppeared, FaceEvent, FaceLeft
 from rva_vla_schemas.abc.client import VlaClient
@@ -64,15 +64,13 @@ class Agent:
         self._speech: Final = speech
         self._recorder: Final = recorder
         self._vision: Final = vision
-        self._operators: Final = profile.operators
         self._config: Final = config
         # One turn at a time: user utterances, ended tasks and face events queue up here.
         self._inbox: Final = asyncio.Queue[UserUtterance | Task | FaceAppeared | FaceLeft]()
         self._supervisor: Final = TaskSupervisor(vla, self._inbox.put_nowait)
-        self._tools: Final = TaskTools(
-            self._supervisor, ActionPermission(vision, profile.operators)
-        )
-        self._people: Final = None if vision is None else PeopleTools(vision)
+        self._permission: Final = ActionPermission(vision, profile.admins)
+        self._tools: Final = TaskTools(self._supervisor, self._permission)
+        self._people: Final = None if vision is None else PeopleTools(vision, self._permission)
         self._tool_specs: Final = TaskTools.specs + (
             () if self._people is None else PeopleTools.specs
         )
@@ -154,7 +152,7 @@ class Agent:
 
     async def _on_face(self, event: FaceAppeared | FaceLeft) -> None:
         self._recorder.record(FaceUpdate(event=event))
-        self._history.append(RobotEventMessage(content=_describe_face(event, self._operators)))
+        self._history.append(RobotEventMessage(content=_describe_face(event, self._permission)))
         match event:
             case FaceAppeared():
                 person = event.face.person
@@ -258,7 +256,7 @@ def _describe_end(task: Task) -> str:
             assert_never(task.status)
 
 
-def _describe_face(event: FaceAppeared | FaceLeft, operators: Operators) -> str:
+def _describe_face(event: FaceAppeared | FaceLeft, permission: ActionPermission) -> str:
     match event:
         case FaceAppeared():
             face = event.face
@@ -266,7 +264,7 @@ def _describe_face(event: FaceAppeared | FaceLeft, operators: Operators) -> str:
             if face.person is None:
                 return f"An unknown person is in view ({where})."
             # Said up front so the LLM declines a non-operator's request instead of trying it.
-            role = "one of" if face.person.user_id in operators.user_ids else "not one of"
+            role = "one of" if permission.is_operator(face.person.user_id) else "not one of"
             return f"{face.person.name} is in view ({where}, {role} your operators)."
         case FaceLeft():
             if event.person is None:

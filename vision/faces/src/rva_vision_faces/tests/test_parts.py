@@ -12,6 +12,7 @@ from rva_schemas.vision import (
     FaceAppeared,
     FaceLeft,
     KnownPerson,
+    NameTakenError,
     TrackedFace,
     UnknownPersonError,
 )
@@ -242,3 +243,20 @@ def test_window_label_shows_track_name_and_user_id() -> None:
         f"#1 Alice ({str(_person('Alice').user_id)[:8]}) 1.00",
         "#2 unknown",
     ]
+
+
+def test_database_renames_and_grants_without_changing_the_user(tmp_path: Path) -> None:
+    database = FaceDatabase(tmp_path / "faces.sqlite3", max_embeddings_per_person=2)
+    alice = database.add("Alice", [_unit(1, 0, 0)])
+    bob = database.add("Bob", [_unit(0, 1, 0)])
+
+    database.grant_operator(bob.user_id, granted_by=alice.user_id)
+    renamed = database.rename(bob.user_id, "Robert")
+
+    assert renamed == KnownPerson(user_id=bob.user_id, name="Robert")
+    assert database.people() == [alice, renamed]
+    assert database.granted_operators() == frozenset({bob.user_id})
+    with pytest.raises(NameTakenError):
+        database.rename(bob.user_id, "Alice")
+    assert database.revoke_operator(bob.user_id)
+    assert not database.revoke_operator(bob.user_id)

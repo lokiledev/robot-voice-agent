@@ -65,3 +65,17 @@ class UnknownPersonError(Exception):
     def __init__(self, name: str) -> None:
         super().__init__(f"Nobody named {name!r} is known")
         self.name = name
+
+
+class NameTakenError(Exception):
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Someone else is already called {name!r}")
+        self.name = name
+
+
+class NotRecognizedError(Exception):
+    """The face on a track matches nobody known yet."""
+
+    def __init__(self, track_id: int) -> None:
+        super().__init__(f"The face on track {track_id} is not recognized")
+        self.track_id = track_id

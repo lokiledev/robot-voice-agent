@@ -1,30 +1,61 @@
-# Example skills until the real VLA's training phrasings are known.
+# Example skills until the real VLA's training phrasings are known. They show the kind and the
+# phrasing of commands the body understands; they are not a closed list.
 skills:
-  - name: pick
-    description: Pick up a single object within reach.
+  - name: pick and place
+    description: Pick up an object and put it somewhere, or move it from one place to another.
     examples:
       - pick up the red cup
-      - pick up the toolbox
-  - name: place
-    description: Put the held object down on a surface.
-    examples:
       - put the cup on the shelf
-      - place the toolbox on the workbench
-  - name: open_close
-    description: Open or close a drawer or a cabinet door.
+      - move the toolbox to the workbench
+  - name: fetch and hand over
+    description: Bring an object to someone, take an object from them, or give it back.
+    examples:
+      - bring the red cup to the person
+      - hand the screwdriver to the person
+      - take the bottle from the person
+  - name: search
+    description: Look around a place for an object and report whether it is there.
+    examples:
+      - look for glasses on the workbench
+      - search the shelf for the blue toolbox
+      - check if the cup is on the kitchen counter
+  - name: tidy and sort
+    description: Gather, sort, stack or arrange objects; coil and bundle cables; put things back where they belong.
+    examples:
+      - gather the cables on the workbench
+      - coil the cable on the floor
+      - stack the boxes by the shelf
+      - put the tools back in the toolbox
+  - name: clean
+    description: Wipe a surface, sweep small debris, throw something in the bin.
+    examples:
+      - wipe the workbench
+      - throw the paper cup in the bin
+  - name: open and close
+    description: Open or close drawers, doors, cabinets, lids and boxes.
     examples:
       - open the drawer
-      - close the drawer
-  - name: navigate
-    description: Walk to a named place in the room.
+      - close the cabinet door
+      - open the box on the table
+  - name: operate
+    description: Press buttons, flip switches, turn knobs, push or pull things.
+    examples:
+      - press the coffee machine button
+      - turn off the desk lamp
+      - push the chair under the table
+  - name: navigate and follow
+    description: Walk to a place in the room, come to someone, or follow them.
     examples:
       - go to the kitchen counter
-      - go to the workbench
-  - name: handover
-    description: Hand the held object to the person in front of the robot.
+      - come to the person
+      - follow the person
+  - name: gesture
+    description: Wave, point at something, nod, or look at someone.
     examples:
-      - hand the cup to the person
+      - wave at the person
+      - point at the red cup
+      - look at the person
 constraints:
-  - Holds one object at a time.
   - Cannot climb stairs or leave the lab.
-  - Cannot pour liquids.
+  - Cannot lift more than about five kilograms.
+  - Is not trusted with knives, hot liquids or anything that could hurt someone.

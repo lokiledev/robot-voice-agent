@@ -50,11 +50,11 @@ class Capabilities(RVABaseModel):
     """Things the robot cannot do, e.g. "cannot climb stairs"."""
 
 
-class Operators(RVABaseModel):
-    """People allowed to make the robot act, by the user id of their face.
+class Admins(RVABaseModel):
+    """Operators who cannot be revoked by voice, by the user id of their face.
 
     Only ids are listed, so the profile holds no names. It lives in the profile so the robot can
-    never add an operator itself: anyone can tell it a name.
+    never make someone an admin: other operators are granted by an operator, by voice.
     """
 
     user_ids: frozenset[UUID]
@@ -66,7 +66,7 @@ class Profile(RVABaseModel):
     character: Character
     environment: Environment
     capabilities: Capabilities
-    operators: Operators
+    admins: Admins
 
     @classmethod
     def load(cls, directory: Path) -> "Profile":
@@ -74,5 +74,5 @@ class Profile(RVABaseModel):
             character=load_yaml(Character, directory / "character.yaml"),
             environment=load_yaml(Environment, directory / "environment.yaml"),
             capabilities=load_yaml(Capabilities, directory / "capabilities.yaml"),
-            operators=load_yaml(Operators, directory / "operators.yaml"),
+            admins=load_yaml(Admins, directory / "admins.yaml"),
         )

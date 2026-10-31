@@ -3,14 +3,16 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Final
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from rva_schemas.dialogue import LlmOutput, Message, Spoken, ToolSpec, UserUtterance
-from rva_schemas.profile import Capabilities, Character, Environment, Operators, Profile, Skill
+from rva_schemas.profile import Admins, Capabilities, Character, Environment, Profile, Skill
 from rva_schemas.record import Record
 from rva_schemas.vision import (
     FaceEvent,
     KnownPerson,
+    NameTakenError,
+    NotRecognizedError,
     Remembered,
     TrackedFace,
     UnknownPersonError,
@@ -105,7 +107,9 @@ class FakeVision:
     def __init__(self, faces: Sequence[TrackedFace]) -> None:
         self._faces: Final = list(faces)
         self._events: Final = asyncio.Queue[FaceEvent]()
-        self.people: Final[dict[str, KnownPerson]] = {}
+        self.known: Final[dict[str, KnownPerson]] = {}
+        self.granted: Final[dict[UUID, UUID]] = {}
+        """Granted operator to the operator who granted them."""
 
     def show(self, event: FaceEvent) -> None:
         self._events.put_nowait(event)
@@ -121,15 +125,43 @@ class FakeVision:
         index = next((i for i, face in enumerate(self._faces) if face.track_id == track_id), None)
         if index is None:
             raise UnknownTrackError(track_id)
-        known = self.people.setdefault(name, person(name))
+        known = self.known.setdefault(name, person(name))
         previous = self._faces[index].person
         self._faces[index] = self._faces[index].model_copy(update={"person": known})
         return Remembered(person=known, previous=None if previous == known else previous)
 
     async def forget(self, name: str) -> KnownPerson:
-        if name not in self.people:
+        if name not in self.known:
             raise UnknownPersonError(name)
-        return self.people.pop(name)
+        return self.known.pop(name)
+
+    async def rename(self, track_id: int, name: str) -> KnownPerson:
+        index = next((i for i, face in enumerate(self._faces) if face.track_id == track_id), None)
+        if index is None:
+            raise UnknownTrackError(track_id)
+        current = self._faces[index].person
+        if current is None:
+            raise NotRecognizedError(track_id)
+        if name in self.known and self.known[name].user_id != current.user_id:
+            raise NameTakenError(name)
+        renamed = KnownPerson(user_id=current.user_id, name=name)
+        self.known.pop(current.name, None)
+        self.known[name] = renamed
+        self._faces[index] = self._faces[index].model_copy(update={"person": renamed})
+        return renamed
+
+    async def people(self) -> tuple[KnownPerson, ...]:
+        in_view = [face.person for face in self._faces if face.person is not None]
+        return tuple({p.user_id: p for p in [*in_view, *self.known.values()]}.values())
+
+    def granted_operators(self) -> frozenset[UUID]:
+        return frozenset(self.granted)
+
+    async def grant_operator(self, user_id: UUID, granted_by: UUID) -> None:
+        self.granted[user_id] = granted_by
+
+    async def revoke_operator(self, user_id: UUID) -> bool:
+        return self.granted.pop(user_id, None) is not None
 
     async def _drain(self) -> AsyncIterator[FaceEvent]:
         while True:
@@ -147,5 +179,5 @@ PROFILE = Profile(
         ),
         constraints=(),
     ),
-    operators=Operators(user_ids=frozenset({person("Alice").user_id})),
+    admins=Admins(user_ids=frozenset({person("Alice").user_id})),
 )

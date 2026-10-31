@@ -79,7 +79,8 @@ class TaskTools:
     async def _start(self, args: StartTaskArgs) -> ToolResult:
         if (refusal := self._permission.refusal()) is not None:
             return _result(
-                error=f"{refusal} Tell them kindly that you can talk with them but not do this."
+                error=f"{refusal} Only operators can ask you to move."
+                " Tell them kindly that you can talk with them but not do this."
             )
         try:
             task = await self._supervisor.start(args.instruction)

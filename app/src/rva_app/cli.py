@@ -252,14 +252,21 @@ async def _run_text_agent(profile_dir: Path, viewer: bool, camera: bool, show: b
 
 @app.command
 def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
-    """List the user id and name of everyone the robot knows, and whether they are an operator."""
-    config = RuntimeConfig.load(profile)
-    operators = Profile.load(profile).operators
-    known = _face_database(config.vision).people()
+    """List the user id and name of everyone the robot knows, marking admins and operators."""
+    database = _face_database(RuntimeConfig.load(profile).vision)
+    admins = Profile.load(profile).admins.user_ids
+    granted = database.granted_operators()
+    known = database.people()
     if not known:
         write("Nobody is known yet. Name a face with `rva see`, then n.\n")
     for person in known:
-        role = "  operator" if person.user_id in operators.user_ids else ""
+        role = (
+            "  admin"
+            if person.user_id in admins
+            else "  operator"
+            if person.user_id in granted
+            else ""
+        )
         write(f"{person.user_id}  {person.name}{role}\n")
 
 

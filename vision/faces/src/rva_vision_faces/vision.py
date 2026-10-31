@@ -4,12 +4,20 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Final
+from uuid import UUID
 
 import cv2
 from loguru import logger
 from opentelemetry import trace
 
-from rva_schemas.vision import FaceEvent, KnownPerson, Remembered, TrackedFace, UnknownTrackError
+from rva_schemas.vision import (
+    FaceEvent,
+    KnownPerson,
+    NotRecognizedError,
+    Remembered,
+    TrackedFace,
+    UnknownTrackError,
+)
 from rva_vision_faces.camera import Camera
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
@@ -51,6 +59,7 @@ class FaceVision:
         self._on_key: Final = on_key
         self._tracker: Final = Tracker(config.tracker)
         self._gallery = Gallery((), config.matching)
+        self._granted_operators: frozenset[UUID] = frozenset()
         # Guards the tracker, which the frame thread changes and the event loop reads.
         self._lock: Final = threading.Lock()
         self._subscribers: Final[set[asyncio.Queue[FaceEvent]]] = set()
@@ -58,7 +67,7 @@ class FaceVision:
     async def run(self) -> None:
         """Process frames until cancelled, or until the window is closed or `q` is pressed."""
         loop = asyncio.get_running_loop()
-        self._gallery = Gallery(await asyncio.to_thread(self._database.load), self._config.matching)
+        await self._reload()
         stop = threading.Event()
         worker = asyncio.create_task(asyncio.to_thread(self._process, loop, stop))
         try:
@@ -98,8 +107,39 @@ class FaceVision:
         logger.info("Forgot {} ({})", name, person.user_id)
         return person
 
+    async def rename(self, track_id: int, name: str) -> KnownPerson:
+        with self._lock:
+            track = self._tracker.find(track_id)
+            if track is None:
+                raise UnknownTrackError(track_id)
+            if track.match is None:
+                raise NotRecognizedError(track_id)
+            user_id = track.match.person.user_id
+        person = await asyncio.to_thread(self._database.rename, user_id, name)
+        await self._reload()
+        logger.info("Renamed {} to {}", user_id, name)
+        return person
+
+    async def people(self) -> tuple[KnownPerson, ...]:
+        return tuple(await asyncio.to_thread(self._database.people))
+
+    def granted_operators(self) -> frozenset[UUID]:
+        return self._granted_operators
+
+    async def grant_operator(self, user_id: UUID, granted_by: UUID) -> None:
+        await asyncio.to_thread(self._database.grant_operator, user_id, granted_by)
+        await self._reload()
+        logger.info("{} made {} an operator", granted_by, user_id)
+
+    async def revoke_operator(self, user_id: UUID) -> bool:
+        revoked = await asyncio.to_thread(self._database.revoke_operator, user_id)
+        await self._reload()
+        logger.info("Revoked operator {}: {}", user_id, revoked)
+        return revoked
+
     async def _reload(self) -> None:
         self._gallery = Gallery(await asyncio.to_thread(self._database.load), self._config.matching)
+        self._granted_operators = await asyncio.to_thread(self._database.granted_operators)
 
     def _process(self, loop: asyncio.AbstractEventLoop, stop: threading.Event) -> None:
         cv2.setNumThreads(2)

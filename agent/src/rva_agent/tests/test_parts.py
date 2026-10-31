@@ -46,7 +46,7 @@ def test_history_drops_tool_results_orphaned_by_trimming() -> None:
 async def test_tools_report_llm_mistakes_as_results() -> None:
     tools = TaskTools(
         TaskSupervisor(TaskRunner(TerminalPolicy(asyncio.Queue())), lambda task: None),
-        ActionPermission(None, PROFILE.operators),
+        ActionPermission(None, PROFILE.admins),
     )
 
     assert (await tools.call(ToolCall(id="1", name="fly", arguments="{}"))).content == (
@@ -65,7 +65,7 @@ async def test_tools_report_llm_mistakes_as_results() -> None:
 async def test_busy_vla_names_the_running_task() -> None:
     tools = TaskTools(
         TaskSupervisor(TaskRunner(TerminalPolicy(asyncio.Queue())), lambda task: None),
-        ActionPermission(None, PROFILE.operators),
+        ActionPermission(None, PROFILE.admins),
     )
     start = '{"instruction": "pick up the red cup"}'
 
@@ -77,24 +77,23 @@ async def test_busy_vla_names_the_running_task() -> None:
 
 
 async def test_people_tools_list_who_is_here_and_report_mistakes() -> None:
-    tools = PeopleTools(
-        FakeVision(
-            [
-                TrackedFace(
-                    track_id=7,
-                    box=BoundingBox(x=0, y=0, width=200, height=240),
-                    person=person("Alice"),
-                    nearest=True,
-                ),
-                TrackedFace(
-                    track_id=8,
-                    box=BoundingBox(x=900, y=0, width=100, height=120),
-                    person=None,
-                    nearest=False,
-                ),
-            ]
-        )
+    vision = FakeVision(
+        [
+            TrackedFace(
+                track_id=7,
+                box=BoundingBox(x=0, y=0, width=200, height=240),
+                person=person("Alice"),
+                nearest=True,
+            ),
+            TrackedFace(
+                track_id=8,
+                box=BoundingBox(x=900, y=0, width=100, height=120),
+                person=None,
+                nearest=False,
+            ),
+        ]
     )
+    tools = PeopleTools(vision, ActionPermission(vision, PROFILE.admins))
 
     assert (await tools.call(ToolCall(id="1", name="who_is_here", arguments=""))).content == (
         '{"people": [{"track_id": 7, "name": "Alice", "nearest": true},'
