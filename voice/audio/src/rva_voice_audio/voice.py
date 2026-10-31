@@ -15,6 +15,7 @@ from rva_schemas.audio import AudioClip
 from rva_schemas.dialogue import Spoken, UserUtterance
 from rva_schemas.record import Measurement
 from rva_voice_audio.devices import Speaker
+from rva_voice_audio.echo import RobotSpeech
 from rva_voice_audio.endpoint import Endpointer, SpeechStarted, TurnEnded
 from rva_voice_audio.vad import SAMPLE_RATE, SileroVad
 
@@ -31,6 +32,7 @@ class VoiceInput:
         endpointer: Endpointer,
         recognizer: SpeechRecognizer,
         recorder: Recorder,
+        robot_speech: RobotSpeech,
         on_speech_start: Callable[[], None],
     ) -> None:
         """Listen to a 16 kHz stream.
@@ -41,6 +43,8 @@ class VoiceInput:
             endpointer: Decides when turns start and end.
             recognizer: Transcribes each turn.
             recorder: Receives the speech probability of each frame.
+            robot_speech: What the robot is saying, to require clearer speech to interrupt it and
+                to drop transcripts of its own voice.
             on_speech_start: Called as soon as the user starts talking, e.g. to stop the robot's
                 speech.
         """
@@ -49,6 +53,7 @@ class VoiceInput:
         self._endpointer: Final = endpointer
         self._recognizer: Final = recognizer
         self._recorder: Final = recorder
+        self._robot_speech: Final = robot_speech
         self._on_speech_start: Final = on_speech_start
 
     async def utterances(self) -> AsyncGenerator[UserUtterance]:
@@ -56,7 +61,7 @@ class VoiceInput:
         async for frame in self._frames:
             probability = self._vad.probability(frame)
             self._recorder.record(Measurement(name="vad", value=probability))
-            match self._endpointer.push(frame, probability):
+            match self._endpointer.push(frame, probability, self._robot_speech.speaking):
                 case None:
                     pass
                 case SpeechStarted():
@@ -70,7 +75,9 @@ class VoiceInput:
                             AudioClip(samples=turn.audio, sample_rate=SAMPLE_RATE)
                         )
                     logger.debug("Turn ended after {} ms of silence: {!r}", turn.silence_ms, text)
-                    if text:
+                    if self._robot_speech.is_echo(text):
+                        logger.info("Dropped {!r}: the robot's own voice", text)
+                    elif text:
                         yield UserUtterance(text=text, started_at=started_at, ended_at=ended_at)
                 case other:
                     assert_never(other)
@@ -79,9 +86,12 @@ class VoiceInput:
 class VoiceOutput:
     """`SpeechOutput` to a speaker: synthesizes the next sentence while the current one plays."""
 
-    def __init__(self, speaker: Speaker, synthesizer: SpeechSynthesizer) -> None:
+    def __init__(
+        self, speaker: Speaker, synthesizer: SpeechSynthesizer, robot_speech: RobotSpeech
+    ) -> None:
         self._speaker: Final = speaker
         self._synthesizer: Final = synthesizer
+        self._robot_speech: Final = robot_speech
 
     def interrupt(self) -> None:
         """Cut off what the robot is saying; the current `say` returns what was heard."""
@@ -103,10 +113,12 @@ class VoiceOutput:
                         continue
                     if not heard:
                         span.add_event("first_audio")
+                    self._robot_speech.starts(sentence)
                     if not await self._speaker.play(clip):
                         interrupted = True
                         break
         finally:
+            self._robot_speech.stops()
             synthesizing.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await synthesizing

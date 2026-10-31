@@ -1,7 +1,8 @@
 import asyncio
 import os
+import sys
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, assert_never
@@ -14,8 +15,9 @@ from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig
+from rva_app.servers import Server, ServersUnavailableError, require_servers
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
-from rva_app.voice import open_voice_input, open_voice_output
+from rva_app.voice import open_voice_input, open_voice_output, robot_speech
 from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
 from rva_observability.session import start_session
@@ -58,7 +60,7 @@ def llm(*, profile: ProfileDir = _DEFAULT_PROFILE, system_prompt: bool = True) -
         profile: Robot profile directory.
         system_prompt: Send the agent's system prompt and tools.
     """
-    asyncio.run(_chat_with_llm(profile, system_prompt))
+    _run(_chat_with_llm(profile, system_prompt))
 
 
 @app.command
@@ -69,7 +71,7 @@ def text(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> Non
         profile: Robot profile directory.
         viewer: Stream the recording to a rerun viewer.
     """
-    asyncio.run(_run_text_agent(profile, viewer))
+    _run(_run_text_agent(profile, viewer))
 
 
 @app.command
@@ -97,13 +99,39 @@ def run(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None
         profile: Robot profile directory.
         viewer: Stream the recording to a rerun viewer.
     """
-    asyncio.run(_run_voice_agent(profile, viewer))
+    _run(_run_voice_agent(profile, viewer))
+
+
+def _run(main: Coroutine[object, object, None]) -> None:
+    try:
+        asyncio.run(main)
+    except ServersUnavailableError as error:
+        sys.stderr.write(f"{error}\n")
+        raise SystemExit(1) from error
+
+
+def _llm_server(config: RuntimeConfig) -> Server:
+    return Server(
+        name="LLM server",
+        url=f"{config.llm.base_url}",
+        how_to_start="start it with `uv run rva serve-llm`",
+    )
+
+
+def _vla_server(config: RuntimeConfig) -> Server:
+    return Server(
+        name="VLA",
+        url=f"{config.vla.base_url}",
+        how_to_start="start the mock with `uv run rva-vla-mock --interactive`, or set vla.base_url in runtime.yaml",
+    )
 
 
 async def _listen(profile_dir: Path, viewer: bool) -> None:
     config = RuntimeConfig.load(profile_dir)
     recorder = start_session(config.observability, "listen", viewer=viewer, console_level="WARNING")
-    async with open_voice_input(config.audio, recorder, lambda: write("… ")) as voice:
+    # Nothing is played here, so the robot never speaks and no transcript is an echo.
+    silent = robot_speech(config.audio)
+    async with open_voice_input(config.audio, recorder, silent, lambda: write("… ")) as voice:
         write("Listening. Ctrl+C to stop.\n")
         async for utterance in voice.utterances():
             delay_ms = (datetime.now(UTC) - utterance.ended_at).total_seconds() * 1000
@@ -112,7 +140,7 @@ async def _listen(profile_dir: Path, viewer: bool) -> None:
 
 async def _say(profile_dir: Path) -> None:
     config = RuntimeConfig.load(profile_dir)
-    async with open_voice_output(config.audio, config.tts) as voice:
+    async with open_voice_output(config.audio, config.tts, robot_speech(config.audio)) as voice:
         write("Type sentences to hear them. Ctrl+D to stop.\n")
         async for line in read_lines():
             started = time.perf_counter()
@@ -122,11 +150,13 @@ async def _say(profile_dir: Path) -> None:
 
 async def _run_voice_agent(profile_dir: Path, viewer: bool) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
+    await require_servers(_llm_server(config), _vla_server(config))
     recorder = start_session(config.observability, "voice", viewer=viewer, console_level="INFO")
+    speaking = robot_speech(config.audio)
     async with (
         HttpVlaClient(config.vla) as vla,
-        open_voice_output(config.audio, config.tts) as speech,
-        open_voice_input(config.audio, recorder, speech.interrupt) as user_input,
+        open_voice_output(config.audio, config.tts, speaking) as speech,
+        open_voice_input(config.audio, recorder, speaking, speech.interrupt) as user_input,
     ):
         agent = Agent(
             llm=OpenAiLanguageModel(config.llm),
@@ -147,6 +177,7 @@ async def _one(text: str) -> AsyncGenerator[str]:
 
 async def _run_text_agent(profile_dir: Path, viewer: bool) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
+    await require_servers(_llm_server(config), _vla_server(config))
     recorder = start_session(config.observability, "text", viewer=viewer, console_level="WARNING")
     async with HttpVlaClient(config.vla) as vla:
         agent = Agent(
@@ -163,6 +194,7 @@ async def _run_text_agent(profile_dir: Path, viewer: bool) -> None:
 
 async def _chat_with_llm(profile_dir: Path, system_prompt: bool) -> None:
     config = RuntimeConfig.load(profile_dir)
+    await require_servers(_llm_server(config))
     model = OpenAiLanguageModel(config.llm)
     tools = TaskTools.specs if system_prompt else ()
     messages: list[Message] = []

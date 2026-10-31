@@ -40,7 +40,14 @@ The GPU code calls `onnxruntime.preload_dlls()` so the CUDA 13 libraries from th
 
 Tests that need model weights are skipped by default; run them with `uv run pytest -m download`.
 
-Use headphones for now: without echo cancellation the robot would hear itself and interrupt its own speech.
+With speakers, the robot needs echo cancellation, or it hears itself and keeps interrupting its own speech. Install PipeWire's WebRTC echo canceller once:
+
+```bash
+mkdir -p ~/.config/pipewire/pipewire.conf.d && cp config/pipewire/60-rva-echo-cancel.conf ~/.config/pipewire/pipewire.conf.d/
+systemctl --user restart pipewire pipewire-pulse wireplumber
+```
+
+It adds the nodes `rva_ec_source` and `rva_ec_sink`, which `config/default/runtime.yaml` uses. Set `audio.input_device` and `audio.output_device` to `null` to use the system defaults instead, for example with headphones.
 
 ## Trying it
 

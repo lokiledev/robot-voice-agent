@@ -10,6 +10,8 @@ CONFIG = EndpointConfig(
     speech_threshold=0.5,
     silence_threshold=0.35,
     min_speech_ms=96,
+    barge_in_threshold=0.8,
+    barge_in_min_speech_ms=400,
     pre_roll_ms=64,
     turn_check_silence_ms=224,
     max_silence_ms=1500,
@@ -21,11 +23,13 @@ def _frame(value: float) -> Audio:
     return np.full(512, value, dtype=np.float32)
 
 
-def _run(endpointer: Endpointer, probabilities: list[float]) -> list[tuple[int, str]]:
+def _run(
+    endpointer: Endpointer, probabilities: list[float], robot_speaking: bool = False
+) -> list[tuple[int, str]]:
     """Push a frame per probability, its value being its index, and list (index, event)."""
     events = []
     for index, probability in enumerate(probabilities):
-        match endpointer.push(_frame(index), probability):
+        match endpointer.push(_frame(index), probability, robot_speaking):
             case SpeechStarted():
                 events.append((index, "started"))
             case TurnEnded() as turn:
@@ -74,3 +78,16 @@ def test_log_mel_of_silence_is_the_floor() -> None:
 
     assert features.shape == (80, 800)
     assert np.all(features == -1.5)
+
+
+def test_interrupting_the_robot_needs_clearer_and_longer_speech() -> None:
+    # 0.7 starts a turn when the robot is quiet, but is below the barge-in threshold of 0.8, and a
+    # barge-in needs 12 frames (384 ms) of speech instead of 3.
+    unclear = [0.7] * 20
+    clear = [0.9] * 12
+
+    assert _run(Endpointer(CONFIG, lambda audio: 0.1), unclear) == [(2, "started")]
+    assert _run(Endpointer(CONFIG, lambda audio: 0.1), unclear, robot_speaking=True) == []
+    assert _run(Endpointer(CONFIG, lambda audio: 0.1), clear, robot_speaking=True) == [
+        (11, "started")
+    ]

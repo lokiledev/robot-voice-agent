@@ -1,3 +1,4 @@
+import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 
@@ -8,6 +9,7 @@ from rva_schemas.audio import AudioClip
 from rva_voice_asr.parakeet import ParakeetRecognizer
 from rva_voice_audio.config import AudioConfig
 from rva_voice_audio.devices import Microphone, Speaker
+from rva_voice_audio.echo import RobotSpeech
 from rva_voice_audio.endpoint import Endpointer
 from rva_voice_audio.turn import SmartTurn
 from rva_voice_audio.vad import SileroVad
@@ -19,7 +21,10 @@ _KOKORO_SAMPLE_RATE = 24000
 
 @asynccontextmanager
 async def open_voice_input(
-    config: AudioConfig, recorder: Recorder, on_speech_start: Callable[[], None]
+    config: AudioConfig,
+    recorder: Recorder,
+    robot_speech: RobotSpeech,
+    on_speech_start: Callable[[], None],
 ) -> AsyncGenerator[VoiceInput]:
     recognizer = ParakeetRecognizer()
     # The first CUDA run is several times slower; pay it before the first user turn.
@@ -34,14 +39,21 @@ async def open_voice_input(
             endpointer=endpointer,
             recognizer=recognizer,
             recorder=recorder,
+            robot_speech=robot_speech,
             on_speech_start=on_speech_start,
         )
 
 
 @asynccontextmanager
-async def open_voice_output(audio: AudioConfig, tts: KokoroConfig) -> AsyncGenerator[VoiceOutput]:
+async def open_voice_output(
+    audio: AudioConfig, tts: KokoroConfig, robot_speech: RobotSpeech
+) -> AsyncGenerator[VoiceOutput]:
     synthesizer = KokoroSynthesizer(tts)
     async for _ in synthesizer.synthesize("Ready."):
         pass
     async with Speaker(audio.output_device, _KOKORO_SAMPLE_RATE) as speaker:
-        yield VoiceOutput(speaker, synthesizer)
+        yield VoiceOutput(speaker, synthesizer, robot_speech)
+
+
+def robot_speech(config: AudioConfig) -> RobotSpeech:
+    return RobotSpeech(config.echo_window_ms / 1000, time.monotonic)

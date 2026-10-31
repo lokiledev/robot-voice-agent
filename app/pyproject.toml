@@ -5,6 +5,7 @@ description = "Command line entry point that composes the agent, voice, LLM and 
 requires-python = ">=3.12"
 dependencies = [
   "cyclopts>=4",
+  "httpx>=0.28",
   "loguru>=0.7",
   "numpy>=2.0",
   "rva-agent",

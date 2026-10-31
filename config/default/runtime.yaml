@@ -28,12 +28,16 @@ observability:
   captures_dir: ~/Captures/robot-voice-agent
 
 audio:
-  input_device: null
-  output_device: null
+  # Echo-cancelled nodes from config/pipewire/60-rva-echo-cancel.conf; null for the system defaults.
+  input_device: rva_ec_source
+  output_device: rva_ec_sink
+  echo_window_ms: 2000
   endpoint:
     speech_threshold: 0.5
     silence_threshold: 0.35
     min_speech_ms: 200
+    barge_in_threshold: 0.8
+    barge_in_min_speech_ms: 400
     pre_roll_ms: 300
     turn_check_silence_ms: 200
     max_silence_ms: 1500

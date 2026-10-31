@@ -11,7 +11,11 @@ class EndpointConfig(RVABaseModel):
     silence_threshold: float = Field(ge=0, le=1)
     """VAD probability below which a frame counts as silence while the user speaks."""
     min_speech_ms: int = Field(gt=0)
-    """Speech needed to start a turn, and to interrupt the robot."""
+    """Speech needed to start a turn."""
+    barge_in_threshold: float = Field(ge=0, le=1)
+    """`speech_threshold` while the robot speaks: interrupting it needs clearer speech."""
+    barge_in_min_speech_ms: int = Field(gt=0)
+    """`min_speech_ms` while the robot speaks."""
     pre_roll_ms: int = Field(ge=0)
     """Audio kept from before speech was detected, so the first syllable is not cut."""
     turn_check_silence_ms: int = Field(gt=0)
@@ -27,3 +31,5 @@ class AudioConfig(RVABaseModel):
     output_device: str | None
     """Speaker, by name or part of it; the system default when null."""
     endpoint: EndpointConfig
+    echo_window_ms: int = Field(ge=0)
+    """How long after the robot stops speaking a transcript of its words is dropped as an echo."""

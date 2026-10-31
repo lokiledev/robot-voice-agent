@@ -1,4 +1,5 @@
 import asyncio
+import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 from rva_schemas.record import Record
 from rva_voice_asr.parakeet import ParakeetRecognizer
 from rva_voice_audio.config import EndpointConfig
+from rva_voice_audio.echo import RobotSpeech
 from rva_voice_audio.endpoint import Endpointer
 from rva_voice_audio.turn import SmartTurn
 from rva_voice_audio.vad import SileroVad
@@ -20,6 +22,8 @@ ENDPOINT = EndpointConfig(
     speech_threshold=0.5,
     silence_threshold=0.35,
     min_speech_ms=200,
+    barge_in_threshold=0.8,
+    barge_in_min_speech_ms=400,
     pre_roll_ms=300,
     turn_check_silence_ms=200,
     max_silence_ms=1500,
@@ -63,6 +67,7 @@ async def test_synthesized_request_is_heard_back() -> None:
         endpointer=Endpointer(ENDPOINT, SmartTurn().probability),
         recognizer=ParakeetRecognizer(),
         recorder=_NoRecorder(),
+        robot_speech=RobotSpeech(echo_window_s=2, clock=time.monotonic),
         on_speech_start=lambda: starts.append(None),
     )
 

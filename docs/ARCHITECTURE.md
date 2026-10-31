@@ -106,7 +106,10 @@ sequenceDiagram
 
 **Stop word.** If a transcript is just "stop", "freeze", "halt" or similar, the VLA manager cancels the active task directly, before the LLM sees anything. The LLM is then told it happened.
 
-**Barge-in.** While the robot is speaking, speech detected by the VAD stops playback, cancels the LLM stream, and trims the last assistant message to what was actually said. This relies on PipeWire's `echo-cancel` module so the robot does not hear itself. A headset works as a fallback.
+**Barge-in.** While the robot is speaking, speech detected by the VAD stops playback, cancels the LLM stream, and trims the last assistant message to what was actually said. Three layers keep the robot from interrupting itself through the speakers:
+- PipeWire's WebRTC echo canceller (`config/pipewire/60-rva-echo-cancel.conf`): the robot plays into `rva_ec_sink` and listens on `rva_ec_source`, from which its own voice is subtracted.
+- While the robot speaks, a barge-in needs clearer and longer speech (`barge_in_threshold`, `barge_in_min_speech_ms`).
+- A transcript that mostly repeats what the robot said in the last 2 s is dropped as its own echo (`RobotSpeech`, `echo_window_ms`).
 
 **Turn detection.** About 200 ms after the VAD hears silence, smart-turn v3 judges from the audio whether the user has finished. If it says no, we keep listening, up to a hard 1.5 s silence cutoff. All thresholds live in `runtime.yaml`.
 
@@ -322,4 +325,6 @@ Voice, with every model loaded beside llama-server:
 - End of the user's speech to the robot's first audio: 716, 726 and 859 ms on three turns. The test feeds Kokoro-synthesized questions to `VoiceInput` in real time and plays the replies on the speaker. ASR and TTS are warmed up at startup; without that the first turn took 1.34 s.
 - The numpy Whisper features fed to smart-turn match Hugging Face's `WhisperFeatureExtractor` to within 2e-6.
 
-Not measured yet: barge-in with a real voice, and how smart-turn handles real mid-sentence pauses (synthesized fragments end with a falling intonation, which it reads as complete).
+Self-interruption, measured by speaking a five-sentence paragraph through the speakers while listening: with the default devices the robot cut itself off in its first sentence and heard its own "Hello" as a user turn; with echo cancellation, alone or with the safeguards, it finished all five sentences with no barge-in and no turn heard.
+
+Not measured yet: barge-in with a real voice over the echo-cancelled microphone, and how smart-turn handles real mid-sentence pauses (synthesized fragments end with a falling intonation, which it reads as complete).
