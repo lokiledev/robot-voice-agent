@@ -30,13 +30,13 @@ async def _next_statuses(events: AsyncIterator[TaskEvent], count: int) -> list[T
     ("command", "final"),
     [
         ("s\n", TaskSucceeded()),
-        ("f the grasp slipped\n", TaskFailed(reason="the grasp slipped")),
-        ("f\n", TaskFailed(reason="no reason given")),
+        ("f the grasp slipped\n", TaskFailed(cause="error", reason="the grasp slipped")),
+        ("f\n", TaskFailed(cause="error", reason="no reason given")),
     ],
 )
 async def test_terminal_command_ends_the_task(command: str, final: TaskStatus) -> None:
     commands = asyncio.Queue[str]()
-    runner: VlaClient = TaskRunner(TerminalPolicy(commands))
+    runner: VlaClient = TaskRunner(TerminalPolicy(commands, fallback=None))
 
     async with runner.events() as events:
         task = await runner.start(PICK_CUP)
@@ -49,7 +49,7 @@ async def test_terminal_command_ends_the_task(command: str, final: TaskStatus) -
 
 
 async def test_start_while_busy_names_the_running_task() -> None:
-    runner = TaskRunner(TerminalPolicy(asyncio.Queue()))
+    runner = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
     task = await runner.start(PICK_CUP)
 
     with pytest.raises(VlaBusyError) as error:
@@ -59,7 +59,7 @@ async def test_start_while_busy_names_the_running_task() -> None:
 
 
 async def test_cancel_ends_the_task_and_frees_the_vla() -> None:
-    runner = TaskRunner(TerminalPolicy(asyncio.Queue()))
+    runner = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
 
     async with runner.events() as events:
         task = await runner.start(PICK_CUP)
@@ -72,7 +72,7 @@ async def test_cancel_ends_the_task_and_frees_the_vla() -> None:
 
 async def test_cancel_after_the_end_keeps_the_final_status() -> None:
     commands = asyncio.Queue[str]()
-    runner = TaskRunner(TerminalPolicy(commands))
+    runner = TaskRunner(TerminalPolicy(commands, fallback=None))
 
     async with runner.events() as events:
         task = await runner.start(PICK_CUP)
@@ -83,7 +83,7 @@ async def test_cancel_after_the_end_keeps_the_final_status() -> None:
 
 
 async def test_unknown_task_is_an_error() -> None:
-    runner = TaskRunner(TerminalPolicy(asyncio.Queue()))
+    runner = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
     task_id = UUID("6f1c1f2e-8a51-4c43-9d43-0f6b1d0c9b11")
 
     with pytest.raises(UnknownTaskError):
@@ -91,7 +91,7 @@ async def test_unknown_task_is_an_error() -> None:
 
 
 async def test_random_policy_is_reproducible_with_a_seed() -> None:
-    config = RandomPolicyConfig(min_duration=0, max_duration=0, failure_rate=0.5, seed=7)
+    config = RandomPolicyConfig(min_duration=0, max_duration=0, timeout=1, failure_rate=0.5, seed=7)
     runner = TaskRunner(RandomPolicy(config))
     finals = []
 
@@ -101,10 +101,10 @@ async def test_random_policy_is_reproducible_with_a_seed() -> None:
             finals.append((await _next_statuses(events, 2))[1])
 
     assert finals == [
-        TaskFailed(reason="the object is out of reach"),
+        TaskFailed(cause="error", reason="the object is out of reach"),
         TaskSucceeded(),
-        TaskFailed(reason="the arm hit a joint limit"),
-        TaskFailed(reason="the path is blocked"),
+        TaskFailed(cause="error", reason="the arm hit a joint limit"),
+        TaskFailed(cause="error", reason="the path is blocked"),
     ]
 
 
@@ -112,4 +112,45 @@ def test_random_policy_rejects_inverted_durations() -> None:
     with pytest.raises(
         pydantic.ValidationError, match="min_duration 5.0 is above max_duration 1.0"
     ):
-        RandomPolicyConfig(min_duration=5, max_duration=1, failure_rate=0, seed=None)
+        RandomPolicyConfig(min_duration=5, max_duration=1, timeout=10, failure_rate=0, seed=None)
+
+
+async def test_a_task_running_past_the_time_limit_times_out() -> None:
+    config = RandomPolicyConfig(
+        min_duration=0.2, max_duration=0.2, timeout=0.05, failure_rate=0, seed=None
+    )
+    runner = TaskRunner(RandomPolicy(config))
+
+    async with runner.events() as events:
+        await runner.start(PICK_CUP)
+        statuses = await _next_statuses(events, 2)
+
+    assert statuses == [
+        TaskRunning(),
+        TaskFailed(cause="timeout", reason="it was still not done after 0 seconds"),
+    ]
+
+
+async def test_an_untouched_interactive_task_ends_by_itself() -> None:
+    fallback = RandomPolicy(
+        RandomPolicyConfig(min_duration=0, max_duration=0, timeout=1, failure_rate=0, seed=None)
+    )
+    runner = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=fallback))
+
+    async with runner.events() as events:
+        await runner.start(PICK_CUP)
+
+        assert await _next_statuses(events, 2) == [TaskRunning(), TaskSucceeded()]
+
+
+async def test_typing_t_times_a_task_out() -> None:
+    commands = asyncio.Queue[str]()
+    runner = TaskRunner(TerminalPolicy(commands, fallback=None))
+
+    async with runner.events() as events:
+        await runner.start(PICK_CUP)
+        commands.put_nowait("t")
+
+        assert (await _next_statuses(events, 2))[1] == TaskFailed(
+            cause="timeout", reason="it was taking too long"
+        )

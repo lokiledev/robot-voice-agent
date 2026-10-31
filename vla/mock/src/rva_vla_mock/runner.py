@@ -31,6 +31,10 @@ class TaskRunner:
         self._active: tuple[UUID, asyncio.Task[None]] | None = None
         self._subscribers: Final[set[asyncio.Queue[TaskEvent]]] = set()
 
+    @property
+    def running(self) -> Task | None:
+        return None if self._active is None else self._tasks[self._active[0]]
+
     async def start(self, request: TaskRequest) -> Task:
         if self._active is not None:
             raise VlaBusyError(self._active[0])

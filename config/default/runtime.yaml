@@ -25,6 +25,10 @@ llm_server:
 vla:
   base_url: http://127.0.0.1:8800
 
+# Walking, animations and gaze; the mock serves them next to the VLA.
+body:
+  base_url: http://127.0.0.1:8800
+
 vision:
   device: cuda
   camera:
@@ -54,6 +58,10 @@ vision:
     margin: 0.05
   database: ~/.local/share/robot-voice-agent/faces.sqlite3
   max_embeddings_per_person: 10
+  # Used with --video: camera frames recorded with the session, to replay in rerun.
+  video:
+    width: 960
+    jpeg_quality: 80
 
 observability:
   captures_dir: ~/Captures/robot-voice-agent

@@ -9,6 +9,7 @@ from rva_agent.tests.fakes import (
     QueueUserInput,
     RecordingSpeech,
     ScriptedLanguageModel,
+    idle_body,
     person,
 )
 from rva_schemas.dialogue import AssistantMessage, RobotEventMessage, TextDelta, ToolCall
@@ -40,6 +41,7 @@ def _agent(
     return Agent(
         llm=llm,
         vla=vla,
+        body=idle_body(vla),
         user_input=user,
         speech=speech,
         recorder=recorder,
@@ -58,7 +60,12 @@ async def test_answers_a_question() -> None:
     user.leave()
 
     await _agent(
-        llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, None
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
     ).run()
 
     assert speech.said == ["I'm Lune.", "Nice to meet you."]
@@ -79,7 +86,9 @@ async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     commands = asyncio.Queue[str]()
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
-        _agent(llm, TaskRunner(TerminalPolicy(commands)), user, speech, recorder, None).run()
+        _agent(
+            llm, TaskRunner(TerminalPolicy(commands, fallback=None)), user, speech, recorder, None
+        ).run()
     )
 
     user.say("Grab the red cup please.")
@@ -111,7 +120,14 @@ async def test_stop_word_cancels_the_task_without_the_llm() -> None:
     llm = ScriptedLanguageModel([[TextDelta(text="On it."), START_PICK_CUP]])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
-        _agent(llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, None).run()
+        _agent(
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            None,
+        ).run()
     )
 
     user.say("Grab the red cup.")
@@ -143,7 +159,12 @@ async def test_barge_in_keeps_only_what_was_heard_and_skips_the_action() -> None
     user.leave()
 
     await _agent(
-        llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, None
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
     ).run()
 
     assert llm.requests[1][-2] == AssistantMessage(content="Sure.", tool_calls=())
@@ -172,7 +193,12 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
         _agent(
-            llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, vision
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            vision,
         ).run()
     )
 
@@ -184,7 +210,7 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
     await running
 
     assert llm.requests[0][-1] == RobotEventMessage(
-        content="An unknown person is in view (track 8, nearest)."
+        content="An unknown person is in view (track 8, nearest). Greet them: look at them and wave."
     )
     assert [entry for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
         ToolInvocation(
@@ -203,7 +229,12 @@ async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_agai
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
         _agent(
-            llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder, vision
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            vision,
         ).run()
     )
 
@@ -222,5 +253,8 @@ async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_agai
     assert speech.said == ["Hi Alice.", "You are Alice."]
     assert llm.requests[1][-3:-1] == (
         RobotEventMessage(content="Alice left (track 7)."),
-        RobotEventMessage(content="Alice is in view (track 9, nearest, one of your operators)."),
+        RobotEventMessage(
+            content="Alice is in view (track 9, nearest, user cd736558-bc50-5e7f-a2ce-297e9d7b1465,"
+            " one of your operators). Greet them: look at them and wave."
+        ),
     )

@@ -19,9 +19,12 @@ from rva_app.config import RuntimeConfig
 from rva_app.servers import Server, ServersUnavailableError, require_servers
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
 from rva_app.voice import open_voice_input, open_voice_output, robot_speech
+from rva_body_client.client import HttpBodyClient
 from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
 from rva_observability.session import start_session
+from rva_schemas.abc.conversation import UserInput
+from rva_schemas.abc.recorder import Recorder
 from rva_schemas.dialogue import (
     AssistantMessage,
     Message,
@@ -30,6 +33,7 @@ from rva_schemas.dialogue import (
     ToolCall,
     ToolResultMessage,
     UserMessage,
+    UserUtterance,
 )
 from rva_schemas.profile import Profile
 from rva_schemas.vision import UnknownTrackError
@@ -80,6 +84,7 @@ def text(
     viewer: bool = False,
     camera: bool = True,
     show: bool = False,
+    video: bool = False,
 ) -> None:
     """Run the agent in the terminal: type to talk, read its replies. Needs the LLM and VLA servers.
 
@@ -88,8 +93,9 @@ def text(
         viewer: Stream the recording to a rerun viewer.
         camera: Watch for people with the camera.
         show: Also show the camera with the tracked faces in a window.
+        video: Record the camera frames with the session, to replay them in rerun.
     """
-    _run(_run_text_agent(profile, viewer, camera, show))
+    _run(_run_text_agent(profile, viewer, camera, show, video))
 
 
 @app.command
@@ -121,6 +127,7 @@ def run(
     viewer: bool = False,
     camera: bool = True,
     show: bool = False,
+    video: bool = False,
 ) -> None:
     """Run the voice agent. Needs the LLM and VLA servers.
 
@@ -129,8 +136,9 @@ def run(
         viewer: Stream the recording to a rerun viewer.
         camera: Watch for people with the camera.
         show: Also show the camera with the tracked faces in a window.
+        video: Record the camera frames with the session, to replay them in rerun.
     """
-    _run(_run_voice_agent(profile, viewer, camera, show))
+    _run(_run_voice_agent(profile, viewer, camera, show, video))
 
 
 def _run(main: Coroutine[object, object, None]) -> None:
@@ -146,6 +154,7 @@ def _llm_server(config: RuntimeConfig) -> Server:
         name="LLM server",
         url=f"{config.llm.base_url}",
         how_to_start="start it with `uv run rva serve-llm`",
+        route_must_exist=False,
     )
 
 
@@ -154,6 +163,17 @@ def _vla_server(config: RuntimeConfig) -> Server:
         name="VLA",
         url=f"{config.vla.base_url}",
         how_to_start="start the mock with `uv run rva-vla-mock --interactive`, or set vla.base_url in runtime.yaml",
+        route_must_exist=False,
+    )
+
+
+def _body_server(config: RuntimeConfig) -> Server:
+    return Server(
+        name="Body API",
+        url=f"{str(config.body.base_url).rstrip('/')}/body/state",
+        how_to_start="start the mock with `uv run rva-vla-mock --interactive`; a mock started"
+        " before the body API existed must be restarted",
+        route_must_exist=True,
     )
 
 
@@ -180,25 +200,31 @@ async def _say(profile_dir: Path, voice_name: str | None) -> None:
             write(f"[{(time.perf_counter() - started):.1f} s] {spoken.text}\n")
 
 
-async def _run_voice_agent(profile_dir: Path, viewer: bool, camera: bool, show: bool) -> None:
+async def _run_voice_agent(
+    profile_dir: Path, viewer: bool, camera: bool, show: bool, video: bool
+) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
-    await require_servers(_llm_server(config), _vla_server(config))
+    await require_servers(_llm_server(config), _vla_server(config), _body_server(config))
     recorder = start_session(config.observability, "voice", viewer=viewer, console_level="INFO")
     vision = (
-        await asyncio.to_thread(_face_vision, config.vision, show_window=show, on_key=None)
+        await asyncio.to_thread(
+            _face_vision, config.vision, recorder, video, show_window=show, on_key=None
+        )
         if camera
         else None
     )
     speaking = robot_speech(config.audio)
     async with (
         HttpVlaClient(config.vla) as vla,
+        HttpBodyClient(config.body) as body,
         open_voice_output(config.audio, config.tts, speaking) as speech,
         open_voice_input(config.audio, recorder, speaking, speech.interrupt) as user_input,
     ):
         agent = Agent(
             llm=OpenAiLanguageModel(config.llm),
             vla=vla,
-            user_input=user_input,
+            body=body,
+            user_input=_captioned(user_input, vision),
             speech=speech,
             recorder=recorder,
             vision=vision,
@@ -214,7 +240,9 @@ async def _one(text: str) -> AsyncGenerator[str]:
 
 
 @app.command
-def see(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+def see(
+    *, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False, video: bool = False
+) -> None:
     """Show the camera with each tracked face and who it is, without the agent.
 
     Faces coming and going are logged. Press n in the window to type a name for the nearest face in
@@ -223,24 +251,30 @@ def see(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None
     Args:
         profile: Robot profile directory.
         viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
+        video: Record the camera frames with the session, to replay them in rerun.
     """
-    asyncio.run(_see(profile, viewer))
+    asyncio.run(_see(profile, viewer, video))
 
 
-async def _run_text_agent(profile_dir: Path, viewer: bool, camera: bool, show: bool) -> None:
+async def _run_text_agent(
+    profile_dir: Path, viewer: bool, camera: bool, show: bool, video: bool
+) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
-    await require_servers(_llm_server(config), _vla_server(config))
+    await require_servers(_llm_server(config), _vla_server(config), _body_server(config))
     recorder = start_session(config.observability, "text", viewer=viewer, console_level="WARNING")
     vision = (
-        await asyncio.to_thread(_face_vision, config.vision, show_window=show, on_key=None)
+        await asyncio.to_thread(
+            _face_vision, config.vision, recorder, video, show_window=show, on_key=None
+        )
         if camera
         else None
     )
-    async with HttpVlaClient(config.vla) as vla:
+    async with HttpVlaClient(config.vla) as vla, HttpBodyClient(config.body) as body:
         agent = Agent(
             llm=OpenAiLanguageModel(config.llm),
             vla=vla,
-            user_input=TerminalUserInput(),
+            body=body,
+            user_input=_captioned(TerminalUserInput(), vision),
             speech=TerminalSpeechOutput(profile.character.name),
             recorder=recorder,
             vision=vision,
@@ -270,12 +304,12 @@ def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
         write(f"{person.user_id}  {person.name}{role}\n")
 
 
-async def _see(profile_dir: Path, viewer: bool) -> None:
+async def _see(profile_dir: Path, viewer: bool, video: bool) -> None:
     config = RuntimeConfig.load(profile_dir)
-    start_session(config.observability, "see", viewer=viewer, console_level="INFO")
+    recorder = start_session(config.observability, "see", viewer=viewer, console_level="INFO")
     keys = asyncio.Queue[str]()
     vision = await asyncio.to_thread(
-        _face_vision, config.vision, show_window=True, on_key=keys.put_nowait
+        _face_vision, config.vision, recorder, video, show_window=True, on_key=keys.put_nowait
     )
     async with asyncio.TaskGroup() as group:
         naming = group.create_task(_name_nearest_face(vision, keys))
@@ -311,9 +345,39 @@ async def _name_nearest_face(vision: FaceVision, keys: asyncio.Queue[str]) -> No
 
 
 def _face_vision(
-    config: FaceVisionConfig, *, show_window: bool, on_key: Callable[[str], None] | None
+    config: FaceVisionConfig,
+    recorder: Recorder,
+    record_video: bool,
+    *,
+    show_window: bool,
+    on_key: Callable[[str], None] | None,
 ) -> FaceVision:
-    return FaceVision(config, _face_database(config), show_window=show_window, on_key=on_key)
+    return FaceVision(
+        config,
+        _face_database(config),
+        recorder=recorder,
+        record_video=record_video,
+        show_window=show_window,
+        on_key=on_key,
+    )
+
+
+def _captioned(user_input: UserInput, vision: FaceVision | None) -> UserInput:
+    """`user_input`, showing each sentence over the camera image too."""
+    if vision is None:
+        return user_input
+    return _CaptionedInput(user_input, vision)
+
+
+class _CaptionedInput:
+    def __init__(self, user_input: UserInput, vision: FaceVision) -> None:
+        self._user_input = user_input
+        self._vision = vision
+
+    async def utterances(self) -> AsyncGenerator[UserUtterance]:
+        async for utterance in self._user_input.utterances():
+            self._vision.caption(utterance.text)
+            yield utterance
 
 
 def _face_database(config: FaceVisionConfig) -> FaceDatabase:

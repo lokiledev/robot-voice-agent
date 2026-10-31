@@ -9,6 +9,7 @@ from uuid import UUID
 from loguru import logger
 from opentelemetry import trace
 
+from rva_agent.body import BodySupervisor, BodyTools
 from rva_agent.config import AgentConfig
 from rva_agent.history import History
 from rva_agent.people import PeopleTools
@@ -17,6 +18,8 @@ from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tasks import TaskSupervisor
 from rva_agent.tools import TaskTools, ToolResult
+from rva_body_schemas.abc.client import BodyClient
+from rva_body_schemas.motion import GoToHuman, GoToLocation, Motion, PlayAnimation, describe
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.llm import LanguageModel
 from rva_schemas.abc.recorder import Recorder
@@ -31,7 +34,7 @@ from rva_schemas.dialogue import (
     UserUtterance,
 )
 from rva_schemas.profile import Profile
-from rva_schemas.record import DialogueLine, FaceUpdate, TaskUpdate, ToolInvocation
+from rva_schemas.record import DialogueLine, FaceUpdate, MotionUpdate, TaskUpdate, ToolInvocation
 from rva_schemas.vision import FaceAppeared, FaceEvent, FaceLeft
 from rva_vla_schemas.abc.client import VlaClient
 from rva_vla_schemas.task import Task, TaskCancelled, TaskFailed, TaskRunning, TaskSucceeded
@@ -51,6 +54,7 @@ class Agent:
         *,
         llm: LanguageModel,
         vla: VlaClient,
+        body: BodyClient,
         user_input: UserInput,
         speech: SpeechOutput,
         recorder: Recorder,
@@ -60,19 +64,33 @@ class Agent:
     ) -> None:
         self._llm: Final = llm
         self._vla: Final = vla
+        self._body_client: Final = body
         self._user_input: Final = user_input
         self._speech: Final = speech
         self._recorder: Final = recorder
         self._vision: Final = vision
         self._config: Final = config
-        # One turn at a time: user utterances, ended tasks and face events queue up here.
-        self._inbox: Final = asyncio.Queue[UserUtterance | Task | FaceAppeared | FaceLeft]()
+        # One turn at a time: user utterances, ended tasks and motions, and face events queue up.
+        self._inbox: Final = asyncio.Queue[
+            UserUtterance | Task | Motion | FaceAppeared | FaceLeft
+        ]()
         self._supervisor: Final = TaskSupervisor(vla, self._inbox.put_nowait)
+        self._body: Final = BodySupervisor(body, self._inbox.put_nowait)
         self._permission: Final = ActionPermission(vision, profile.admins)
-        self._tools: Final = TaskTools(self._supervisor, self._permission)
+        self._tools: Final = TaskTools(self._supervisor, self._moving, self._permission)
+        self._body_tools: Final = BodyTools(
+            self._body,
+            self._supervisor,
+            self._permission,
+            vision,
+            tuple(place.name for place in profile.environment.places),
+            profile.capabilities.animations,
+        )
         self._people: Final = None if vision is None else PeopleTools(vision, self._permission)
-        self._tool_specs: Final = TaskTools.specs + (
-            () if self._people is None else PeopleTools.specs
+        self._tool_specs: Final = (
+            TaskTools.specs
+            + self._body_tools.specs
+            + (() if self._people is None else PeopleTools.specs)
         )
         self._history: Final = History(
             render_system_prompt(profile, vision=vision is not None), config.max_history_messages
@@ -84,16 +102,19 @@ class Agent:
         """Converse until the user input ends, then finish the turns already queued."""
         async with (
             self._vla.events() as events,
+            self._body_client.events() as motions,
             self._face_events() as faces,
             asyncio.TaskGroup() as group,
         ):
             watching = group.create_task(self._supervisor.watch(events))
+            moving = group.create_task(self._body.watch(motions))
             seeing = group.create_task(self._queue_faces(faces))
             handling = group.create_task(self._handle_inbox())
             async for utterance in self._user_input.utterances():
                 self._inbox.put_nowait(utterance)
             await self._inbox.join()
             watching.cancel()
+            moving.cancel()
             seeing.cancel()
             handling.cancel()
 
@@ -119,6 +140,8 @@ class Agent:
                             await self._on_utterance(item)
                         case Task():
                             await self._on_task_end(item)
+                        case Motion():
+                            await self._on_motion_end(item)
                         case FaceAppeared() | FaceLeft():
                             await self._on_face(item)
                         case _:
@@ -128,10 +151,12 @@ class Agent:
 
     async def _on_utterance(self, utterance: UserUtterance) -> None:
         self._recorder.record(DialogueLine(speaker="user", text=utterance.text))
-        self._history.append(UserMessage(content=utterance.text))
-        if self._is_stop_word(utterance.text) and self._supervisor.active is not None:
-            logger.info("Stop word: cancelling the task without the LLM")
+        self._history.append(UserMessage(content=self._attributed(utterance.text)))
+        busy = self._supervisor.active is not None or self._body.active is not None
+        if self._is_stop_word(utterance.text) and busy:
+            logger.info("Stop word: stopping the body without the LLM")
             await self._supervisor.cancel()
+            await self._body.stay()
             await self._say_fixed("Stopping.")
             return
         await self._respond()
@@ -169,6 +194,37 @@ class Agent:
                     self._left_at[event.person.user_id] = time.monotonic()
             case _:
                 assert_never(event)
+
+    async def _on_motion_end(self, motion: Motion) -> None:
+        self._recorder.record(MotionUpdate(motion=motion))
+        self._history.append(RobotEventMessage(content=_describe_motion_end(motion)))
+        match motion.status, motion.action:
+            # A finished gesture needs no comment; a stop was asked for.
+            case TaskCancelled(), _:
+                pass
+            case TaskSucceeded(), PlayAnimation():
+                pass
+            case _:
+                await self._respond()
+
+    def _attributed(self, text: str) -> str:
+        """`text` prefixed with who was in front of the robot when it was said.
+
+        Without it, the LLM keeps answering whoever spoke last after someone else steps in front.
+        """
+        if self._vision is None:
+            return text
+        nearest = next((face for face in self._vision.faces() if face.nearest), None)
+        if nearest is None:
+            return f"[nobody in view] {text}"
+        if nearest.person is None:
+            return f"[unknown person, track {nearest.track_id}] {text}"
+        return f"[{nearest.person.name}, track {nearest.track_id}] {text}"
+
+    def _moving(self) -> str | None:
+        """What the body is doing besides a VLA task, if anything."""
+        motion = self._body.active
+        return None if motion is None else describe(motion.action)
 
     async def _respond(self) -> None:
         """Let the LLM speak and call tools until it has nothing left to do."""
@@ -211,6 +267,8 @@ class Agent:
     async def _call_tool(self, call: ToolCall) -> ToolResult:
         if self._people is not None and call.name in PeopleTools.names:
             return await self._people.call(call)
+        if call.name in BodyTools.names:
+            return await self._body_tools.call(call)
         return await self._tools.call(call)
 
     async def _stream_text(
@@ -246,6 +304,8 @@ def _describe_end(task: Task) -> str:
     match task.status:
         case TaskSucceeded():
             return f"Your body finished: {task.instruction}. It worked."
+        case TaskFailed(cause="timeout"):
+            return f"Your body gave up, it took too long: {task.instruction}. {task.status.reason}."
         case TaskFailed():
             return f"Your body could not finish: {task.instruction}. Reason: {task.status.reason}."
         case TaskCancelled():
@@ -256,16 +316,46 @@ def _describe_end(task: Task) -> str:
             assert_never(task.status)
 
 
+def _describe_motion_end(motion: Motion) -> str:
+    action = motion.action
+    match motion.status:
+        case TaskSucceeded():
+            match action:
+                case GoToLocation():
+                    return f"You arrived at the {action.location}."
+                case GoToHuman():
+                    return "You reached the person you were walking to."
+                case PlayAnimation():
+                    return f"You finished the {action.animation} animation."
+                case _:
+                    assert_never(action)
+        case TaskFailed(cause="timeout"):
+            return f"Your body gave up, it took too long: {describe(action)}."
+        case TaskFailed():
+            return f"Your body could not {describe(action)}. Reason: {motion.status.reason}."
+        case TaskCancelled():
+            return f"You stopped before you could {describe(action)}."
+        case TaskRunning():
+            raise AssertionError(f"Motion {motion.id} reported as ended while running")
+        case _:
+            assert_never(motion.status)
+
+
 def _describe_face(event: FaceAppeared | FaceLeft, permission: ActionPermission) -> str:
     match event:
         case FaceAppeared():
             face = event.face
             where = f"track {face.track_id}, nearest" if face.nearest else f"track {face.track_id}"
+            # Said in the event itself: the model follows it far more than a rule in its prompt.
+            greet = " Greet them: look at them and wave." if face.nearest else ""
             if face.person is None:
-                return f"An unknown person is in view ({where})."
+                return f"An unknown person is in view ({where}).{greet}"
             # Said up front so the LLM declines a non-operator's request instead of trying it.
             role = "one of" if permission.is_operator(face.person.user_id) else "not one of"
-            return f"{face.person.name} is in view ({where}, {role} your operators)."
+            return (
+                f"{face.person.name} is in view ({where}, user {face.person.user_id},"
+                f" {role} your operators).{greet}"
+            )
         case FaceLeft():
             if event.person is None:
                 return f"The unknown person on track {event.track_id} left."

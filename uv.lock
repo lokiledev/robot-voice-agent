@@ -12,6 +12,8 @@ members = [
     "robot-voice-agent",
     "rva-agent",
     "rva-app",
+    "rva-body-client",
+    "rva-body-schemas",
     "rva-llm",
     "rva-observability",
     "rva-pydantic",
@@ -1823,6 +1825,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "loguru" },
     { name = "opentelemetry-api" },
+    { name = "rva-body-schemas" },
     { name = "rva-pydantic" },
     { name = "rva-schemas" },
     { name = "rva-vla-schemas" },
@@ -1838,6 +1841,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "opentelemetry-api", specifier = ">=1.36" },
+    { name = "rva-body-schemas", editable = "body/schemas" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-schemas", editable = "schemas" },
     { name = "rva-vla-schemas", editable = "vla/schemas" },
@@ -1856,6 +1860,7 @@ dependencies = [
     { name = "loguru" },
     { name = "numpy" },
     { name = "rva-agent" },
+    { name = "rva-body-client" },
     { name = "rva-llm" },
     { name = "rva-observability" },
     { name = "rva-pydantic" },
@@ -1874,6 +1879,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "rva-agent", editable = "agent" },
+    { name = "rva-body-client", editable = "body/client" },
     { name = "rva-llm", editable = "llm" },
     { name = "rva-observability", editable = "common/observability" },
     { name = "rva-pydantic", editable = "common/pydantic" },
@@ -1883,6 +1889,56 @@ requires-dist = [
     { name = "rva-voice-asr", editable = "voice/asr" },
     { name = "rva-voice-audio", editable = "voice/audio" },
     { name = "rva-voice-tts", editable = "voice/tts" },
+]
+
+[[package]]
+name = "rva-body-client"
+version = "0.1.0"
+source = { editable = "body/client" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "rva-body-schemas" },
+    { name = "rva-pydantic" },
+    { name = "websockets" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rva-vla-mock" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-body-schemas", editable = "body/schemas" },
+    { name = "rva-pydantic", editable = "common/pydantic" },
+    { name = "websockets", specifier = ">=15" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "rva-vla-mock", editable = "vla/mock" },
+    { name = "uvicorn", specifier = ">=0.35" },
+]
+
+[[package]]
+name = "rva-body-schemas"
+version = "0.1.0"
+source = { editable = "body/schemas" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "rva-pydantic" },
+    { name = "rva-vla-schemas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-pydantic", editable = "common/pydantic" },
+    { name = "rva-vla-schemas", editable = "vla/schemas" },
 ]
 
 [[package]]
@@ -1915,8 +1971,15 @@ dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
     { name = "rerun-sdk" },
+    { name = "rva-body-schemas" },
     { name = "rva-pydantic" },
     { name = "rva-schemas" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "numpy" },
+    { name = "opencv-python" },
 ]
 
 [package.metadata]
@@ -1925,8 +1988,15 @@ requires-dist = [
     { name = "opentelemetry-api", specifier = ">=1.36" },
     { name = "opentelemetry-sdk", specifier = ">=1.36" },
     { name = "rerun-sdk", specifier = ">=0.24" },
+    { name = "rva-body-schemas", editable = "body/schemas" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-schemas", editable = "schemas" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "opencv-python", specifier = ">=4.10" },
 ]
 
 [[package]]
@@ -1951,6 +2021,7 @@ source = { editable = "schemas" }
 dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
+    { name = "rva-body-schemas" },
     { name = "rva-pydantic" },
     { name = "rva-vla-schemas" },
 ]
@@ -1959,6 +2030,7 @@ dependencies = [
 requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-body-schemas", editable = "body/schemas" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-vla-schemas", editable = "vla/schemas" },
 ]
@@ -2034,6 +2106,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "loguru" },
     { name = "pydantic" },
+    { name = "rva-body-schemas" },
     { name = "rva-pydantic" },
     { name = "rva-vla-schemas" },
     { name = "uvicorn" },
@@ -2045,6 +2118,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-body-schemas", editable = "body/schemas" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-vla-schemas", editable = "vla/schemas" },
     { name = "uvicorn", specifier = ">=0.35" },

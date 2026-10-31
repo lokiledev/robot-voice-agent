@@ -22,6 +22,8 @@ class TaskSucceeded(RVABaseModel):
 
 class TaskFailed(RVABaseModel):
     state: Literal["failed"] = "failed"
+    cause: Literal["timeout", "error"]
+    """Whether the task ran out of time, or went wrong while running."""
     reason: str
     """Why the VLA gave up, in words the agent can relay to the user."""
 

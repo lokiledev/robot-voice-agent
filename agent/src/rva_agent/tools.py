@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import Final
 
 import pydantic
@@ -51,8 +52,21 @@ class TaskTools:
 
     specs: Final = _SPECS
 
-    def __init__(self, supervisor: TaskSupervisor, permission: ActionPermission) -> None:
+    def __init__(
+        self,
+        supervisor: TaskSupervisor,
+        body_busy: Callable[[], str | None],
+        permission: ActionPermission,
+    ) -> None:
+        """Drive VLA tasks.
+
+        Args:
+            supervisor: The VLA's tasks.
+            body_busy: What the body is doing besides tasks, e.g. walking, or None.
+            permission: Who may start tasks.
+        """
         self._supervisor: Final = supervisor
+        self._body_busy: Final = body_busy
         self._permission: Final = permission
 
     async def call(self, call: ToolCall) -> ToolResult:
@@ -82,6 +96,8 @@ class TaskTools:
                 error=f"{refusal} Only operators can ask you to move."
                 " Tell them kindly that you can talk with them but not do this."
             )
+        if (moving := self._body_busy()) is not None:
+            return _result(error=f"Your body is busy: {moving}. Call stay first or wait.")
         try:
             task = await self._supervisor.start(args.instruction)
         except VlaBusyError:
@@ -102,9 +118,13 @@ class TaskTools:
         return _result(status="cancelling", task=task.instruction)
 
     def _status(self) -> ToolResult:
+        # Like a start, a status check needs no comment when the LLM already spoke: it only
+        # confirms what it said, and the end of the task arrives later as a robot event.
         if self._supervisor.active is None:
-            return _result(status="idle")
-        return _result(status="running", task=self._supervisor.active.instruction)
+            status = _result(status="idle")
+        else:
+            status = _result(status="running", task=self._supervisor.active.instruction)
+        return ToolResult(content=status.content, needs_reply=False)
 
     def _running(self) -> str:
         active = self._supervisor.active

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from rva_agent.config import AgentConfig
+from rva_body_client.client import HttpBodyClientConfig
 from rva_llm.client import OpenAiLanguageModelConfig
 from rva_llm.server import LlamaServerConfig
 from rva_observability.session import ObservabilityConfig
@@ -18,6 +19,7 @@ class RuntimeConfig(RVABaseModel):
     llm: OpenAiLanguageModelConfig
     llm_server: LlamaServerConfig
     vla: HttpVlaClientConfig
+    body: HttpBodyClientConfig
     audio: AudioConfig
     tts: KokoroConfig
     vision: FaceVisionConfig

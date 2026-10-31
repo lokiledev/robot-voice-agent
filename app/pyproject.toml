@@ -9,6 +9,7 @@ dependencies = [
   "loguru>=0.7",
   "numpy>=2.0",
   "rva-agent",
+  "rva-body-client",
   "rva-llm",
   "rva-observability",
   "rva-pydantic",
@@ -28,6 +29,7 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 rva-agent = {workspace = true}
+rva-body-client = {workspace = true}
 rva-llm = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}

@@ -18,6 +18,9 @@ from rva_schemas.vision import (
     UnknownPersonError,
     UnknownTrackError,
 )
+from rva_vla_mock.body import BodyMock
+from rva_vla_mock.policies import TerminalPolicy
+from rva_vla_mock.runner import TaskRunner
 
 
 class ScriptedLanguageModel:
@@ -114,6 +117,10 @@ class FakeVision:
     def show(self, event: FaceEvent) -> None:
         self._events.put_nowait(event)
 
+    def set_faces(self, faces: Sequence[TrackedFace]) -> None:
+        """Change who is in view, e.g. someone else stepping in front."""
+        self._faces[:] = faces
+
     @asynccontextmanager
     async def events(self) -> AsyncGenerator[AsyncIterator[FaceEvent]]:
         yield self._drain()
@@ -178,6 +185,13 @@ PROFILE = Profile(
             Skill(name="pick", description="Pick up an object.", examples=("pick up the red cup",)),
         ),
         constraints=(),
+        animations=("wave_right_hand", "dance"),
     ),
     admins=Admins(user_ids=frozenset({person("Alice").user_id})),
 )
+
+
+def idle_body(vla: TaskRunner) -> BodyMock:
+    """A body whose motions only end when a test types a command, sharing `vla`'s busy state."""
+    idle = TerminalPolicy(asyncio.Queue(), fallback=None)
+    return BodyMock(vla, idle, idle)

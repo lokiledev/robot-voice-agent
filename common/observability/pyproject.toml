@@ -4,12 +4,19 @@ version = "0.1.0"
 description = "Loguru, OpenTelemetry and rerun setup; records agent events to an rrd file"
 requires-python = ">=3.12"
 dependencies = [
+  "rva-body-schemas",
   "loguru>=0.7",
   "opentelemetry-api>=1.36",
   "opentelemetry-sdk>=1.36",
   "rerun-sdk>=0.24",
   "rva-pydantic",
   "rva-schemas",
+]
+
+[dependency-groups]
+dev = [
+  "numpy>=2.0",
+  "opencv-python>=4.10",
 ]
 
 [build-system]
@@ -19,5 +26,6 @@ requires = [
 build-backend = "uv_build"
 
 [tool.uv.sources]
+rva-body-schemas = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}

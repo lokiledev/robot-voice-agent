@@ -115,7 +115,11 @@ sequenceDiagram
 
 **VLA tasks are concurrent with dialogue.** `start_task` returns as soon as the VLA accepts the task. The VLA manager watches the status stream and posts the final status to the inbox. The LLM then decides what to say and whether to chain the next step of a longer plan ("clear the table" becomes several short VLA commands, each started when the previous one succeeds).
 
-**One active task.** If the user asks for something physical while a task is running, the LLM chooses between `cancel_task` and asking the user to wait. There is no queue.
+**Every body tool is a long-running action.** It returns as soon as the action starts; its status can be asked, it can be cancelled, and its end reaches the agent as an event the LLM reacts to. A VLA task is one such action; walking (`go_to_location`, `go_to_human`) and animations (`play_animation`) are others, from the body API. They all hold the body, so only one runs at a time: starting another is refused until it ends or is stopped (`cancel_task`, `stay`). Looking at someone (`look_at_user`) holds the head only and runs alongside, until walking starts or `stop_look_at_user`. There is no queue. Walking needs an operator in front of the robot, like tasks; gestures, looking and `stay` are open to everyone. A finished walk or a failed action starts an LLM turn; a finished animation does not.
+
+**Initiative.** The robot gestures and looks at people on its own: it looks at whoever comes into view or talks to it, follows the speaker when they change, and waves hello and goodbye. Tasks and walking only ever answer a request. A prompt section alone did not get the model to act unasked (it asked "would you like me to dance?" instead), so the event of a person coming into view in front of the robot also says "Greet them: look at them and wave."
+
+**Who is speaking.** With a camera, each user turn reaches the LLM tagged with whoever was in front when it was said (`[Alice, track 5] Go to the workbench`), so it answers the right person after someone else steps in. Face events carry user ids, which the tools that walk to or look at someone take.
 
 **Who may make the robot act.** Only operators may start tasks, and only while the camera recognizes them as the nearest face. Operators are the admins, whose user ids are listed in the profile's `admins.yaml`, and the people an operator authorized by voice (`authorize_person`), kept in the face database's `operators` table with who granted them and when. An operator in front of the robot can revoke a granted operator by voice (`revoke_person`), but never an admin. Everyone else can talk with the robot, which declines their physical requests. The tools enforce all of this themselves (`ActionPermission`), so a slip of the LLM cannot bypass it, and face events tell the LLM up front whether a person is an operator so it declines instead of trying. Stopping is open to everyone: the stop word and `cancel_task` are not gated. Without a camera nobody can be recognized, so anyone may make the robot act.
 
@@ -208,7 +212,9 @@ flowchart BT
 | `rva-observability` | loguru sinks, OpenTelemetry setup, span-to-rerun processor, rerun `Recorder` | rerun-sdk, opentelemetry-sdk |
 | `rva-vision-faces` | Camera, YuNet detector, SFace embedder, tracker, gallery, SQLite face database, debug window; implements `Vision` | onnxruntime-gpu, opencv-python, onnx |
 | `rva-vla-client` | HTTP + WebSocket `VlaClient` | httpx, websockets |
-| `rva-vla-mock` | FastAPI mock server and terminal mode | fastapi, uvicorn |
+| `rva-vla-mock` | FastAPI mock of the robot (VLA and body) and terminal mode | fastapi, uvicorn |
+| `rva-body-schemas` | Motions (walking, animations), gaze, their statuses, and the `BodyClient` interface | — |
+| `rva-body-client` | HTTP + WebSocket `BodyClient` | httpx, websockets |
 | `rva-app` | cyclopts CLI (`run`, `run --text`, `up`), runtime config, terminal `UserInput`/`SpeechOutput` for text mode | — |
 
 ### Interfaces the agent sees
@@ -282,21 +288,31 @@ class Vision(Protocol):
 
 **Measured** on the 4090 and 7950X3D at 1920x1080: detection about 5.6 ms per frame including the upload, an SFace embedding well under 1 ms, so the loop follows the camera (24 fps in the room's light, 30 fps at most). `rva see` shows these figures over the image; they are also logged every 5 s and recorded as `vision:capture`, `vision:detect` and `vision:embed` spans.
 
-## Mock VLA API
+## Mock robot API
+
+The mock serves the VLA and the body side by side.
 
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/tasks` | Start a task from `{"instruction": "pick up the red cup"}`. 201 with the `Task`; 409 with the running `Task` if the VLA is busy. |
 | `GET` | `/tasks/{id}` | The `Task` with its current status. 404 if unknown. |
 | `POST` | `/tasks/{id}/cancel` | Cancel the task if it is running; otherwise return it unchanged. 404 if unknown. |
-| `WS` | `/events` | One JSON `TaskEvent` per message: `running`, `succeeded`, `failed` with a reason, `cancelled`. |
+| `WS` | `/events` | One JSON `TaskEvent` per message: `running`, `succeeded`, `failed` with a cause (`timeout` or `error`) and a reason, `cancelled`. |
+| `POST` | `/body/motions` | Start a motion: `{"action": {"kind": "go_to_location", "location": "shelf"}}`, `go_to_human` with a `user_id`, or `animation`. 409 with what the body is busy with, including a VLA task. |
+| `POST` | `/body/motions/{id}/cancel` | Cancel a motion. |
+| `POST` | `/body/stay` | Stop the running motion, if any. |
+| `PUT`, `DELETE` | `/body/gaze` | Start looking at `{"user_id": ...}`, or stop. |
+| `GET` | `/body/state` | The running motion and who the robot looks at. |
+| `WS` | `/body/events` | One JSON `MotionEvent` per message, with the same statuses as tasks. |
 
 `VlaClient.events()` is a subscription context rather than a bare iterator: every event emitted after entering it is delivered. The server subscribes before accepting the WebSocket handshake, so once the client is connected it cannot miss the start of a task. The agent enters it once per session, before starting any task.
 
 The mock is a `TaskRunner` (which itself implements `VlaClient`, so text mode and agent tests can use it in process) plus an outcome policy:
 
-- **Random** (default): each task lasts between `--min-duration` and `--max-duration` seconds and fails with probability `--failure-rate`, with a plausible reason. `--seed` makes runs reproducible.
-- **Interactive** (`--interactive`): each task waits for a command typed in the mock's terminal: `s` to succeed, `f [reason]` to fail. A command typed while no task is running ends the next one.
+- **Random** (default): each task lasts between `--min-duration` and `--max-duration` seconds (5 s to 2 min). Past `--timeout` (90 s) it fails as timed out; otherwise it fails with probability `--failure-rate`, with a plausible reason. Walking (5 to 30 s) and animations (2 to 8 s) behave the same with their own durations. `--seed` makes runs reproducible.
+- **Interactive** (`--interactive`): the same random outcomes, but a command typed in the mock's terminal ends the running task or motion first: `s` to succeed, `f [reason]` to fail, `t` to time out. A command typed while nothing runs ends the next one.
+
+Every call is logged in the mock's terminal, which is where to watch what the LLM decides. `BodyMock` implements `BodyClient` in process, like `TaskRunner` for the VLA.
 
 `HttpVlaClient` in `rva-vla-client` maps 409 to `VlaBusyError` and 404 to `UnknownTaskError`.
 
@@ -338,6 +354,9 @@ agent.log     loguru log
 | `/vla/task` | status changes (TextLog) |
 | `/latency/<stage>` | per-stage duration (Scalars) |
 | `/audio/vad` | speech probability (Scalars), for tuning thresholds |
+| `/camera/faces` | every tracked face of every frame (Boxes2D), labeled with track, name and user id; green known, orange unknown, grey not yet confirmed |
+| `/camera/image` | with `--video`: the camera frames, scaled to 960 px wide and JPEG-compressed (EncodedImage), under the boxes; about 100 MB per minute |
+| `/camera/caption` | the user's last sentence, as a label over the image |
 | `/vision/faces` | faces appearing and leaving, with their box and person (TextLog) |
 
 Rerun has no audio type, so the WAV files sit next to the recording and their start times are logged in rerun to line them up. `rva run --viewer` also streams to a live rerun viewer.
@@ -355,13 +374,13 @@ Each part runs on its own, so it can be tried by hand before the whole loop:
 | `rva prompt` | Prints the system prompt rendered from the profile | done |
 | `rva serve-llm` | llama-server in the foreground with `runtime.yaml`'s settings | done |
 | `rva llm` | Chat with the LLM alone; tool calls are shown, not run | done |
-| `rva-vla-mock [--interactive]` | The mock VLA; interactive mode ends each task from typed `s` or `f [reason]` | done |
-| `rva text [--viewer] [--no-camera] [--show]` | The whole agent in the terminal, against llama-server and the VLA endpoint, with the camera unless `--no-camera`; `--show` opens the vision window too | done |
-| `rva see [--viewer]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal and prints its user id, `q` quits | done |
+| `rva-vla-mock [--interactive]` | The mock robot: VLA tasks, walking, animations and gaze, all logged; interactive mode also ends each action from typed `s`, `f [reason]` or `t` | done |
+| `rva text [--viewer] [--no-camera] [--show] [--video]` | The whole agent in the terminal, against llama-server and the VLA endpoint, with the camera unless `--no-camera`; `--show` opens the vision window too, `--video` records the camera frames | done |
+| `rva see [--viewer] [--video]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal and prints its user id, `q` quits | done |
 | `rva people` | Lists the user id and name of everyone known, marking admins and operators | done |
 | `rva listen [--viewer]` | Mic → VAD → end of turn → ASR, printing each transcript and its delay; `--viewer` plots the VAD probability | done |
 | `rva say [--voice NAME]` | Typed sentences → TTS → speaker | done |
-| `rva run [--viewer] [--no-camera] [--show]` | The whole voice agent, with the camera unless `--no-camera` | done |
+| `rva run [--viewer] [--no-camera] [--show] [--video]` | The whole voice agent, with the camera unless `--no-camera`; the user's sentences appear over the camera image in the window and in rerun | done |
 
 All commands take `--profile config/<name>` (default `config/default`).
 

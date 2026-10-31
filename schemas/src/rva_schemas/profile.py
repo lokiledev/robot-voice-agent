@@ -46,6 +46,9 @@ class Skill(RVABaseModel):
 
 class Capabilities(RVABaseModel):
     skills: tuple[Skill, ...]
+    """What VLA tasks can do."""
+    animations: tuple[str, ...]
+    """Body animations that can be played, e.g. "wave_right_hand"."""
     constraints: tuple[str, ...]
     """Things the robot cannot do, e.g. "cannot climb stairs"."""
 

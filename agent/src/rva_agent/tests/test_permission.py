@@ -5,9 +5,11 @@ from uuid import UUID
 import pytest
 
 from rva_agent.agent import Agent
+from rva_agent.body import BodySupervisor, BodyTools
 from rva_agent.config import AgentConfig
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
+from rva_agent.tasks import TaskSupervisor
 from rva_agent.tests.fakes import (
     PROFILE,
     FakeVision,
@@ -15,11 +17,13 @@ from rva_agent.tests.fakes import (
     QueueUserInput,
     RecordingSpeech,
     ScriptedLanguageModel,
+    idle_body,
     person,
 )
 from rva_schemas.dialogue import TextDelta, ToolCall, ToolResultMessage
 from rva_schemas.profile import Admins
 from rva_schemas.vision import BoundingBox, KnownPerson, TrackedFace
+from rva_vla_mock.body import BodyMock
 from rva_vla_mock.policies import TerminalPolicy
 from rva_vla_mock.runner import TaskRunner
 from rva_vla_schemas.task import TaskRequest
@@ -76,7 +80,7 @@ async def test_a_stranger_cannot_start_a_task_but_can_still_talk() -> None:
             [TextDelta(text="Sorry, I can only do that for my operators.")],
         ]
     )
-    vla = TaskRunner(TerminalPolicy(asyncio.Queue()))
+    vla = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
     user, speech = QueueUserInput(), RecordingSpeech(interrupt_after=None)
     user.say("Grab the red cup.")
     user.leave()
@@ -84,6 +88,7 @@ async def test_a_stranger_cannot_start_a_task_but_can_still_talk() -> None:
     await Agent(
         llm=llm,
         vla=vla,
+        body=idle_body(vla),
         user_input=user,
         speech=speech,
         recorder=ListRecorder(),
@@ -201,3 +206,114 @@ async def test_renaming_keeps_the_user_and_their_operator_status() -> None:
     (face,) = vision.faces()
     assert face.person == KnownPerson(user_id=alice.user_id, name="Alicia")
     assert ActionPermission(vision, ADMINS).refusal() is None
+
+
+def _body_tools(
+    faces: list[TrackedFace], vla: TaskRunner, commands: asyncio.Queue[str]
+) -> tuple[BodyTools, TaskSupervisor]:
+    policy = TerminalPolicy(commands, fallback=None)
+    tasks = TaskSupervisor(vla, lambda task: None)
+    vision = FakeVision(faces)
+    body = BodySupervisor(BodyMock(vla, policy, policy), lambda motion: None)
+    tools = BodyTools(
+        body,
+        tasks,
+        ActionPermission(vision, ADMINS),
+        vision,
+        ("kitchen counter", "shelf"),
+        ("wave_right_hand", "dance"),
+    )
+    return tools, tasks
+
+
+async def _body_call(tools: BodyTools, name: str, arguments: str) -> str:
+    return (await tools.call(ToolCall(id="1", name=name, arguments=arguments))).content
+
+
+async def test_anyone_may_ask_for_a_gesture_but_only_an_operator_for_a_walk() -> None:
+    tools, _ = _body_tools(
+        [_face(1, person("Bob"), nearest=True)],
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        asyncio.Queue(),
+    )
+
+    assert await _body_call(tools, "go_to_location", '{"location": "shelf"}') == (
+        '{"error": "Bob is not one of your operators. Only operators can ask you to walk somewhere."}'
+    )
+    assert await _body_call(tools, "play_animation", '{"animation": "wave_right_hand"}') == (
+        '{"status": "started", "motion": "play the wave_right_hand animation",'
+        ' "next": "You are told when it ends."}'
+    )
+
+
+async def test_tasks_walks_and_animations_share_the_body() -> None:
+    commands = asyncio.Queue[str]()
+    vla = TaskRunner(TerminalPolicy(commands, fallback=None))
+    tools, tasks = _body_tools([_face(1, person("Alice"), nearest=True)], vla, commands)
+
+    assert await _body_call(tools, "go_to_location", '{"location": "Kitchen Counter"}') == (
+        '{"status": "started", "motion": "go to the kitchen counter",'
+        ' "next": "You are told when it ends."}'
+    )
+    assert await _body_call(tools, "play_animation", '{"animation": "dance"}') == (
+        '{"error": "Your body is busy: go to the kitchen counter. Call stay first or wait."}'
+    )
+    await _body_call(tools, "stay", "{}")
+    await tasks.start("pick up the red cup")
+    assert await _body_call(tools, "play_animation", '{"animation": "dance"}') == (
+        '{"error": "Your body is busy with \'pick up the red cup\'. Cancel it first or wait."}'
+    )
+
+
+async def test_unknown_places_and_animations_are_listed_back() -> None:
+    tools, _ = _body_tools(
+        [_face(1, person("Alice"), nearest=True)],
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        asyncio.Queue(),
+    )
+
+    assert await _body_call(tools, "go_to_location", '{"location": "garden"}') == (
+        '{"error": "garden is not a place you know. Places: kitchen counter, shelf."}'
+    )
+    assert await _body_call(tools, "play_animation", '{"animation": "backflip"}') == (
+        '{"error": "There is no animation backflip. Animations: wave_right_hand, dance."}'
+    )
+    assert (
+        await _body_call(tools, "look_at_user", f'{{"user_id": "{person("Alice").user_id}"}}')
+        == '{"status": "looking at Alice"}'
+    )
+
+
+async def test_each_user_turn_names_who_was_in_front() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Sure.")], [TextDelta(text="Hi.")]])
+    vision = FakeVision([_face(1, person("Bob"), nearest=True), _face(2, None, nearest=False)])
+    vla = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
+    user = QueueUserInput()
+    agent = Agent(
+        llm=llm,
+        vla=vla,
+        body=idle_body(vla),
+        user_input=user,
+        speech=RecordingSpeech(interrupt_after=None),
+        recorder=ListRecorder(),
+        vision=vision,
+        profile=PROFILE,
+        config=AgentConfig(
+            max_history_messages=40,
+            max_tool_rounds=3,
+            stop_words=frozenset({"stop"}),
+            regreet_after_s=60,
+        ),
+    )
+    running = asyncio.create_task(agent.run())
+    user.say("Go to the shelf.")
+    await asyncio.sleep(0.05)
+    vision.set_faces([_face(1, person("Bob"), nearest=False), _face(2, None, nearest=True)])
+    user.say("Hello?")
+    user.leave()
+    await running
+
+    assert [request[-1].content for request in llm.requests] == [
+        "[Bob, track 1] Go to the shelf.",
+        "[unknown person, track 2] Hello?",
+    ]

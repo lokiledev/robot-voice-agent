@@ -8,7 +8,10 @@ from rva_pydantic import RVABaseModel
 class Server(RVABaseModel):
     name: str
     url: str
+    """Address to probe."""
     how_to_start: str
+    route_must_exist: bool
+    """Whether a 404 counts as missing: for a route of the API rather than its root."""
 
 
 class ServersUnavailableError(Exception):
@@ -24,17 +27,17 @@ async def require_servers(*servers: Server) -> None:
     Raises:
         ServersUnavailableError: Listing every server that did not answer.
     """
-    answered = await asyncio.gather(*(_answers(server.url) for server in servers))
+    answered = await asyncio.gather(*(_answers(server) for server in servers))
     missing = tuple(server for server, ok in zip(servers, answered, strict=True) if not ok)
     if missing:
         raise ServersUnavailableError(missing)
 
 
-async def _answers(url: str) -> bool:
-    # Any HTTP response, even an error status, means something is listening.
+async def _answers(server: Server) -> bool:
+    # Otherwise any HTTP response, even an error status, means something is listening.
     try:
         async with httpx.AsyncClient(timeout=2) as client:
-            await client.get(url)
+            response = await client.get(server.url)
     except httpx.TransportError:
         return False
-    return True
+    return not (server.route_must_exist and response.status_code == httpx.codes.NOT_FOUND)

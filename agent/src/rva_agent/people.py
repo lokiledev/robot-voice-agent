@@ -148,6 +148,7 @@ class PeopleTools:
                     {
                         "track_id": face.track_id,
                         "name": None if face.person is None else face.person.name,
+                        "user_id": None if face.person is None else str(face.person.user_id),
                         "nearest": face.nearest,
                     }
                     for face in self._vision.faces()

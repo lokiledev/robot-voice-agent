@@ -23,8 +23,15 @@ async def _answer_404(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 
 async def test_lists_every_missing_server_with_how_to_start_it() -> None:
     llm_port, vla_port = _closed_port(), _closed_port()
-    llm = Server(name="LLM server", url=f"http://127.0.0.1:{llm_port}/v1", how_to_start="run A")
-    vla = Server(name="VLA", url=f"http://127.0.0.1:{vla_port}", how_to_start="run B")
+    llm = Server(
+        name="LLM server",
+        url=f"http://127.0.0.1:{llm_port}/v1",
+        how_to_start="run A",
+        route_must_exist=False,
+    )
+    vla = Server(
+        name="VLA", url=f"http://127.0.0.1:{vla_port}", how_to_start="run B", route_must_exist=False
+    )
 
     with pytest.raises(ServersUnavailableError) as error:
         await require_servers(llm, vla)
@@ -43,5 +50,21 @@ async def test_any_http_answer_counts_as_running() -> None:
 
     async with server:
         await require_servers(
-            Server(name="VLA", url=f"http://127.0.0.1:{port}", how_to_start="run B")
+            Server(
+                name="VLA",
+                url=f"http://127.0.0.1:{port}",
+                how_to_start="run B",
+                route_must_exist=False,
+            )
         )
+
+
+async def test_a_missing_route_counts_as_missing_when_it_must_exist() -> None:
+    server = await asyncio.start_server(_answer_404, "127.0.0.1", 0)
+    url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/body/state"
+
+    async with server:
+        with pytest.raises(ServersUnavailableError):
+            await require_servers(
+                Server(name="Body API", url=url, how_to_start="restart", route_must_exist=True)
+            )

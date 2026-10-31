@@ -1,0 +1,29 @@
+[project]
+name = "rva-body-client"
+version = "0.1.0"
+description = "HTTP and WebSocket client for the robot body API"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx>=0.28",
+  "pydantic>=2.11",
+  "rva-body-schemas",
+  "rva-pydantic",
+  "websockets>=15",
+]
+
+[dependency-groups]
+dev = [
+  "rva-vla-mock",
+  "uvicorn>=0.35",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-body-schemas = {workspace = true}
+rva-pydantic = {workspace = true}
+rva-vla-mock = {workspace = true}

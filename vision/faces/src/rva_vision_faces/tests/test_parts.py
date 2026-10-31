@@ -7,6 +7,7 @@ from uuid import NAMESPACE_URL, uuid5
 import numpy as np
 import pytest
 
+from rva_schemas.record import FaceBox, FaceBoxes
 from rva_schemas.vision import (
     BoundingBox,
     FaceAppeared,
@@ -21,7 +22,8 @@ from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.detector import Detection, decode_yunet
 from rva_vision_faces.embedder import Embedding, align
 from rva_vision_faces.gallery import Gallery
-from rva_vision_faces.tracker import Tracker
+from rva_vision_faces.tracker import Track, Tracker
+from rva_vision_faces.vision import face_boxes
 from rva_vision_faces.window import label
 
 MATCHING = MatchConfig(threshold=0.363, margin=0.05)
@@ -260,3 +262,22 @@ def test_database_renames_and_grants_without_changing_the_user(tmp_path: Path) -
         database.rename(bob.user_id, "Alice")
     assert database.revoke_operator(bob.user_id)
     assert not database.revoke_operator(bob.user_id)
+
+
+def test_face_boxes_are_scaled_to_the_recorded_video() -> None:
+    track = Track(track_id=3, box=BoundingBox(x=100, y=200, width=50, height=80), now=0, samples=1)
+
+    boxes = face_boxes([track], scale=0.5, width=960, height=540)
+
+    assert boxes == FaceBoxes(
+        image_width=960,
+        image_height=540,
+        boxes=(
+            FaceBox(
+                track_id=3,
+                box=BoundingBox(x=50, y=100, width=25, height=40),
+                person=None,
+                confirmed=False,
+            ),
+        ),
+    )

@@ -42,8 +42,8 @@ class DebugWindow:
         cv2.destroyWindow(_NAME)
 
 
-def draw(frame: Image, tracks: Sequence[Track], timings: Timings) -> None:
-    """Draw each track's box and label, and the timings, onto the frame."""
+def draw(frame: Image, tracks: Sequence[Track], timings: Timings, caption: str | None) -> None:
+    """Draw each track's box and label, the timings and the user's last sentence onto the frame."""
     scale = frame.shape[0] / 540
     thickness = max(1, round(2 * scale))
     for track in tracks:
@@ -73,6 +73,8 @@ def draw(frame: Image, tracks: Sequence[Track], timings: Timings) -> None:
         (255, 255, 255),
         thickness,
     )
+    if caption is not None:
+        _draw_caption(frame, caption, scale, thickness)
 
 
 def label(track: Track) -> str:
@@ -86,3 +88,27 @@ def _color(track: Track) -> tuple[int, int, int]:
     if not track.confirmed:
         return _UNCONFIRMED
     return _UNKNOWN if track.match is None else _KNOWN
+
+
+def _draw_caption(frame: Image, caption: str, scale: float, thickness: int) -> None:
+    text = f"User: {caption}"
+    font_scale = 0.7 * scale
+    (_, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+    bottom = frame.shape[0] - round(15 * scale)
+    # A dark band keeps the text readable over any background.
+    cv2.rectangle(
+        frame,
+        (0, bottom - text_height - round(12 * scale)),
+        (frame.shape[1], frame.shape[0]),
+        (0, 0, 0),
+        -1,
+    )
+    cv2.putText(
+        frame,
+        text,
+        (round(10 * scale), bottom),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        (255, 255, 255),
+        thickness,
+    )

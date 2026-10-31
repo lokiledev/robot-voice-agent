@@ -10,7 +10,10 @@ import cv2
 from loguru import logger
 from opentelemetry import trace
 
+from rva_schemas.abc.recorder import Recorder
+from rva_schemas.record import CameraFrame, FaceBox, FaceBoxes
 from rva_schemas.vision import (
+    BoundingBox,
     FaceEvent,
     KnownPerson,
     NotRecognizedError,
@@ -25,13 +28,15 @@ from rva_vision_faces.detector import Detection, Image, YunetDetector
 from rva_vision_faces.embedder import Embedding, SfaceEmbedder
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
-from rva_vision_faces.tracker import Tracker
+from rva_vision_faces.tracker import Track, Tracker
 from rva_vision_faces.window import DebugWindow, Timings, draw
 
 _tracer: Final = trace.get_tracer("rva_vision_faces")
 _WINDOW_SIZE: Final = (960, 540)
 _SMOOTHING: Final = 0.1
 _LOG_EVERY_S: Final = 5.0
+_CAPTION_S: Final = 6.0
+"""How long the user's last sentence stays over the image."""
 
 
 class FaceVision:
@@ -42,6 +47,8 @@ class FaceVision:
         config: FaceVisionConfig,
         database: FaceDatabase,
         *,
+        recorder: Recorder,
+        record_video: bool,
         show_window: bool,
         on_key: Callable[[str], None] | None,
     ) -> None:
@@ -50,12 +57,19 @@ class FaceVision:
         Args:
             config: Camera, models and thresholds.
             database: Known people.
+            recorder: Receives the faces tracked in each frame, and the frames themselves with
+                `record_video`.
+            record_video: Record the camera frames, scaled down and compressed, to replay them.
             show_window: Show the camera with the tracked faces in a window.
             on_key: Called in the event loop with each key pressed in the window, except `q`.
         """
         self._config: Final = config
         self._database: Final = database
+        self._recorder: Final = recorder
+        self._record_video: Final = record_video
         self._show_window: Final = show_window
+        # The user's last sentence and when it was said, on the monotonic clock.
+        self._caption: tuple[str, float] | None = None
         self._on_key: Final = on_key
         self._tracker: Final = Tracker(config.tracker)
         self._gallery = Gallery((), config.matching)
@@ -137,6 +151,10 @@ class FaceVision:
         logger.info("Revoked operator {}: {}", user_id, revoked)
         return revoked
 
+    def caption(self, text: str) -> None:
+        """Show a sentence of the user's over the image for a few seconds."""
+        self._caption = (text, time.monotonic())
+
     async def _reload(self) -> None:
         self._gallery = Gallery(await asyncio.to_thread(self._database.load), self._config.matching)
         self._granted_operators = await asyncio.to_thread(self._database.granted_operators)
@@ -165,9 +183,10 @@ class FaceVision:
                 if now - last_logged >= _LOG_EVERY_S:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
+                self._record(frame)
                 if window is None:
                     continue
-                draw(frame, self._tracker.tracks, timings)
+                draw(frame, self._tracker.tracks, timings, self._current_caption())
                 key = window.show(frame)
                 if key == "q":
                     return
@@ -212,10 +231,57 @@ class FaceVision:
             loop.call_soon_threadsafe(self._publish, events)
         return frame, (captured - start, detected - captured, embedding_time)
 
+    def _record(self, frame: Image) -> None:
+        height, width = frame.shape[:2]
+        scale = 1.0
+        if self._record_video:
+            video = self._config.video
+            scale = video.width / width
+            small = cv2.resize(
+                frame, (video.width, round(height * scale)), interpolation=cv2.INTER_AREA
+            )
+            encoded, jpeg = cv2.imencode(
+                ".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, video.jpeg_quality]
+            )
+            if not encoded:
+                raise RuntimeError("Could not encode a camera frame as JPEG")
+            self._recorder.record(CameraFrame(jpeg=jpeg.tobytes()))
+        self._recorder.record(
+            face_boxes(self._tracker.tracks, scale, round(width * scale), round(height * scale))
+        )
+
+    def _current_caption(self) -> str | None:
+        caption = self._caption
+        if caption is None or time.monotonic() - caption[1] > _CAPTION_S:
+            return None
+        return caption[0]
+
     def _publish(self, events: Sequence[FaceEvent]) -> None:
         for queue in self._subscribers:
             for event in events:
                 queue.put_nowait(event)
+
+
+def face_boxes(tracks: Sequence[Track], scale: float, width: int, height: int) -> FaceBoxes:
+    """The tracks' boxes in an image scaled by `scale`, of size `width` by `height`."""
+    return FaceBoxes(
+        image_width=width,
+        image_height=height,
+        boxes=tuple(
+            FaceBox(
+                track_id=track.track_id,
+                box=BoundingBox(
+                    x=track.box.x * scale,
+                    y=track.box.y * scale,
+                    width=track.box.width * scale,
+                    height=track.box.height * scale,
+                ),
+                person=None if track.match is None else track.match.person,
+                confirmed=track.confirmed,
+            )
+            for track in tracks
+        ),
+    )
 
 
 def _smooth(timings: Timings, frame: tuple[float, float, float], fps: float) -> Timings:

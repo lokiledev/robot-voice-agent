@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Mock VLA task server for experiments"
 requires-python = ">=3.12"
 dependencies = [
+  "rva-body-schemas",
   "cyclopts>=4",
   "fastapi>=0.116",
   "loguru>=0.7",
@@ -20,6 +21,7 @@ requires = [
 build-backend = "uv_build"
 
 [tool.uv.sources]
+rva-body-schemas = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-vla-schemas = {workspace = true}
 

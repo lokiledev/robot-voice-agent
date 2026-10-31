@@ -52,6 +52,14 @@ class MatchConfig(RVABaseModel):
     """When the two best people score within this of each other, the face counts as unknown."""
 
 
+class VideoRecordingConfig(RVABaseModel):
+    """How camera frames are recorded, when recording video is asked for."""
+
+    width: int = Field(gt=0)
+    """Frames are scaled down to this width, keeping their aspect ratio."""
+    jpeg_quality: int = Field(ge=1, le=100)
+
+
 class FaceVisionConfig(RVABaseModel):
     device: Literal["cuda", "cpu"]
     """Where the ONNX models run."""
@@ -64,3 +72,4 @@ class FaceVisionConfig(RVABaseModel):
     """SQLite file of known people and their face embeddings; `~` is expanded."""
     max_embeddings_per_person: int = Field(gt=0)
     """The oldest samples are dropped beyond this."""
+    video: VideoRecordingConfig

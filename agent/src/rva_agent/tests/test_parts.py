@@ -45,7 +45,10 @@ def test_history_drops_tool_results_orphaned_by_trimming() -> None:
 
 async def test_tools_report_llm_mistakes_as_results() -> None:
     tools = TaskTools(
-        TaskSupervisor(TaskRunner(TerminalPolicy(asyncio.Queue())), lambda task: None),
+        TaskSupervisor(
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)), lambda task: None
+        ),
+        lambda: None,
         ActionPermission(None, PROFILE.admins),
     )
 
@@ -64,7 +67,10 @@ async def test_tools_report_llm_mistakes_as_results() -> None:
 
 async def test_busy_vla_names_the_running_task() -> None:
     tools = TaskTools(
-        TaskSupervisor(TaskRunner(TerminalPolicy(asyncio.Queue())), lambda task: None),
+        TaskSupervisor(
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)), lambda task: None
+        ),
+        lambda: None,
         ActionPermission(None, PROFILE.admins),
     )
     start = '{"instruction": "pick up the red cup"}'
@@ -96,8 +102,8 @@ async def test_people_tools_list_who_is_here_and_report_mistakes() -> None:
     tools = PeopleTools(vision, ActionPermission(vision, PROFILE.admins))
 
     assert (await tools.call(ToolCall(id="1", name="who_is_here", arguments=""))).content == (
-        '{"people": [{"track_id": 7, "name": "Alice", "nearest": true},'
-        ' {"track_id": 8, "name": null, "nearest": false}]}'
+        '{"people": [{"track_id": 7, "name": "Alice", "user_id": "cd736558-bc50-5e7f-a2ce-297e9d7b1465",'
+        ' "nearest": true}, {"track_id": 8, "name": null, "user_id": null, "nearest": false}]}'
     )
     remember = ToolCall(id="2", name="remember_person", arguments='{"track_id": 3, "name": "Bob"}')
     assert (await tools.call(remember)).content == (

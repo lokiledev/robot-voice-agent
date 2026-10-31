@@ -10,7 +10,7 @@ skills:
   - name: fetch and hand over
     description: Bring an object to someone, take an object from them, or give it back.
     examples:
-      - bring the red cup to the person
+      - hand the red cup to the person
       - hand the screwdriver to the person
       - take the bottle from the person
   - name: search
@@ -43,18 +43,14 @@ skills:
       - press the coffee machine button
       - turn off the desk lamp
       - push the chair under the table
-  - name: navigate and follow
-    description: Walk to a place in the room, come to someone, or follow them.
-    examples:
-      - go to the kitchen counter
-      - come to the person
-      - follow the person
-  - name: gesture
-    description: Wave, point at something, nod, or look at someone.
-    examples:
-      - wave at the person
-      - point at the red cup
-      - look at the person
+# Played with the play_animation tool, not as tasks.
+animations:
+  - wave_left_hand
+  - wave_right_hand
+  - dance
+  - sit_down
+  - stand_up
+  - turn_around
 constraints:
   - Cannot climb stairs or leave the lab.
   - Cannot lift more than about five kilograms.

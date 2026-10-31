@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Dialogue loop, tools and VLA task supervision"
 requires-python = ">=3.12"
 dependencies = [
+  "rva-body-schemas",
   "jinja2>=3.1",
   "loguru>=0.7",
   "opentelemetry-api>=1.36",
@@ -24,6 +25,7 @@ requires = [
 build-backend = "uv_build"
 
 [tool.uv.sources]
+rva-body-schemas = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}
 rva-vla-schemas = {workspace = true}

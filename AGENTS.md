@@ -22,7 +22,9 @@ The repository is one uv workspace. Each package lives in its domain directory w
 | `common/observability` | `rva-observability` | loguru, OpenTelemetry and rerun setup; implements `Recorder` |
 | `vla/schemas` | `rva-vla-schemas` | VLA task data model and the `VlaClient` interface |
 | `vla/client` | `rva-vla-client` | HTTP + WebSocket `VlaClient` |
-| `vla/mock` | `rva-vla-mock` | Mock VLA server |
+| `vla/mock` | `rva-vla-mock` | Mock robot server: VLA and body |
+| `body/schemas` | `rva-body-schemas` | Body motion, gaze data model and the `BodyClient` interface |
+| `body/client` | `rva-body-client` | HTTP + WebSocket `BodyClient` |
 | `schemas` | `rva-schemas` | Shared data model and interfaces (`abc/`) for agent, voice and LLM |
 | `agent` | `rva-agent` | Dialogue loop, tools, VLA task supervision |
 | `llm` | `rva-llm` | `LanguageModel` over an OpenAI-compatible server |
