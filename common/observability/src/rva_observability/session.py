@@ -37,7 +37,9 @@ def start_session(
     recording = rr.RecordingStream(_APPLICATION_ID)
     sinks: list[rr.FileSink | rr.GrpcSink] = [rr.FileSink(directory / "session.rrd")]
     if viewer:
-        rr.spawn(connect=False)
+        # Through this recording: the global rr.spawn ignores the call when no global recording
+        # was initialized, which this app never does.
+        recording.spawn(connect=False)
         sinks.append(rr.GrpcSink())
     recording.set_sinks(*sinks)
 
