@@ -11,6 +11,7 @@ dependencies = [
   "rva-pydantic",
   "rva-schemas",
   "rva-vla-client",
+  "rva-vision-faces",
 ]
 
 [build-system]
@@ -26,6 +27,7 @@ rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}
 rva-vla-client = {workspace = true}
+rva-vision-faces = {workspace = true}
 
 [project.scripts]
 rva = "rva_app.cli:app"

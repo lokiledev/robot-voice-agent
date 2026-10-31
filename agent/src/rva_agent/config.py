@@ -10,3 +10,5 @@ class AgentConfig(RVABaseModel):
     """LLM calls allowed per turn when it keeps calling tools."""
     stop_words: frozenset[str]
     """Whole utterances that cancel the running task without asking the LLM, e.g. "stop"."""
+    regreet_after_s: float = Field(ge=0)
+    """A known person coming back into view sooner than this after leaving is not greeted again."""

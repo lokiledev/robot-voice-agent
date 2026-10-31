@@ -2,10 +2,15 @@ import asyncio
 from collections.abc import AsyncGenerator
 
 from rva_agent.history import History
+from rva_agent.people import PeopleTools
+from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tasks import TaskSupervisor
+from rva_agent.tests.fakes import FakeVision, person
+from rva_agent.tests.test_agent import PROFILE
 from rva_agent.tools import TaskTools
 from rva_schemas.dialogue import AssistantMessage, ToolCall, ToolResultMessage, UserMessage
+from rva_schemas.vision import BoundingBox, TrackedFace
 from rva_vla_mock.policies import TerminalPolicy
 from rva_vla_mock.runner import TaskRunner
 
@@ -65,3 +70,44 @@ async def test_busy_vla_names_the_running_task() -> None:
     assert await tools.call(ToolCall(id="2", name="start_task", arguments=start)) == (
         '{"error": "Busy with \'pick up the red cup\'. Do not retry: cancel it, or wait for its robot_event."}'
     )
+
+
+async def test_people_tools_list_who_is_here_and_report_mistakes() -> None:
+    tools = PeopleTools(
+        FakeVision(
+            [
+                TrackedFace(
+                    track_id=7,
+                    box=BoundingBox(x=0, y=0, width=200, height=240),
+                    person=person("Alice"),
+                    nearest=True,
+                ),
+                TrackedFace(
+                    track_id=8,
+                    box=BoundingBox(x=900, y=0, width=100, height=120),
+                    person=None,
+                    nearest=False,
+                ),
+            ]
+        )
+    )
+
+    assert await tools.call(ToolCall(id="1", name="who_is_here", arguments="")) == (
+        '{"people": [{"track_id": 7, "name": "Alice", "nearest": true},'
+        ' {"track_id": 8, "name": null, "nearest": false}]}'
+    )
+    assert (
+        await tools.call(
+            ToolCall(id="2", name="remember_person", arguments='{"track_id": 3, "name": "Bob"}')
+        )
+        == '{"error": "No face with track 3 is in view. Call who_is_here."}'
+    )
+    assert (
+        await tools.call(ToolCall(id="3", name="forget_person", arguments='{"name": "Bob"}'))
+        == '{"error": "Nobody named Bob is known."}'
+    )
+
+
+def test_system_prompt_explains_people_only_with_a_camera() -> None:
+    assert "# People around you" in render_system_prompt(PROFILE, vision=True)
+    assert "# People around you" not in render_system_prompt(PROFILE, vision=False)

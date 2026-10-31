@@ -29,11 +29,21 @@ flowchart LR
         VAD -. "speech while robot talks<br/>= barge-in" .-> SPK
     end
 
+    subgraph VisionProc["rva-vision-faces (own thread)"]
+        CAM["C920 camera<br/>1920x1080 MJPG"] --> DET["YuNet<br/>face detection"]
+        DET --> TRK["Tracker<br/>IoU + re-id by embedding"]
+        DET --> EMB["SFace<br/>embeddings"] --> TRK
+        TRK --> GAL["Gallery<br/>cosine match"]
+        DB[("faces.sqlite3<br/>names + embeddings")] <--> GAL
+        TRK -. "--show / rva see" .-> WIN["Debug window"]
+    end
+
     subgraph Core["rva-agent"]
         STOP{"Stop word?<br/>stop / freeze"}
-        INBOX[["Agent inbox<br/>user utterances + VLA events"]]
+        INBOX[["Agent inbox<br/>user utterances, VLA events,<br/>faces appearing and leaving"]]
         AGENT["Agent loop<br/>history, prompt, tool dispatch"]
         TOOLS["Tools<br/>start_task / cancel_task / get_task_status"]
+        PEOPLE["People tools<br/>remember_person / who_is_here / forget_person"]
         VLAM["VLA manager<br/>one active task"]
     end
 
@@ -53,6 +63,9 @@ flowchart LR
     AGENT --> TOOLS --> VLAM
     VLAM <-- "VlaClient (rva-vla-client)" --> VLA
     VLAM -- "succeeded / failed" --> INBOX
+    TRK -- "FaceAppeared / FaceLeft" --> INBOX
+    AGENT --> PEOPLE
+    PEOPLE <-- "Vision" --> GAL
     AGENT -- "streamed text" --> SPLIT
 
     CFG[("Profile<br/>character.yaml, environment.yaml,<br/>capabilities.yaml, runtime.yaml")] --> AGENT
@@ -116,6 +129,8 @@ sequenceDiagram
 
 **Wake word.** Off by default; the robot listens all the time. openWakeWord can be turned on in `runtime.yaml`.
 
+**People.** With a camera, faces that stay in view for 0.5 s are announced to the agent and faces out of view for 3 s are said to have left. An appearance starts a turn, so the robot can greet a known person by name or ask the nearest unknown person theirs; a departure only goes into the history. A known person coming back within 5 minutes of leaving is not greeted again. See [Vision](#vision).
+
 **Text mode.** `rva text` swaps the voice packages for a terminal `UserInput` and `SpeechOutput`, and TTS is optional. Use it to work on prompts and tools, and for scripted tests.
 
 ## Models
@@ -129,6 +144,8 @@ sequenceDiagram
 | Dialogue and tools | Qwen3.5-35B-A3B, Q4_K_M GGUF | llama.cpp `llama-server --jinja` | GPU, some experts on CPU | ≤ 16 GB |
 | Text to speech | Kokoro-82M | kokoro-onnx | GPU | ~1 GB |
 | Wake word (optional) | openWakeWord | onnxruntime | CPU | — |
+| Face detection | YuNet 2023mar (opencv_zoo), 232 KB | onnxruntime-gpu | GPU | < 0.5 GB with SFace |
+| Face embeddings | SFace 2021dec (opencv_zoo), 38.7 MB | onnxruntime-gpu | GPU | (above) |
 
 **LLM.** Qwen3.5-35B-A3B is a mixture-of-experts model with about 3B parameters active per token, so it generates much faster than a dense 27B model of similar quality. At Q4_K_M it is about 20 GB, more than fits beside ASR and TTS, so `--n-cpu-moe` keeps some expert layers in system RAM and the 7950X3D runs them. Tune that number until the LLM fits in about 16 GB, and keep context around 16k tokens. Thinking mode is off: these are short dialogue turns and latency matters more. The harness only talks to the OpenAI-compatible endpoint, so another model is a config change.
 
@@ -155,6 +172,7 @@ flowchart BT
     ASR["rva-voice-asr<br/>voice/asr"]
     TTS["rva-voice-tts<br/>voice/tts"]
     OBS["rva-observability<br/>common/observability"]
+    VIS["rva-vision-faces<br/>vision/faces"]
     APP["rva-app<br/>app"]
     VLAS --> PYD
     SCH --> VLAS
@@ -166,20 +184,22 @@ flowchart BT
     ASR --> SCH
     TTS --> SCH
     OBS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & OBS & VLAC
+    VIS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & OBS & VLAC & VIS
 ```
 
 | Package | Contents | Heavy dependencies |
 |---|---|---|
 | `rva-pydantic` | `RVABaseModel` (frozen, `extra="forbid"`, attribute docstrings), `load_yaml` | — |
 | `rva-vla-schemas` | `TaskRequest`, `Task`, `TaskStatus` (running, succeeded, failed with a reason, cancelled), `TaskEvent`, errors; `abc.VlaClient` | — |
-| `rva-schemas` | `AudioClip`; dialogue messages, `ToolCall`, `ToolSpec`, `UserUtterance`, `Spoken`; `Record` entries; `Profile` models. Interfaces in `abc/`: `UserInput`, `SpeechOutput`, `SpeechRecognizer`, `SpeechSynthesizer`, `LanguageModel`, `Recorder` | numpy |
+| `rva-schemas` | `AudioClip`; dialogue messages, `ToolCall`, `ToolSpec`, `UserUtterance`, `Spoken`; `Record` entries; `Profile` models; `TrackedFace`, `KnownPerson`, `FaceAppeared`, `FaceLeft`. Interfaces in `abc/`: `UserInput`, `SpeechOutput`, `SpeechRecognizer`, `SpeechSynthesizer`, `LanguageModel`, `Recorder`, `Vision` | numpy |
 | `rva-agent` | Dialogue loop, history, system prompt, tools, task supervisor, stop word | — |
 | `rva-llm` | `LanguageModel` over the OpenAI API; llama-server launch settings | openai |
 | `rva-voice-audio` | Mic and speaker, Silero VAD, smart-turn, barge-in; implements `UserInput` and `SpeechOutput` from a `SpeechRecognizer` and a `SpeechSynthesizer` | onnxruntime-gpu, sounddevice |
 | `rva-voice-asr` | Parakeet `SpeechRecognizer` | onnx-asr |
 | `rva-voice-tts` | Kokoro `SpeechSynthesizer` | kokoro-onnx |
 | `rva-observability` | loguru sinks, OpenTelemetry setup, span-to-rerun processor, rerun `Recorder` | rerun-sdk, opentelemetry-sdk |
+| `rva-vision-faces` | Camera, YuNet detector, SFace embedder, tracker, gallery, SQLite face database, debug window; implements `Vision` | onnxruntime-gpu, opencv-python, onnx |
 | `rva-vla-client` | HTTP + WebSocket `VlaClient` | httpx, websockets |
 | `rva-vla-mock` | FastAPI mock server and terminal mode | fastapi, uvicorn |
 | `rva-app` | cyclopts CLI (`run`, `run --text`, `up`), runtime config, terminal `UserInput`/`SpeechOutput` for text mode | — |
@@ -225,8 +245,35 @@ Barge-in stays inside `SpeechOutput.say`: it stops consuming the sentence stream
 | `prompt` | Render the system prompt from `Profile` with Jinja |
 | `history` | Message list, trimming to the context budget, truncation after barge-in |
 | `tools` | `start_task`, `cancel_task`, `get_task_status`: pydantic argument models, `ToolSpec` generation, dispatch |
+| `people` | `remember_person`, `who_is_here`, `forget_person`, over `Vision`; only offered when there is a camera |
 | `tasks` | Task supervisor: one active task, watches `VlaClient.events`, stop-word cancel |
 | `loop` | The agent: one inbox of utterances and task events, one turn at a time |
+
+## Vision
+
+`rva-vision-faces` watches the camera in a thread of its own and implements the `Vision` Protocol:
+
+```python
+class Vision(Protocol):
+    def events(self) -> AbstractAsyncContextManager[AsyncIterator[FaceEvent]]: ...  # subscription
+    def faces(self) -> tuple[TrackedFace, ...]: ...
+    async def remember(
+        self, track_id: int, name: str
+    ) -> Remembered: ...  # raises UnknownTrackError
+    async def forget(self, name: str) -> KnownPerson: ...  # raises UnknownPersonError
+```
+
+**Per frame.** The C920 gives 1920x1080 MJPG. YuNet runs on the whole frame in onnxruntime with CUDA (`device: cpu` in `runtime.yaml` moves both models to the CPU; there is no silent fallback). The opencv_zoo export fixes its input to 640x640, so the input dims are made dynamic when the model loads, and the anchor decoding and non-maximum suppression that `cv2.FaceDetectorYN` would do are in `detector.py`. Faces shorter than 12% of the frame are ignored as too far away. pip's OpenCV has no CUDA, so OpenCV only captures, aligns, draws and shows.
+
+**Tracking.** A detection continues the track whose last box it overlaps most (IoU ≥ 0.3). One that overlaps none is compared by embedding with the announced tracks that did not find their face in this frame, so a face keeps its track number across a fast move or a short occlusion; otherwise it starts a new track. A new track must be seen on every frame for 0.5 s to be announced (`FaceAppeared`); an announced track is said to have left after 3 s out of sight (`FaceLeft`). Each track gets an SFace embedding when it starts and then every second, and keeps the last 5.
+
+**Recognition.** A track is someone when the best cosine similarity between its samples and that person's is at least 0.363 (OpenCV's value for SFace) and beats the next person by 0.05; otherwise it is unknown. Two tracks in view never get the same person: the better score wins. The nearest person is the largest face in view; there is no active speaker detection.
+
+**Memory.** Names and embeddings live in a SQLite file, `~/.local/share/robot-voice-agent/faces.sqlite3` (`people` and `embeddings` tables, 128 float32 per row, at most 10 per person). It is loaded into memory and matched with numpy; each change is one transaction followed by a reload. `remember` stores the track's latest samples under the name, creating the person if the name is new; a face recognized as someone else is moved to the new name, and the result says who it was taken for. A misheard name is fixed by forgetting it and remembering again. No image is stored, and no frame goes to the rerun recording.
+
+**What the LLM sees.** Events become `RobotEventMessage`s: "Alice is in view (track 7, nearest).", "An unknown person is in view (track 8).", "Alice left (track 7).". The system prompt section *People around you* tells it to greet known people, ask the nearest unknown person their name once, stay quiet for others or mid-conversation, and call `remember_person(track_id, name)` only with a name it was told.
+
+**Measured** on the 4090 and 7950X3D at 1920x1080: detection about 5.6 ms per frame including the upload, an SFace embedding well under 1 ms, so the loop follows the camera (24 fps in the room's light, 30 fps at most). `rva see` shows these figures over the image; they are also logged every 5 s and recorded as `vision:capture`, `vision:detect` and `vision:embed` spans.
 
 ## Mock VLA API
 
@@ -283,12 +330,13 @@ agent.log     loguru log
 | `/vla/task` | status changes (TextLog) |
 | `/latency/<stage>` | per-stage duration (Scalars) |
 | `/audio/vad` | speech probability (Scalars), for tuning thresholds |
+| `/vision/faces` | faces appearing and leaving, with their box and person (TextLog) |
 
 Rerun has no audio type, so the WAV files sit next to the recording and their start times are logged in rerun to line them up. `rva run --viewer` also streams to a live rerun viewer.
 
 ## Libraries
 
-pydantic for every schema (events, config, tool arguments, VLA API; tool JSON schemas are generated from the pydantic models), cyclopts for the CLI, loguru for logs, `openai` as the LLM client, rerun-sdk and opentelemetry-sdk for observability, FastAPI and httpx/websockets for the VLA API, sounddevice for audio I/O.
+OpenCV and onnxruntime for vision, SQLite (standard library) for the face memory, pydantic for every schema (events, config, tool arguments, VLA API; tool JSON schemas are generated from the pydantic models), cyclopts for the CLI, loguru for logs, `openai` as the LLM client, rerun-sdk and opentelemetry-sdk for observability, FastAPI and httpx/websockets for the VLA API, sounddevice for audio I/O.
 
 ## Commands
 
@@ -300,7 +348,8 @@ Each part runs on its own, so it can be tried by hand before the whole loop:
 | `rva serve-llm` | llama-server in the foreground with `runtime.yaml`'s settings | done |
 | `rva llm` | Chat with the LLM alone; tool calls are shown, not run | done |
 | `rva-vla-mock [--interactive]` | The mock VLA; interactive mode ends each task from typed `s` or `f [reason]` | done |
-| `rva text [--viewer]` | The whole agent in the terminal, against llama-server and the VLA endpoint | done |
+| `rva text [--viewer] [--no-camera] [--show]` | The whole agent in the terminal, against llama-server and the VLA endpoint, with the camera unless `--no-camera`; `--show` opens the vision window too | done |
+| `rva see [--viewer]` | Camera → face detection, tracking and recognition in a resizable window; `n` names the nearest face from the terminal, `q` quits | done |
 | `rva listen` | Mic → VAD → end of turn → ASR, printing each transcript | with the voice packages |
 | `rva say` | Typed sentences → TTS → speaker | with the voice packages |
 | `rva run [--viewer]` | The whole voice agent | with the voice packages |

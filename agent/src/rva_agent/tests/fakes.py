@@ -1,10 +1,20 @@
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Final
+from uuid import NAMESPACE_URL, uuid5
 
 from rva_schemas.dialogue import LlmOutput, Message, Spoken, ToolSpec, UserUtterance
 from rva_schemas.record import Record
+from rva_schemas.vision import (
+    FaceEvent,
+    KnownPerson,
+    Remembered,
+    TrackedFace,
+    UnknownPersonError,
+    UnknownTrackError,
+)
 
 
 class ScriptedLanguageModel:
@@ -82,3 +92,44 @@ class ListRecorder:
     async def _notify(self) -> None:
         async with self._changed:
             self._changed.notify_all()
+
+
+def person(name: str) -> KnownPerson:
+    return KnownPerson(user_id=uuid5(NAMESPACE_URL, name), name=name)
+
+
+class FakeVision:
+    """Shows the faces and events a test sets, and remembers names in memory."""
+
+    def __init__(self, faces: Sequence[TrackedFace]) -> None:
+        self._faces: Final = list(faces)
+        self._events: Final = asyncio.Queue[FaceEvent]()
+        self.people: Final[dict[str, KnownPerson]] = {}
+
+    def show(self, event: FaceEvent) -> None:
+        self._events.put_nowait(event)
+
+    @asynccontextmanager
+    async def events(self) -> AsyncGenerator[AsyncIterator[FaceEvent]]:
+        yield self._drain()
+
+    def faces(self) -> tuple[TrackedFace, ...]:
+        return tuple(self._faces)
+
+    async def remember(self, track_id: int, name: str) -> Remembered:
+        index = next((i for i, face in enumerate(self._faces) if face.track_id == track_id), None)
+        if index is None:
+            raise UnknownTrackError(track_id)
+        known = self.people.setdefault(name, person(name))
+        previous = self._faces[index].person
+        self._faces[index] = self._faces[index].model_copy(update={"person": known})
+        return Remembered(person=known, previous=None if previous == known else previous)
+
+    async def forget(self, name: str) -> KnownPerson:
+        if name not in self.people:
+            raise UnknownPersonError(name)
+        return self.people.pop(name)
+
+    async def _drain(self) -> AsyncIterator[FaceEvent]:
+        while True:
+            yield await self._events.get()

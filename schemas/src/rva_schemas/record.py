@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from rva_pydantic import RVABaseModel
+from rva_schemas.vision import FaceEvent
 from rva_vla_schemas.task import Task
 
 
@@ -32,6 +33,12 @@ class Measurement(RVABaseModel):
     value: float
 
 
+class FaceUpdate(RVABaseModel):
+    kind: Literal["face"] = "face"
+    event: FaceEvent
+
+
 type Record = Annotated[
-    DialogueLine | ToolInvocation | TaskUpdate | Measurement, Field(discriminator="kind")
+    DialogueLine | ToolInvocation | TaskUpdate | Measurement | FaceUpdate,
+    Field(discriminator="kind"),
 ]

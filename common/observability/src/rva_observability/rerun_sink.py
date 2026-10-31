@@ -4,7 +4,14 @@ from typing import Final, assert_never, override
 import rerun as rr
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
-from rva_schemas.record import DialogueLine, Measurement, Record, TaskUpdate, ToolInvocation
+from rva_schemas.record import (
+    DialogueLine,
+    FaceUpdate,
+    Measurement,
+    Record,
+    TaskUpdate,
+    ToolInvocation,
+)
 
 _TIMELINE: Final = "wall"
 
@@ -29,6 +36,8 @@ class RerunRecorder:
                 self._recording.log("vla/task", rr.TextLog(text, level=level))
             case Measurement():
                 self._recording.log(f"measurements/{entry.name}", rr.Scalars(entry.value))
+            case FaceUpdate():
+                self._recording.log("vision/faces", rr.TextLog(entry.event.model_dump_json()))
             case _:
                 assert_never(entry)
 
