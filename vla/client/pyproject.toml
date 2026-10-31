@@ -5,9 +5,16 @@ description = "HTTP and WebSocket client for the VLA task API"
 requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.28",
+  "pydantic>=2.11",
   "rva-pydantic",
   "rva-vla-schemas",
   "websockets>=15",
+]
+
+[dependency-groups]
+dev = [
+  "rva-vla-mock",
+  "uvicorn>=0.35",
 ]
 
 [build-system]
@@ -19,3 +26,4 @@ build-backend = "uv_build"
 [tool.uv.sources]
 rva-pydantic = {workspace = true}
 rva-vla-schemas = {workspace = true}
+rva-vla-mock = {workspace = true}

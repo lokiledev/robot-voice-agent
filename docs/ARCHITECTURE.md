@@ -209,7 +209,7 @@ class VlaClient(Protocol):
     async def start(self, request: TaskRequest) -> Task: ...  # raises VlaBusyError
     async def cancel(self, task_id: UUID) -> Task: ...
     async def get(self, task_id: UUID) -> Task: ...
-    def events(self) -> AsyncIterator[TaskEvent]: ...
+    def events(self) -> AbstractAsyncContextManager[AsyncIterator[TaskEvent]]: ...  # subscription
 
 
 class Recorder(Protocol):
@@ -232,10 +232,19 @@ Barge-in stays inside `SpeechOutput.say`: it stops consuming the sentence stream
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/tasks` | Start a task: `{"instruction": "pick up the red cup"}` → `{"id": ..., "status": "running"}`. Rejected with 409 if a task is already running. |
-| `GET` | `/tasks/{id}` | Current status. |
-| `POST` | `/tasks/{id}/cancel` | Cancel. |
-| `WS` | `/events` | Stream of `TaskEvent`: `running`, `succeeded`, `failed` (with a reason), `cancelled`. |
+| `POST` | `/tasks` | Start a task from `{"instruction": "pick up the red cup"}`. 201 with the `Task`; 409 with the running `Task` if the VLA is busy. |
+| `GET` | `/tasks/{id}` | The `Task` with its current status. 404 if unknown. |
+| `POST` | `/tasks/{id}/cancel` | Cancel the task if it is running; otherwise return it unchanged. 404 if unknown. |
+| `WS` | `/events` | One JSON `TaskEvent` per message: `running`, `succeeded`, `failed` with a reason, `cancelled`. |
+
+`VlaClient.events()` is a subscription context rather than a bare iterator: every event emitted after entering it is delivered. The server subscribes before accepting the WebSocket handshake, so once the client is connected it cannot miss the start of a task. The agent enters it once per session, before starting any task.
+
+The mock is a `TaskRunner` (which itself implements `VlaClient`, so text mode and agent tests can use it in process) plus an outcome policy:
+
+- **Random** (default): each task lasts between `--min-duration` and `--max-duration` seconds and fails with probability `--failure-rate`, with a plausible reason. `--seed` makes runs reproducible.
+- **Interactive** (`--interactive`): each task waits for a command typed in the mock's terminal: `s` to succeed, `f [reason]` to fail. A command typed while no task is running ends the next one.
+
+`HttpVlaClient` in `rva-vla-client` maps 409 to `VlaBusyError` and 404 to `UnknownTaskError`.
 
 ## Robot profile
 
@@ -288,5 +297,5 @@ rva up                          # start llama-server and the VLA mock from runti
 rva run --profile config/default
 rva run --text                  # type instead of speak
 rva run --viewer                # also stream to a live rerun viewer
-rva-vla-mock --interactive      # resolve each task by hand
+rva-vla-mock --interactive      # end each task by typing s or f [reason]
 ```

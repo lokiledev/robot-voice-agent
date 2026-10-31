@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 from uuid import UUID
 
@@ -32,6 +33,16 @@ class VlaClient(Protocol):
         """
         ...
 
-    def events(self) -> AsyncIterator[TaskEvent]:
-        """Status changes of every task, in the order the VLA emitted them."""
+    def events(self) -> AbstractAsyncContextManager[AsyncIterator[TaskEvent]]:
+        """Subscribe to status changes of every task, in the order the VLA emitted them.
+
+        Every event emitted after the context is entered is delivered, so enter it before calling
+        `start` to see the whole life of a task:
+
+        ```python
+        async with vla.events() as events:
+            task = await vla.start(request)
+            async for event in events: ...
+        ```
+        """
         ...

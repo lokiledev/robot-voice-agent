@@ -7,6 +7,7 @@ dependencies = [
   "cyclopts>=4",
   "fastapi>=0.116",
   "loguru>=0.7",
+  "pydantic>=2.11",
   "rva-pydantic",
   "rva-vla-schemas",
   "uvicorn>=0.35",
@@ -21,3 +22,6 @@ build-backend = "uv_build"
 [tool.uv.sources]
 rva-pydantic = {workspace = true}
 rva-vla-schemas = {workspace = true}
+
+[project.scripts]
+rva-vla-mock = "rva_vla_mock.cli:app"

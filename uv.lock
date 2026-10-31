@@ -1808,17 +1808,31 @@ version = "0.1.0"
 source = { editable = "vla/client" }
 dependencies = [
     { name = "httpx" },
+    { name = "pydantic" },
     { name = "rva-pydantic" },
     { name = "rva-vla-schemas" },
     { name = "websockets" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "rva-vla-mock" },
+    { name = "uvicorn" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
+    { name = "pydantic", specifier = ">=2.11" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-vla-schemas", editable = "vla/schemas" },
     { name = "websockets", specifier = ">=15" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "rva-vla-mock", editable = "vla/mock" },
+    { name = "uvicorn", specifier = ">=0.35" },
 ]
 
 [[package]]
@@ -1829,6 +1843,7 @@ dependencies = [
     { name = "cyclopts" },
     { name = "fastapi" },
     { name = "loguru" },
+    { name = "pydantic" },
     { name = "rva-pydantic" },
     { name = "rva-vla-schemas" },
     { name = "uvicorn" },
@@ -1839,6 +1854,7 @@ requires-dist = [
     { name = "cyclopts", specifier = ">=4" },
     { name = "fastapi", specifier = ">=0.116" },
     { name = "loguru", specifier = ">=0.7" },
+    { name = "pydantic", specifier = ">=2.11" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-vla-schemas", editable = "vla/schemas" },
     { name = "uvicorn", specifier = ">=0.35" },
