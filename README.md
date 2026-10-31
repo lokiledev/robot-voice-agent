@@ -6,6 +6,11 @@ Lune hears and sees the people around her, answers out loud in under a second, a
 world through the robot's skills, but only for the people she recognizes and trusts. Every model
 runs locally, on one PC with a single GPU.
 
+![The session page during a conversation: the camera with the recognized speaker and what they just said, the robot's actions, and the dialogue with every tool call](docs/media/demo.gif)
+
+*The session page, live: while a VLA task holds the body, the operator asks for the next job and
+Lune answers, her gaze on the speaker; the actions the busy body cannot take are dimmed.*
+
 ## Why it's interesting
 
 - **Everything runs locally.** The LLM (Qwen3.5-35B-A3B in llama.cpp), speech recognition
