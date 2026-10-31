@@ -72,7 +72,6 @@ async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     llm = ScriptedLanguageModel(
         [
             [TextDelta(text="Picking up the red cup."), START_PICK_CUP],
-            [],
             [TextDelta(text="I'm Lune.")],
             [TextDelta(text="Done, I have the cup.")],
         ]
@@ -93,8 +92,8 @@ async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     await running
 
     assert speech.said == ["Picking up the red cup.", "I'm Lune.", "Done, I have the cup."]
-    assert llm.requests[3][-1] == RobotEventMessage(
-        content="The task 'pick up the red cup' succeeded."
+    assert llm.requests[2][-1] == RobotEventMessage(
+        content="Your body finished: pick up the red cup. It worked."
     )
     assert [entry for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
         ToolInvocation(
@@ -109,7 +108,7 @@ async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
 
 
 async def test_stop_word_cancels_the_task_without_the_llm() -> None:
-    llm = ScriptedLanguageModel([[TextDelta(text="On it."), START_PICK_CUP], []])
+    llm = ScriptedLanguageModel([[TextDelta(text="On it."), START_PICK_CUP]])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
         _agent(llm, TaskRunner(TerminalPolicy(asyncio.Queue())), user, speech, recorder).run()
@@ -128,7 +127,7 @@ async def test_stop_word_cancels_the_task_without_the_llm() -> None:
     assert [entry.task.status for entry in recorder.entries if isinstance(entry, TaskUpdate)] == [
         TaskCancelled()
     ]
-    assert len(llm.requests) == 2
+    assert len(llm.requests) == 1
 
 
 async def test_barge_in_keeps_only_what_was_heard_and_skips_the_action() -> None:

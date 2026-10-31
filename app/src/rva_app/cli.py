@@ -86,9 +86,14 @@ def listen(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> N
 
 
 @app.command
-def say(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
-    """Speak each line typed, sentence by sentence, with the profile's voice."""
-    asyncio.run(_say(profile))
+def say(*, profile: ProfileDir = _DEFAULT_PROFILE, voice: str | None = None) -> None:
+    """Speak each line typed, sentence by sentence.
+
+    Args:
+        profile: Robot profile directory.
+        voice: Kokoro voice to try instead of the profile's, e.g. af_heart or bf_emma.
+    """
+    asyncio.run(_say(profile, voice))
 
 
 @app.command
@@ -138,9 +143,10 @@ async def _listen(profile_dir: Path, viewer: bool) -> None:
             write(f"{utterance.text}  [{delay_ms:.0f} ms after the end of the turn]\n")
 
 
-async def _say(profile_dir: Path) -> None:
+async def _say(profile_dir: Path, voice_name: str | None) -> None:
     config = RuntimeConfig.load(profile_dir)
-    async with open_voice_output(config.audio, config.tts, robot_speech(config.audio)) as voice:
+    tts = config.tts if voice_name is None else config.tts.model_copy(update={"voice": voice_name})
+    async with open_voice_output(config.audio, tts, robot_speech(config.audio)) as voice:
         write("Type sentences to hear them. Ctrl+D to stop.\n")
         async for line in read_lines():
             started = time.perf_counter()

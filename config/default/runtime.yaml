@@ -46,5 +46,5 @@ audio:
 tts:
   model_path: ~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx
   voices_path: ~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin
-  voice: am_michael
+  voice: af_heart
   speed: 1.0

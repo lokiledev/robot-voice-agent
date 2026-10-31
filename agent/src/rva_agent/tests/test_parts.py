@@ -43,13 +43,15 @@ async def test_tools_report_llm_mistakes_as_results() -> None:
         TaskSupervisor(TaskRunner(TerminalPolicy(asyncio.Queue())), lambda task: None)
     )
 
-    assert await tools.call(ToolCall(id="1", name="fly", arguments="{}")) == (
+    assert (await tools.call(ToolCall(id="1", name="fly", arguments="{}"))).content == (
         '{"error": "There is no tool named fly."}'
     )
-    assert (await tools.call(ToolCall(id="2", name="start_task", arguments="{}"))).startswith(
+    assert (
+        await tools.call(ToolCall(id="2", name="start_task", arguments="{}"))
+    ).content.startswith(
         '{"error": "Invalid arguments: 1 validation error for StartTaskArgs\\ninstruction\\n  Field required'
     )
-    assert await tools.call(ToolCall(id="3", name="cancel_task", arguments="{}")) == (
+    assert (await tools.call(ToolCall(id="3", name="cancel_task", arguments="{}"))).content == (
         '{"error": "No task is running."}'
     )
 
@@ -62,6 +64,6 @@ async def test_busy_vla_names_the_running_task() -> None:
 
     await tools.call(ToolCall(id="1", name="start_task", arguments=start))
 
-    assert await tools.call(ToolCall(id="2", name="start_task", arguments=start)) == (
+    assert (await tools.call(ToolCall(id="2", name="start_task", arguments=start))).content == (
         '{"error": "Busy with \'pick up the red cup\'. Do not retry: cancel it, or wait for its robot_event."}'
     )

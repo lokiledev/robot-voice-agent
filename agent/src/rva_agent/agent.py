@@ -130,13 +130,20 @@ class Agent:
             )
             if not tool_calls:
                 return
+            needs_reply = False
             for call in tool_calls:
                 with _tracer.start_as_current_span(f"tool:{call.name}"):
                     result = await self._tools.call(call)
                 self._recorder.record(
-                    ToolInvocation(name=call.name, arguments=call.arguments, result=result)
+                    ToolInvocation(name=call.name, arguments=call.arguments, result=result.content)
                 )
-                self._history.append(ToolResultMessage(tool_call_id=call.id, content=result))
+                self._history.append(
+                    ToolResultMessage(tool_call_id=call.id, content=result.content)
+                )
+                needs_reply = needs_reply or result.needs_reply
+            # Asking the LLM again here would only make it repeat what it just announced.
+            if text and not needs_reply:
+                return
         logger.warning(
             "The LLM was still calling tools after {} rounds", self._config.max_tool_rounds
         )
@@ -173,11 +180,11 @@ class Agent:
 def _describe_end(task: Task) -> str:
     match task.status:
         case TaskSucceeded():
-            return f"The task {task.instruction!r} succeeded."
+            return f"Your body finished: {task.instruction}. It worked."
         case TaskFailed():
-            return f"The task {task.instruction!r} failed: {task.status.reason}."
+            return f"Your body could not finish: {task.instruction}. Reason: {task.status.reason}."
         case TaskCancelled():
-            return f"The task {task.instruction!r} was cancelled."
+            return f"Your body stopped before finishing: {task.instruction}."
         case TaskRunning():
             raise AssertionError(f"Task {task.id} is still running")
         case _:
