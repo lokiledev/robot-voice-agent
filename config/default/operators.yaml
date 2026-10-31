@@ -1,0 +1,5 @@
+# People allowed to make Lune act, by the name their face is remembered under
+# (name a face with `rva see`, then `n`). Everyone else can only talk with Lune.
+# With the camera off, anyone may make it act.
+names:
+  - Loïk

@@ -3,6 +3,7 @@ import asyncio
 from rva_agent.agent import Agent
 from rva_agent.config import AgentConfig
 from rva_agent.tests.fakes import (
+    PROFILE,
     FakeVision,
     ListRecorder,
     QueueUserInput,
@@ -11,25 +12,12 @@ from rva_agent.tests.fakes import (
     person,
 )
 from rva_schemas.dialogue import AssistantMessage, RobotEventMessage, TextDelta, ToolCall
-from rva_schemas.profile import Capabilities, Character, Environment, Profile, Skill
 from rva_schemas.record import DialogueLine, FaceUpdate, TaskUpdate, ToolInvocation
 from rva_schemas.vision import BoundingBox, FaceAppeared, FaceLeft, TrackedFace
 from rva_vla_mock.policies import TerminalPolicy
 from rva_vla_mock.runner import TaskRunner
 from rva_vla_schemas.task import TaskCancelled
 
-PROFILE = Profile(
-    character=Character(
-        name="Lune", personality="Calm.", speaking_style="Short.", verbosity="terse"
-    ),
-    environment=Environment(location="Lab", description="A lab.", places=(), objects=(), people=()),
-    capabilities=Capabilities(
-        skills=(
-            Skill(name="pick", description="Pick up an object.", examples=("pick up the red cup",)),
-        ),
-        constraints=(),
-    ),
-)
 CONFIG = AgentConfig(
     max_history_messages=40,
     max_tool_rounds=3,
@@ -234,5 +222,5 @@ async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_agai
     assert speech.said == ["Hi Alice.", "You are Alice."]
     assert llm.requests[1][-3:-1] == (
         RobotEventMessage(content="Alice left (track 7)."),
-        RobotEventMessage(content="Alice is in view (track 9, nearest)."),
+        RobotEventMessage(content="Alice is in view (track 9, nearest, one of your operators)."),
     )

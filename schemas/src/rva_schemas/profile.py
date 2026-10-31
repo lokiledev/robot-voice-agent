@@ -49,12 +49,25 @@ class Capabilities(RVABaseModel):
     """Things the robot cannot do, e.g. "cannot climb stairs"."""
 
 
+class Operators(RVABaseModel):
+    """People allowed to make the robot act, by the name their face is remembered under.
+
+    Kept in the profile so the robot can never add one itself: anyone can tell it a name.
+    """
+
+    names: tuple[str, ...]
+
+    def includes(self, name: str) -> bool:
+        return name.casefold() in {operator.casefold() for operator in self.names}
+
+
 class Profile(RVABaseModel):
     """Who the robot is and where it is deployed, loaded from a profile directory."""
 
     character: Character
     environment: Environment
     capabilities: Capabilities
+    operators: Operators
 
     @classmethod
     def load(cls, directory: Path) -> "Profile":
@@ -62,4 +75,5 @@ class Profile(RVABaseModel):
             character=load_yaml(Character, directory / "character.yaml"),
             environment=load_yaml(Environment, directory / "environment.yaml"),
             capabilities=load_yaml(Capabilities, directory / "capabilities.yaml"),
+            operators=load_yaml(Operators, directory / "operators.yaml"),
         )

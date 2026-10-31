@@ -3,6 +3,7 @@ from typing import Final
 
 import pydantic
 
+from rva_agent.permission import ActionPermission
 from rva_agent.tasks import TaskSupervisor
 from rva_pydantic import RVABaseModel
 from rva_schemas.dialogue import ToolCall, ToolSpec
@@ -50,8 +51,9 @@ class TaskTools:
 
     specs: Final = _SPECS
 
-    def __init__(self, supervisor: TaskSupervisor) -> None:
+    def __init__(self, supervisor: TaskSupervisor, permission: ActionPermission) -> None:
         self._supervisor: Final = supervisor
+        self._permission: Final = permission
 
     async def call(self, call: ToolCall) -> ToolResult:
         """Run a tool call and return its result for the LLM.
@@ -75,6 +77,10 @@ class TaskTools:
             return _result(error=f"Invalid arguments: {error}")
 
     async def _start(self, args: StartTaskArgs) -> ToolResult:
+        if (refusal := self._permission.refusal()) is not None:
+            return _result(
+                error=f"{refusal} Tell them kindly that you can talk with them but not do this."
+            )
         try:
             task = await self._supervisor.start(args.instruction)
         except VlaBusyError:

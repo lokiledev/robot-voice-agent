@@ -6,6 +6,7 @@ from typing import Final
 from uuid import NAMESPACE_URL, uuid5
 
 from rva_schemas.dialogue import LlmOutput, Message, Spoken, ToolSpec, UserUtterance
+from rva_schemas.profile import Capabilities, Character, Environment, Operators, Profile, Skill
 from rva_schemas.record import Record
 from rva_schemas.vision import (
     FaceEvent,
@@ -133,3 +134,18 @@ class FakeVision:
     async def _drain(self) -> AsyncIterator[FaceEvent]:
         while True:
             yield await self._events.get()
+
+
+PROFILE = Profile(
+    character=Character(
+        name="Lune", personality="Calm.", speaking_style="Short.", verbosity="terse"
+    ),
+    environment=Environment(location="Lab", description="A lab.", places=(), objects=(), people=()),
+    capabilities=Capabilities(
+        skills=(
+            Skill(name="pick", description="Pick up an object.", examples=("pick up the red cup",)),
+        ),
+        constraints=(),
+    ),
+    operators=Operators(names=("Alice",)),
+)

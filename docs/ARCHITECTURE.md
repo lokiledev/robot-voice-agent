@@ -117,6 +117,8 @@ sequenceDiagram
 
 **One active task.** If the user asks for something physical while a task is running, the LLM chooses between `cancel_task` and asking the user to wait. There is no queue.
 
+**Who may make the robot act.** Only operators, the names listed in the profile's `operators.yaml`, may start tasks, and only while the camera recognizes them as the nearest face. Everyone else can talk with the robot, which declines their physical requests. `start_task` enforces this itself (`ActionPermission`), so a slip of the LLM cannot bypass it, and face events tell the LLM up front whether a person is an operator so it declines instead of trying. The robot can learn anyone's name but can never make someone an operator. Stopping is open to everyone: the stop word and `cancel_task` are not gated. Without a camera nobody can be recognized, so anyone may make the robot act.
+
 **Stop word.** If a transcript is just "stop", "freeze", "halt" or similar, the VLA manager cancels the active task directly, before the LLM sees anything. The LLM is then told it happened.
 
 **Barge-in.** While the robot is speaking, speech detected by the VAD stops playback, cancels the LLM stream, and trims the last assistant message to what was actually said. Three layers keep the robot from interrupting itself through the speakers:
@@ -305,6 +307,7 @@ config/default/
   character.yaml      name, personality, speaking style, verbosity
   environment.yaml    location, places, objects, people
   capabilities.yaml   VLA skills with example commands, constraints
+  operators.yaml      who may make the robot act
   runtime.yaml        endpoints, llama-server settings, audio devices,
                       VAD and turn thresholds, telemetry sinks
 ```
