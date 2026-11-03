@@ -33,6 +33,10 @@ override-dependencies = [
 ]
 
 [tool.uv.sources]
+# PyPI's aarch64 onnxruntime-gpu has no kernels for Jetson Thor's GPU (sm_110). NVIDIA's Jetson AI
+# Lab build does, and uses the system's CUDA 13 and cuDNN 9 (apt: cuda-toolkit-13-2, libcudnn9-cuda-13),
+# so the packages that use it skip the pip CUDA extras on aarch64.
+onnxruntime-gpu = {url = "https://pypi.jetson-ai-lab.io/sbsa/cu130/+f/012/c10bef23a39f0/onnxruntime_gpu-1.24.0-cp312-cp312-linux_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64' and python_version == '3.12'"}
 rva-agent = {workspace = true}
 rva-app = {workspace = true}
 rva-body-client = {workspace = true}

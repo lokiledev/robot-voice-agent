@@ -7,7 +7,8 @@ license = "Apache-2.0"
 dependencies = [
   "numpy>=2.0",
   "onnx-asr>=0.7",
-  "onnxruntime-gpu[cuda,cudnn]>=1.22",
+  "onnxruntime-gpu>=1.22; platform_machine == 'aarch64'",
+  "onnxruntime-gpu[cuda,cudnn]>=1.22; platform_machine != 'aarch64'",
   "rva-pydantic",
   "rva-schemas",
 ]

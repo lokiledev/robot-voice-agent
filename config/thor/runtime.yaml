@@ -1,0 +1,115 @@
+agent:
+  max_history_messages: 60
+  max_tool_rounds: 4
+  stop_words: [stop, freeze, halt, stop stop, robot stop]
+  # Matched as whole words anywhere in what was said, without asking the LLM.
+  mute_phrases: [stop talking, stop speaking, be quiet, quiet please, shut up, don't talk, do not talk, stay quiet, silence please]
+  unmute_phrases: [you can talk, you can speak, start talking, start speaking, talk again, speak again]
+  regreet_after_s: 300
+
+llm:
+  base_url: http://127.0.0.1:8080/v1
+  model: qwen3.5-35b-a3b
+  temperature: 0.7
+  max_tokens: 400
+  chat_template_kwargs:
+    enable_thinking: false
+
+llm_server:
+  executable: ~/.local/src/llama.cpp/build/bin/llama-server
+  hf_repo: unsloth/Qwen3.5-35B-A3B-GGUF
+  hf_file: Qwen3.5-35B-A3B-Q4_K_M.gguf
+  host: 127.0.0.1
+  port: 8080
+  context_size: 16384
+  # Thor's 128 GB are shared by CPU and GPU: every layer fits on the GPU.
+  n_cpu_moe: 0
+  extra_args: [--flash-attn, "on", --parallel, "1"]
+
+vla:
+  base_url: http://127.0.0.1:8800
+
+# Walking, animations and gaze; the mock serves them next to the VLA.
+body:
+  base_url: http://127.0.0.1:8800
+
+vision:
+  device: cuda
+  camera:
+    # RealSense D455 colour stream, named by the robot's udev rules; YUYV only, up to 1280x800.
+    device: /dev/video-ego-rgb
+    width: 1280
+    height: 720
+    fps: 30
+  detector:
+    model:
+      repo: opencv/face_detection_yunet
+      file: face_detection_yunet_2023mar.onnx
+    score_threshold: 0.8
+    nms_threshold: 0.3
+  recognizer:
+    repo: opencv/face_recognition_sface
+    file: face_recognition_sface_2021dec.onnx
+  tracker:
+    min_face_height: 0.12
+    iou_threshold: 0.3
+    reid_threshold: 0.5
+    confirm_after_s: 0.5
+    leave_after_s: 3.0
+    embed_every_s: 1.0
+    embeddings_per_track: 5
+  matching:
+    threshold: 0.363
+    margin: 0.05
+  database: ~/.local/share/robot-voice-agent/faces.sqlite3
+  max_embeddings_per_person: 10
+  # Used with --video: camera frames recorded with the session, to replay in rerun.
+  video:
+    width: 960
+    jpeg_quality: 80
+  # Used with --ui: the camera with the tracked faces, published to MediaMTX for the page.
+  stream:
+    url: rtsp://127.0.0.1:8554/lune
+    width: 960
+
+# User ids of the admins, kept on this machine like the face database they refer to.
+# Start from config/admins.example.yaml.
+admins: ~/.config/robot-voice-agent/admins.yaml
+
+# The session page of `lune run --ui` and `lune text --ui`.
+ui:
+  host: 127.0.0.1
+  port: 8700
+  # MediaMTX's WebRTC page for vision.stream.url.
+  video_page: http://127.0.0.1:8889/lune/
+
+# Run by `uv run lune` or `uv run lune serve-video`; downloaded on first use.
+media_server:
+  version: v1.21.2
+  directory: ~/.local/share/robot-voice-agent/mediamtx
+
+observability:
+  captures_dir: ~/Captures/robot-voice-agent
+
+audio:
+  # No sound server on Thor: the USB headset is ALSA's default, through a `plug` PCM in
+  # ~/.asoundrc that converts to the mono 16 and 24 kHz streams the code opens.
+  input_device: null
+  output_device: null
+  echo_window_ms: 2000
+  endpoint:
+    speech_threshold: 0.5
+    silence_threshold: 0.35
+    min_speech_ms: 200
+    barge_in_threshold: 0.8
+    barge_in_min_speech_ms: 400
+    pre_roll_ms: 300
+    turn_check_silence_ms: 200
+    max_silence_ms: 1500
+    turn_complete_threshold: 0.5
+
+tts:
+  model_path: ~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx
+  voices_path: ~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin
+  voice: af_heart
+  speed: 1.0
