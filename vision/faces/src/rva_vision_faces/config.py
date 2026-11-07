@@ -1,6 +1,6 @@
 import math
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
@@ -12,6 +12,28 @@ class ModelFile(RVABaseModel):
 
     repo: str
     file: str
+
+
+class TensorRt(RVABaseModel):
+    """The GPU through TensorRT in fp16, with CUDA for what it does not take."""
+
+    kind: Literal["tensorrt"] = "tensorrt"
+    engine_cache: Path
+    """Where the engines are kept, built on first use in a few seconds each and a couple of
+    minutes for depth; `~` is expanded."""
+
+
+class Cuda(RVABaseModel):
+    """The GPU through ONNX Runtime's CUDA provider."""
+
+    kind: Literal["cuda"] = "cuda"
+
+
+class Cpu(RVABaseModel):
+    kind: Literal["cpu"] = "cpu"
+
+
+type Device = Annotated[TensorRt | Cuda | Cpu, Field(discriminator="kind")]
 
 
 class CameraIntrinsics(RVABaseModel):
@@ -182,7 +204,7 @@ class VideoStreamConfig(RVABaseModel):
 
 
 class FaceVisionConfig(RVABaseModel):
-    device: Literal["cuda", "cpu"]
+    device: Device
     """Where the ONNX models run."""
     camera: CameraConfig
     detector: DetectorConfig

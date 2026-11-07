@@ -17,6 +17,10 @@ _GAZE_SIZE: Final = 448
 _GAZE_BINS: Final = 4.0
 """L2CS-Net's 90 bins are 4 degrees wide, from -180."""
 _EXPRESSION_SIZE: Final = 224
+MESH_ITEM: Final = (_MESH_SIZE, _MESH_SIZE, 3)
+"""The face mesh's input for one face; its batch holds every face of a frame."""
+EXPRESSION_ITEM: Final = (3, _EXPRESSION_SIZE, _EXPRESSION_SIZE)
+"""The expression model's input for one face; its batch holds every face of a frame."""
 _IMAGENET_MEAN: Final = np.array([0.485, 0.456, 0.406], np.float32)
 _IMAGENET_STD: Final = np.array([0.229, 0.224, 0.225], np.float32)
 _EXPRESSIONS: Final[tuple[Expression, ...]] = (

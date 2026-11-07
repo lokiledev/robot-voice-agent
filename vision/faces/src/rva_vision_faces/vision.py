@@ -29,14 +29,14 @@ from rva_schemas.vision import (
     VisionTimings,
 )
 from rva_vision_faces.attention import Attention
-from rva_vision_faces.body import BodyEstimator, attach
+from rva_vision_faces.body import POSE_ITEM, BodyEstimator, attach
 from rva_vision_faces.camera import Camera
 from rva_vision_faces.config import CameraIntrinsics, FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.depth import DepthEstimator
 from rva_vision_faces.detector import Detection, Image, YunetDetector
 from rva_vision_faces.embedder import Embedding, SfaceEmbedder
-from rva_vision_faces.face_features import FaceAnalyzer
+from rva_vision_faces.face_features import EXPRESSION_ITEM, MESH_ITEM, FaceAnalyzer
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
 from rva_vision_faces.overlay import draw
@@ -57,10 +57,11 @@ class _Models:
     def __init__(self, config: FaceVisionConfig) -> None:
         device = config.device
         self.detector: Final = YunetDetector(
-            load_session(config.detector.model, device, dynamic_image_size=True), config.detector
+            load_session(config.detector.model, device, dynamic_image_size=True, batch_item=None),
+            config.detector,
         )
         self.embedder: Final = SfaceEmbedder(
-            load_session(config.recognizer, device, dynamic_image_size=False)
+            load_session(config.recognizer, device, dynamic_image_size=False, batch_item=None)
         )
         features = config.face_features
         self.faces: Final = (
@@ -68,12 +69,12 @@ class _Models:
             if features is None
             else FaceAnalyzer(
                 *(
-                    load_session(model, device, dynamic_image_size=False)
-                    for model in (
-                        features.landmarks,
-                        features.blendshapes,
-                        features.gaze,
-                        features.expression,
+                    load_session(model, device, dynamic_image_size=False, batch_item=item)
+                    for model, item in (
+                        (features.landmarks, MESH_ITEM),
+                        (features.blendshapes, None),
+                        (features.gaze, None),
+                        (features.expression, EXPRESSION_ITEM),
                     )
                 )
             )
@@ -86,8 +87,8 @@ class _Models:
             None
             if body is None
             else BodyEstimator(
-                load_session(body.detector, device, dynamic_image_size=False),
-                load_session(body.pose, device, dynamic_image_size=False),
+                load_session(body.detector, device, dynamic_image_size=False, batch_item=None),
+                load_session(body.pose, device, dynamic_image_size=False, batch_item=POSE_ITEM),
                 body,
             )
         )
@@ -95,7 +96,7 @@ class _Models:
             None
             if config.depth is None
             else DepthEstimator(
-                load_session(config.depth.model, device, dynamic_image_size=False),
+                load_session(config.depth.model, device, dynamic_image_size=False, batch_item=None),
                 None
                 if config.camera.intrinsics is None
                 else load_yaml(CameraIntrinsics, config.camera.intrinsics),
@@ -257,7 +258,7 @@ class FaceVision:
             if self._stream_video
             else None
         )
-        logger.info("Watching {} on {}", config.camera.device, config.device)
+        logger.info("Watching {} on {}", config.camera.device, config.device.kind)
         timings = VisionTimings(
             fps=0.0,
             capture_ms=0.0,

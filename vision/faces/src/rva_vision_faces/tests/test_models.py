@@ -6,6 +6,7 @@ from rva_vision_faces.body import BodyEstimator
 from rva_vision_faces.config import (
     BodyConfig,
     CameraIntrinsics,
+    Cpu,
     DetectorConfig,
     EyeContactConfig,
     FaceFeaturesConfig,
@@ -27,7 +28,7 @@ DEPTH = ModelFile(repo="Heliosoph/da3metric-large-onnx", file="model_fp16.onnx")
 @pytest.mark.download
 def test_yunet_runs_on_any_frame_size_and_finds_no_face_in_a_blank_frame() -> None:
     detector = YunetDetector(
-        load_session(YUNET, "cpu", dynamic_image_size=True),
+        load_session(YUNET, Cpu(), dynamic_image_size=True, batch_item=None),
         DetectorConfig(model=YUNET, score_threshold=0.8, nms_threshold=0.3),
     )
 
@@ -37,7 +38,7 @@ def test_yunet_runs_on_any_frame_size_and_finds_no_face_in_a_blank_frame() -> No
 
 @pytest.mark.download
 def test_sface_gives_a_unit_embedding() -> None:
-    embedder = SfaceEmbedder(load_session(SFACE, "cpu", dynamic_image_size=False))
+    embedder = SfaceEmbedder(load_session(SFACE, Cpu(), dynamic_image_size=False, batch_item=None))
     frame = np.random.default_rng(0).integers(0, 255, (300, 300, 3), dtype=np.uint8)
     detection = Detection(
         box=BoundingBox(x=100, y=100, width=100, height=120),
@@ -78,7 +79,7 @@ BODY = BodyConfig(
 def test_face_analyzer_gives_every_feature_of_each_face() -> None:
     analyzer = FaceAnalyzer(
         *(
-            load_session(model, "cpu", dynamic_image_size=False)
+            load_session(model, Cpu(), dynamic_image_size=False, batch_item=None)
             for model in (
                 FACE_FEATURES.landmarks,
                 FACE_FEATURES.blendshapes,
@@ -106,8 +107,8 @@ def test_face_analyzer_gives_every_feature_of_each_face() -> None:
 @pytest.mark.download
 def test_body_estimator_finds_nobody_in_a_blank_frame() -> None:
     estimator = BodyEstimator(
-        load_session(BODY.detector, "cpu", dynamic_image_size=False),
-        load_session(BODY.pose, "cpu", dynamic_image_size=False),
+        load_session(BODY.detector, Cpu(), dynamic_image_size=False, batch_item=None),
+        load_session(BODY.pose, Cpu(), dynamic_image_size=False, batch_item=None),
         BODY,
     )
 
@@ -116,7 +117,7 @@ def test_body_estimator_finds_nobody_in_a_blank_frame() -> None:
 
 @pytest.mark.download
 def test_depth_keeps_the_frame_aspect_ratio_and_says_whether_it_is_calibrated() -> None:
-    session = load_session(DEPTH, "cpu", dynamic_image_size=False)
+    session = load_session(DEPTH, Cpu(), dynamic_image_size=False, batch_item=None)
     frame = np.random.default_rng(0).integers(0, 255, (720, 1280, 3), dtype=np.uint8)
     intrinsics = CameraIntrinsics(
         calibrated=True, width=1920, height=1080, fx=1360, fy=1360, cx=960, cy=540

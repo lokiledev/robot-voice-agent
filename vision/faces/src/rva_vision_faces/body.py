@@ -19,6 +19,8 @@ _PERSON: Final = 5
 """Column of the person class in YOLOX's outputs, after the box and the objectness."""
 _POSE_WIDTH: Final = 192
 _POSE_HEIGHT: Final = 256
+POSE_ITEM: Final = (3, _POSE_HEIGHT, _POSE_WIDTH)
+"""RTMW's input for one person; its batch holds every person of a frame."""
 _POSE_PADDING: Final = 1.25
 """The pose crop is this much larger than the person's box, as RTMW was trained."""
 _SIMCC_SPLIT: Final = 2.0

@@ -2230,6 +2230,7 @@ dependencies = [
     { name = "opentelemetry-api" },
     { name = "rva-pydantic" },
     { name = "rva-schemas" },
+    { name = "tensorrt-cu13-libs" },
 ]
 
 [package.metadata]
@@ -2245,6 +2246,7 @@ requires-dist = [
     { name = "opentelemetry-api", specifier = ">=1.36" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-schemas", editable = "schemas" },
+    { name = "tensorrt-cu13-libs", specifier = ">=10.16,<11" },
 ]
 
 [[package]]

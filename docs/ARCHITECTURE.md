@@ -267,6 +267,13 @@ flowchart LR
   too far at desk distance; the assumed focal length scales it by a further 1.19. It is
   only shown, in the debug window, and is meant to place the skeletons in 3D. `--no-depth`, or
   `depth: null` in the profile, leaves it out.
+- **TensorRT.** With `device: {kind: tensorrt}`, every vision model but YuNet runs as an fp16
+  TensorRT engine, built on first use (about 7 minutes in all, depth the longest) and cached.
+  Together they take 2.8 GB where ONNX Runtime's CUDA provider took 3.5 GB, and run two to three
+  times faster: depth 7.5 ms instead of 18, YOLOX 2.0 instead of 6.5, RTMW 1.4 instead of 3.2,
+  gaze 0.6 instead of 2.2. YuNet stays on CUDA: on the whole frame TensorRT takes it twice as long.
+  The mesh, expression and pose engines take up to 8 faces or people at once; more rebuilds the
+  engine, once, in about half a second. Thor's profile keeps CUDA, as TensorRT is not tried there.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
@@ -458,10 +465,10 @@ flowchart BT
 | Speech recognition | Parakeet TDT 0.6B v2, English | GPU, fp16 on TensorRT, about 1.5 GB |
 | Dialogue and tools | Qwen3.5-35B-A3B, Q4_K_M | GPU, about 16 GB; some expert layers on the CPU |
 | Speech synthesis | Kokoro-82M, voice `af_heart` | GPU, about 1 GB |
-| Face detection and embeddings | YuNet, SFace | GPU, under 0.8 GB with the camera pipeline |
-| Face features | MediaPipe face mesh and blendshapes, L2CS-Net, ViT (FER2013) | GPU |
-| Skeletons | YOLOX-L, RTMW-L 256x192 | GPU; with the face features, 1.7 GB more |
-| Depth | Depth Anything 3 Metric-Large, fp16, 504x504 | GPU, about 22 ms and 1.4 GB alone |
+| Face detection and embeddings | YuNet, SFace | GPU (SFace on TensorRT), under 0.8 GB with the camera pipeline |
+| Face features | MediaPipe face mesh and blendshapes, L2CS-Net, ViT (FER2013) | GPU, TensorRT |
+| Skeletons | YOLOX-L, RTMW-L 256x192 | GPU, TensorRT |
+| Depth | Depth Anything 3 Metric-Large, fp16, 504x504 | GPU, TensorRT, about 7.5 ms; all the vision models together 2.8 GB |
 | Active speaker | Light-ASD, AVA checkpoint, 1 s windows | GPU, about 2.4 ms a frame |
 
 **Why a cascade.** Speech-to-speech models such as Kyutai's Moshi reason over audio: they have no
@@ -489,7 +496,7 @@ On the RTX 4090 and a Ryzen 9 7950X3D:
 - From the end of the user's speech to Lune's first audio: 0.72 to 0.86 s.
 - LLM: about 120 tokens/s; first token in 110 to 175 ms, first sentence in 180 to 330 ms.
 - Parakeet about 6 ms per utterance on TensorRT (39 ms and 3.4 GB on ONNX Runtime's CUDA provider), Kokoro about 100 ms per sentence, smart-turn about 35 ms.
-- GPU memory for the whole stack: 21 of 24 GB.
+- GPU memory for the whole stack, with depth: 22.4 of 24.5 GB with Parakeet on TensorRT and the vision models on CUDA.
 - Vision: about 6 ms per frame for detection; with one face, its features take about 13 ms and the
   skeletons, run alongside, about 16 ms, so it still follows the camera at 24 to 30 fps.
 - Through the speakers with echo cancellation, Lune finished a five-sentence paragraph without

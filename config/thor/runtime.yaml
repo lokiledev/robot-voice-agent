@@ -34,7 +34,8 @@ body:
   base_url: http://127.0.0.1:8800
 
 vision:
-  device: cuda
+  device:
+    kind: cuda
   camera:
     # RealSense D455 colour stream, named by the robot's udev rules; YUYV only, up to 1280x800.
     device: /dev/video-ego-rgb

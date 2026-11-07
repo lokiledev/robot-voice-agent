@@ -86,8 +86,9 @@ curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 ```
 
 The voice activity and face models, and MediaMTX, which streams the camera to the session page,
-download themselves on first use. Parakeet's TensorRT engines are built on first use too, in
-about a minute, and kept in `~/.cache/robot-voice-agent/tensorrt`.
+download themselves on first use. The TensorRT engines are built on first use too, and kept in
+`~/.cache/robot-voice-agent/tensorrt`: about a minute for Parakeet, and about 7 minutes for the
+vision models, the first time `lune see` or `lune` starts.
 
 With speakers rather than headphones, Lune needs echo cancellation, or it hears itself and
 keeps interrupting its own speech. PipeWire's WebRTC echo canceller does it:

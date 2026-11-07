@@ -33,7 +33,9 @@ body:
   base_url: http://127.0.0.1:8800
 
 vision:
-  device: cuda
+  device:
+    kind: tensorrt
+    engine_cache: ~/.cache/robot-voice-agent/tensorrt/vision
   camera:
     device: /dev/video0  # Logitech HD Pro Webcam C920
     width: 1920
