@@ -15,7 +15,7 @@ from rva_schemas.vision import (
     Point3D,
 )
 from rva_vision_faces.scene import Scene
-from rva_vision_faces.space import back_project, gaze_direction, lift
+from rva_vision_faces.space import Lifter, back_project, gaze_direction
 
 INTRINSICS = CameraIntrinsics(
     calibrated=False, width=1920, height=1080, fx=1000.0, fy=1000.0, cx=960.0, cy=540.0
@@ -105,7 +105,7 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
     )
     scene = Scene(faces={1: face}, bodies={1: body}, unmatched_bodies=(body,), speakers={})
 
-    lifted = lift(scene, _depth(2.0), INTRINSICS)
+    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0))
 
     nose = lifted.bodies[1].keypoints[0]
     assert nose is not None and nose.position is not None
@@ -123,9 +123,10 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
     assert _xyz(face_3d.gaze.direction) == pytest.approx((0.0, 0.0, -1.0), abs=1e-6)
 
 
-def test_a_fingertip_seen_against_the_wall_stays_near_its_palm() -> None:
+def test_a_fingertip_with_no_parent_found_stays_near_its_palm() -> None:
     depth = _depth(3.0)
-    # The palm, 0.5 m away, covers the left of the frame; the fingertip is over the wall.
+    # The palm, 0.5 m away, covers the left of the frame; the fingertip, whose joints were not
+    # found, is over the wall.
     depth.metres[:, :240] = 0.5
     palm = Keypoint(x=500, y=540, score=0.9, position=None)
     tip = Keypoint(x=1460, y=540, score=0.9, position=None)
@@ -137,9 +138,7 @@ def test_a_fingertip_seen_against_the_wall_stays_near_its_palm() -> None:
         right_hand=None,
     )
 
-    lifted = lift(
-        Scene(faces={}, bodies={1: body}, unmatched_bodies=(), speakers={}), depth, INTRINSICS
-    )
+    lifted = Lifter(INTRINSICS).lift(_scene(body), depth)
 
     left_hand = lifted.bodies[1].left_hand
     assert left_hand is not None
@@ -148,3 +147,65 @@ def test_a_fingertip_seen_against_the_wall_stays_near_its_palm() -> None:
     assert tip_3d is not None and tip_3d.position is not None
     assert wrist.position.z == pytest.approx(0.5)
     assert _xyz(tip_3d.position) == pytest.approx((0.3, 0.0, 0.6), abs=1e-6)
+
+
+def _scene(body: Body) -> Scene:
+    return Scene(faces={}, bodies={1: body}, unmatched_bodies=(), speakers={})
+
+
+def _hand(points: dict[int, tuple[float, float]]) -> Hand:
+    return Hand(
+        keypoints=tuple(
+            None
+            if (pixel := points.get(index)) is None
+            else Keypoint(x=pixel[0], y=pixel[1], score=0.9, position=None)
+            for index in range(21)
+        )
+    )
+
+
+def _body(keypoints: dict[int, tuple[float, float]], hand: Hand) -> Body:
+    return Body(
+        box=BoundingBox(x=0, y=0, width=1920, height=1080),
+        keypoints=tuple(
+            None
+            if (pixel := keypoints.get(index)) is None
+            else Keypoint(x=pixel[0], y=pixel[1], score=0.9, position=None)
+            for index in range(13)
+        ),
+        left_hand=hand,
+        right_hand=None,
+    )
+
+
+def test_a_straight_finger_in_front_of_the_wall_keeps_its_length() -> None:
+    # The index finger points right, 0.5 m away: the wrist at x = 0, its base 9 cm on, then
+    # 4.2, 2.5 and 2.2 cm. Only the wrist and the base are over the hand in the depth; the
+    # rest of the finger is too thin for it, which sees the wall 3 m behind.
+    depth = _depth(3.0)
+    depth.metres[:, :290] = 0.5
+    hand = _hand({0: (960, 540), 5: (1140, 540), 6: (1224, 540), 7: (1274, 540), 8: (1318, 540)})
+
+    lifted = Lifter(INTRINSICS).lift(_scene(_body({}, hand)), depth)
+
+    left_hand = lifted.bodies[1].left_hand
+    assert left_hand is not None
+    placed = [k.position for k in left_hand.keypoints if k is not None]
+    assert [_xyz(p) for p in placed if p is not None] == [
+        pytest.approx((x, 0.0, 0.5), abs=1e-6) for x in (0.0, 0.09, 0.132, 0.157, 0.179)
+    ]
+
+
+def test_hands_are_scaled_with_the_shoulders() -> None:
+    # Shoulders 45.6 cm apart, 2 m away: 1.2 times the standard person's, the most allowed.
+    shoulders = {5: (1074.0, 300.0), 6: (846.0, 300.0)}
+    hand = _hand({0: (960, 540), 5: (1010, 540)})
+
+    lifted = Lifter(INTRINSICS).lift(_scene(_body(shoulders, hand)), _depth(2.0))
+
+    left_hand = lifted.bodies[1].left_hand
+    assert left_hand is not None
+    wrist, base = left_hand.keypoints[0], left_hand.keypoints[5]
+    assert wrist is not None and wrist.position is not None
+    assert base is not None and base.position is not None
+    assert math.dist(_xyz(wrist.position), _xyz(base.position)) == pytest.approx(0.09 * 1.2)

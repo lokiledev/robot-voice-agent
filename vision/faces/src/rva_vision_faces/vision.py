@@ -42,7 +42,7 @@ from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
 from rva_vision_faces.overlay import draw
 from rva_vision_faces.scene import Scene, people_in_view
-from rva_vision_faces.space import lift
+from rva_vision_faces.space import Lifter
 from rva_vision_faces.stream import RtspPublisher
 from rva_vision_faces.tracker import Tracker
 
@@ -111,6 +111,10 @@ class _Models:
                 self.intrinsics,
             )
         )
+        self.lifter: Final = (
+            None if self.depth is None or self.intrinsics is None else Lifter(self.intrinsics)
+        )
+        """Places what is seen in 3D, keeping each person's size: used in the frame thread only."""
 
 
 class FaceVision:
@@ -386,9 +390,9 @@ class FaceVision:
         scene = Scene(
             faces=faces, bodies=bodies, unmatched_bodies=tuple(unmatched), speakers=speakers
         )
-        if depth is not None and models.intrinsics is not None:
+        if depth is not None and models.lifter is not None:
             with _tracer.start_as_current_span("vision:lift"):
-                scene = lift(scene, depth, models.intrinsics)
+                scene = models.lifter.lift(scene, depth)
         return (
             frame,
             scene,

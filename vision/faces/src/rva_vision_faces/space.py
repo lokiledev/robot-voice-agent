@@ -1,4 +1,6 @@
 import math
+import statistics
+from collections import deque
 from typing import Final
 
 import numpy as np
@@ -13,9 +15,12 @@ from rva_schemas.vision import (
     Gaze,
     GazeRay,
     Hand,
+    Keypoint,
     Point3D,
 )
 from rva_vision_faces.scene import Scene
+
+type _Vector = npt.NDArray[np.float64]
 
 _PATCH_RADIUS: Final = 2
 """Half the side of the square of depth pixels a point's depth is read from."""
@@ -24,49 +29,95 @@ _NEAR_PERCENTILE: Final = 25
 them: the nearer depths are the person's."""
 _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
+_SHOULDERS: Final = (5, 6)
+"""The shoulders among `Body.keypoints`."""
 _PALM: Final = (0, 1, 5, 9, 13, 17)
 """`Hand.keypoints` on the palm: the wrist and the base of each finger."""
 _HAND_REACH_M: Final = 0.1
 """How far a point of a hand may be from its palm's depth. Fingers are too thin for the depth
 model, which sees the room through them: without a bound, their tips land metres behind."""
+_HAND_BONES: Final = (
+    (0, 1, 0.040), (1, 2, 0.045), (2, 3, 0.032), (3, 4, 0.027),
+    (0, 5, 0.090), (5, 6, 0.042), (6, 7, 0.025), (7, 8, 0.022),
+    (0, 9, 0.088), (9, 10, 0.046), (10, 11, 0.028), (11, 12, 0.023),
+    (0, 13, 0.082), (13, 14, 0.042), (14, 15, 0.027), (15, 16, 0.022),
+    (0, 17, 0.076), (17, 18, 0.033), (18, 19, 0.019), (19, 20, 0.020),
+)  # fmt: skip
+"""(parent, child, metres) of each bone of an average adult hand, 18.5 cm from the wrist to the
+tip of the middle finger, parents first. Thumb, then index to little finger, from the wrist."""
+_STANDARD_SHOULDERS_M: Final = 0.38
+"""Distance between the shoulder keypoints of the person `_HAND_BONES` are for."""
+_SCALE_BOUNDS: Final = (0.8, 1.2)
+"""Hands are scaled with the shoulders within these: adult hands vary by about 6%, and a far
+off shoulder width is more likely a bad skeleton than a giant."""
+_SHOULDER_SAMPLES: Final = 90
+"""Shoulder widths kept per track, about 3 s: a person's size is their median over them."""
 
 
-def lift(scene: Scene, depth: DepthMap, intrinsics: CameraIntrinsics) -> Scene:
-    """The scene with its keypoints and gazes placed in the camera's frame.
+class Lifter:
+    """Places what is seen in the camera's frame, from the depth and the camera's intrinsics.
 
-    Args:
-        scene: What was seen, in pixels of the frame.
-        depth: The frame's depth.
-        intrinsics: The camera at the frame's resolution.
+    Keeps each tracked person's size across frames, to give their hands bones of a steady length.
     """
-    return scene.model_copy(
-        update={
-            "faces": {
-                track_id: _lift_face(face, depth, intrinsics)
-                for track_id, face in scene.faces.items()
-            },
-            "bodies": {
-                track_id: _lift_body(body, depth, intrinsics)
-                for track_id, body in scene.bodies.items()
-            },
-            "unmatched_bodies": tuple(
-                _lift_body(body, depth, intrinsics) for body in scene.unmatched_bodies
-            ),
+
+    def __init__(self, intrinsics: CameraIntrinsics) -> None:
+        """Set up the lifter; `intrinsics` are the camera's at the frame's resolution."""
+        self._intrinsics: Final = intrinsics
+        self._shoulders: dict[int, deque[float]] = {}
+
+    def lift(self, scene: Scene, depth: DepthMap) -> Scene:
+        """The scene with its keypoints, faces and gazes placed in the camera's frame."""
+        intrinsics = self._intrinsics
+        self._shoulders = {
+            track_id: widths
+            for track_id, widths in self._shoulders.items()
+            if track_id in scene.bodies or track_id in scene.faces
         }
-    )
+        bodies = {}
+        for track_id, body in scene.bodies.items():
+            widths = self._shoulders.setdefault(track_id, deque(maxlen=_SHOULDER_SAMPLES))
+            bodies[track_id] = _lift_body(body, depth, intrinsics, widths)
+        return scene.model_copy(
+            update={
+                "faces": {
+                    track_id: _lift_face(face, depth, intrinsics)
+                    for track_id, face in scene.faces.items()
+                },
+                "bodies": bodies,
+                "unmatched_bodies": tuple(
+                    _lift_body(body, depth, intrinsics, deque()) for body in scene.unmatched_bodies
+                ),
+            }
+        )
 
 
 def back_project(x: float, y: float, depth: DepthMap, intrinsics: CameraIntrinsics) -> Point3D:
     """The point seen at pixel (`x`, `y`) of the frame, at the depth around it."""
-    ((px, py, pz),) = _back_project_all(np.array([[x, y]]), depth, intrinsics)
+    ((px, py, pz),) = _unproject(
+        np.array([[x, y]]), _depths(np.array([[x, y]]), depth, intrinsics), intrinsics
+    )
     return Point3D(x=float(px), y=float(py), z=float(pz))
 
 
-def _back_project_all(
-    pixels: npt.NDArray[np.float64], depth: DepthMap, intrinsics: CameraIntrinsics
-) -> npt.NDArray[np.float64]:
-    """`back_project` for N pixels at once, N x 2 in, N x 3 out."""
-    return _unproject(pixels, _depths(pixels, depth, intrinsics), intrinsics)
+def gaze_direction(eyes: Point3D, gaze: Gaze) -> Point3D:
+    """The unit vector the eyes at `eyes` look along.
+
+    `gaze` is measured from the line from the eyes to the camera, with yaw towards the right of
+    the image and pitch upwards.
+    """
+    distance = math.hypot(eyes.x, eyes.y, eyes.z)
+    forward = np.array([-eyes.x, -eyes.y, -eyes.z]) / distance
+    # The image's right and up, made square to the line to the camera.
+    right = np.array([1.0, 0.0, 0.0]) - forward[0] * forward
+    right /= np.linalg.norm(right)
+    up = np.cross(forward, right)
+    yaw, pitch = math.radians(gaze.yaw), math.radians(gaze.pitch)
+    direction = (
+        math.cos(pitch) * math.cos(yaw) * forward
+        + math.cos(pitch) * math.sin(yaw) * right
+        + math.sin(pitch) * up
+    )
+    return Point3D(x=float(direction[0]), y=float(direction[1]), z=float(direction[2]))
 
 
 def _depths(
@@ -96,31 +147,11 @@ def _unproject(
     )
 
 
-def gaze_direction(eyes: Point3D, gaze: Gaze) -> Point3D:
-    """The unit vector the eyes at `eyes` look along.
-
-    `gaze` is measured from the line from the eyes to the camera, with yaw towards the right of
-    the image and pitch upwards.
-    """
-    distance = math.hypot(eyes.x, eyes.y, eyes.z)
-    forward = np.array([-eyes.x, -eyes.y, -eyes.z]) / distance
-    # The image's right and up, made square to the line to the camera.
-    right = np.array([1.0, 0.0, 0.0]) - forward[0] * forward
-    right /= np.linalg.norm(right)
-    up = np.cross(forward, right)
-    yaw, pitch = math.radians(gaze.yaw), math.radians(gaze.pitch)
-    direction = (
-        math.cos(pitch) * math.cos(yaw) * forward
-        + math.cos(pitch) * math.sin(yaw) * right
-        + math.sin(pitch) * up
-    )
-    return Point3D(x=float(direction[0]), y=float(direction[1]), z=float(direction[2]))
-
-
 def _lift_face(face: FaceFeatures, depth: DepthMap, intrinsics: CameraIntrinsics) -> FaceFeatures:
     (left_x, left_y), (right_x, right_y) = (face.landmarks[iris] for iris in _IRISES)
     eyes = back_project((left_x + right_x) / 2, (left_y + right_y) / 2, depth, intrinsics)
-    landmarks = _back_project_all(np.array(face.landmarks), depth, intrinsics)
+    pixels = np.array(face.landmarks)
+    landmarks = _unproject(pixels, _depths(pixels, depth, intrinsics), intrinsics)
     in_3d = Face3D(
         landmarks=tuple(Point3D(x=x, y=y, z=z) for x, y, z in landmarks.tolist()),
         gaze=GazeRay(origin=eyes, direction=gaze_direction(eyes, face.gaze)),
@@ -128,42 +159,127 @@ def _lift_face(face: FaceFeatures, depth: DepthMap, intrinsics: CameraIntrinsics
     return face.model_copy(update={"in_3d": in_3d})
 
 
-def _lift_body(body: Body, depth: DepthMap, intrinsics: CameraIntrinsics) -> Body:
+def _lift_body(
+    body: Body, depth: DepthMap, intrinsics: CameraIntrinsics, shoulder_widths: deque[float]
+) -> Body:
+    """The body placed in the camera's frame; adds its shoulder width to `shoulder_widths`."""
+    keypoints = tuple(
+        None
+        if k is None
+        else k.model_copy(update={"position": back_project(k.x, k.y, depth, intrinsics)})
+        for k in body.keypoints
+    )
+    left, right = (_position(keypoints, index) for index in _SHOULDERS)
+    if left is not None and right is not None:
+        shoulder_widths.append(math.dist((left.x, left.y, left.z), (right.x, right.y, right.z)))
+    scale = (
+        float(np.clip(statistics.median(shoulder_widths) / _STANDARD_SHOULDERS_M, *_SCALE_BOUNDS))
+        if shoulder_widths
+        else 1.0
+    )
+
     def hand(found: Hand | None) -> Hand | None:
-        return None if found is None else _lift_hand(found, depth, intrinsics)
+        return None if found is None else _lift_hand(found, depth, intrinsics, scale)
 
     return body.model_copy(
         update={
-            "keypoints": tuple(
-                None
-                if k is None
-                else k.model_copy(update={"position": back_project(k.x, k.y, depth, intrinsics)})
-                for k in body.keypoints
-            ),
+            "keypoints": keypoints,
             "left_hand": hand(body.left_hand),
             "right_hand": hand(body.right_hand),
         }
     )
 
 
-def _lift_hand(hand: Hand, depth: DepthMap, intrinsics: CameraIntrinsics) -> Hand:
-    """The hand's points, each kept within `_HAND_REACH_M` of its palm's median depth."""
-    found = [(index, k) for index, k in enumerate(hand.keypoints) if k is not None]
+def _position(keypoints: tuple[Keypoint | None, ...], index: int) -> Point3D | None:
+    keypoint = keypoints[index] if index < len(keypoints) else None
+    return None if keypoint is None else keypoint.position
+
+
+def _lift_hand(hand: Hand, depth: DepthMap, intrinsics: CameraIntrinsics, scale: float) -> Hand:
+    """The hand placed with bones of `_HAND_BONES`' lengths times `scale`.
+
+    The depth places the wrist; each other point is on its pixel's ray, a bone's length from its
+    parent. Of the two such points, the base of a finger takes the one nearer its depth, which
+    holds on the palm; a finger's other joints take the one that bends it the least, as their
+    depth is the room's as often as the finger's. A point whose parent was not found is placed
+    at its depth, kept near the palm's.
+    """
+    found = {index: k for index, k in enumerate(hand.keypoints) if k is not None}
     if not found:
         return hand
-    pixels = np.array([(k.x, k.y) for _, k in found])
-    z = _depths(pixels, depth, intrinsics)
-    on_palm = [index in _PALM for index, _ in found]
+    pixels = {index: np.array([k.x, k.y]) for index, k in found.items()}
+    measured = dict(
+        zip(found, _depths(np.array(list(pixels.values())), depth, intrinsics), strict=True)
+    )
+    on_palm = [z for index, z in measured.items() if index in _PALM]
     # A hand seen without its palm, e.g. only fingertips, is anchored on all its points.
-    palm = float(np.median(z[on_palm] if any(on_palm) else z))
-    placed = _unproject(pixels, np.clip(z, palm - _HAND_REACH_M, palm + _HAND_REACH_M), intrinsics)
-    positions = {
-        index: Point3D(x=px, y=py, z=pz)
-        for (index, _), (px, py, pz) in zip(found, placed.tolist(), strict=True)
+    palm = float(np.median(on_palm or list(measured.values())))
+    near_palm = {
+        index: min(max(z, palm - _HAND_REACH_M), palm + _HAND_REACH_M)
+        for index, z in measured.items()
     }
+
+    def at_depth(index: int) -> _Vector:
+        return _unproject(pixels[index][None], np.array([near_palm[index]]), intrinsics)[0]
+
+    positions: dict[int, _Vector] = {}
+    if 0 in found:
+        positions[0] = at_depth(0)
+    for parent, child, length in _HAND_BONES:
+        if child not in found:
+            continue
+        if parent not in positions:
+            positions[child] = at_depth(child)
+            continue
+        ray = _ray(pixels[child], intrinsics)
+        candidates = _on_ray_at(ray, positions[parent], length * scale)
+        if parent == 0:
+            positions[child] = min(candidates, key=lambda p: abs(p[2] - near_palm[child]))
+            continue
+        grandparent = next(bone[0] for bone in _HAND_BONES if bone[1] == parent)
+        before = positions[parent] - positions.get(grandparent, positions[parent])
+        positions[child] = max(
+            candidates, key=lambda p: float(np.dot(p - positions[parent], before))
+        )
     return Hand(
         keypoints=tuple(
-            None if k is None else k.model_copy(update={"position": positions[index]})
+            None
+            if k is None
+            else k.model_copy(
+                update={
+                    "position": Point3D(
+                        x=float(positions[index][0]),
+                        y=float(positions[index][1]),
+                        z=float(positions[index][2]),
+                    )
+                }
+            )
             for index, k in enumerate(hand.keypoints)
         )
     )
+
+
+def _ray(pixel: _Vector, intrinsics: CameraIntrinsics) -> _Vector:
+    """The unit vector from the camera through `pixel`."""
+    direction = np.array(
+        [
+            (pixel[0] - intrinsics.cx) / intrinsics.fx,
+            (pixel[1] - intrinsics.cy) / intrinsics.fy,
+            1.0,
+        ]
+    )
+    return direction / np.linalg.norm(direction)
+
+
+def _on_ray_at(ray: _Vector, parent: _Vector, length: float) -> tuple[_Vector, ...]:
+    """The points along `ray` at `length` from `parent`: two, or the nearest one if none is.
+
+    None is when the bone looks longer in the image than it can be: the hand is larger than
+    assumed, or a keypoint is off.
+    """
+    along = float(ray @ parent)
+    discriminant = along**2 - float(parent @ parent) + length**2
+    if discriminant < 0:
+        return (along * ray,)
+    root = math.sqrt(discriminant)
+    return ((along - root) * ray, (along + root) * ray)
