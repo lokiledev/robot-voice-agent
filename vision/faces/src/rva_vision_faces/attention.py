@@ -4,8 +4,8 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from rva_schemas.vision import BoundingBox, FaceFeatures, Gaze, MainUser
-from rva_vision_faces.config import EyeContactConfig, SpeakingConfig
+from rva_schemas.vision import ActiveSpeaker, BoundingBox, FaceFeatures, Gaze, MainUser
+from rva_vision_faces.config import EyeContactConfig, LipMotionConfig
 
 _STICKINESS: Final = 1.25
 """How much better another face must score to take over as the main user: two people about as
@@ -18,26 +18,27 @@ _MOUTH_CORNERS: Final = (78, 308)
 
 
 class Attention:
-    """Follows the main user, their eye contact and whether they speak.
+    """Follows the main user, their eye contact and whether their lips move.
 
     The main user is the closest and most central face. Fed every frame, in the frame's order.
     """
 
-    def __init__(self, eye_contact: EyeContactConfig, speaking: SpeakingConfig) -> None:
+    def __init__(self, eye_contact: EyeContactConfig, lip_motion: LipMotionConfig) -> None:
         self._eye_contact_config: Final = eye_contact
-        self._speaking_config: Final = speaking
+        self._lip_motion_config: Final = lip_motion
         self._track_id: int | None = None
         self._angles: Final = _Window(eye_contact.window_s)
         """How far off the camera the main user's gaze was."""
-        self._apertures: Final = _Window(speaking.window_s)
+        self._apertures: Final = _Window(lip_motion.window_s)
         """How far apart the main user's lips were."""
         self._eye_contact = False
-        self._speaking = False
+        self._lips_moving = False
 
     def update(
         self,
         now: float,
         faces: Mapping[int, tuple[BoundingBox, FaceFeatures]],
+        speakers: Mapping[int, ActiveSpeaker],
         width: int,
         height: int,
     ) -> MainUser | None:
@@ -46,6 +47,8 @@ class Attention:
         Args:
             now: When the frame was taken, in seconds.
             faces: The box and features of each face seen in the frame.
+            speakers: Whether each face speaks, from its lips and the sound; empty without a
+                microphone.
             width: The frame's width, in pixels.
             height: The frame's height, in pixels.
 
@@ -58,7 +61,7 @@ class Attention:
             self._angles.clear()
             self._apertures.clear()
             self._eye_contact = False
-            self._speaking = False
+            self._lips_moving = False
         if track_id is None:
             return None
         features = faces[track_id][1]
@@ -68,14 +71,15 @@ class Attention:
             eye_contact.leave_deg if self._eye_contact else eye_contact.enter_deg
         )
         motion = statistics.pstdev(self._apertures.add(now, lip_aperture(features.landmarks)))
-        speaking = self._speaking_config
-        self._speaking = motion > (speaking.leave if self._speaking else speaking.enter)
+        lip_motion = self._lip_motion_config
+        self._lips_moving = motion > (lip_motion.leave if self._lips_moving else lip_motion.enter)
         return MainUser(
             track_id=track_id,
             gaze_off_camera=angle,
             eye_contact=self._eye_contact,
             mouth_motion=motion,
-            speaking=self._speaking,
+            lips_moving=self._lips_moving,
+            active_speaker=speakers.get(track_id),
         )
 
     def _pick(

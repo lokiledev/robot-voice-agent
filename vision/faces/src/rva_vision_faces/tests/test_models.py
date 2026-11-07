@@ -9,8 +9,8 @@ from rva_vision_faces.config import (
     DetectorConfig,
     EyeContactConfig,
     FaceFeaturesConfig,
+    LipMotionConfig,
     ModelFile,
-    SpeakingConfig,
 )
 from rva_vision_faces.depth import DepthEstimator
 from rva_vision_faces.detector import Detection, YunetDetector
@@ -63,7 +63,7 @@ FACE_FEATURES = FaceFeaturesConfig(
         repo="onnx-community/face-emotion-detection-ONNX", file="onnx/model_fp16.onnx"
     ),
     eye_contact=EyeContactConfig(window_s=0.4, enter_deg=12.0, leave_deg=18.0),
-    speaking=SpeakingConfig(window_s=0.4, enter=0.03, leave=0.015),
+    lip_motion=LipMotionConfig(window_s=0.4, enter=0.03, leave=0.015),
 )
 BODY = BodyConfig(
     detector=ModelFile(repo="yzd-v/DWPose", file="yolox_l.onnx"),

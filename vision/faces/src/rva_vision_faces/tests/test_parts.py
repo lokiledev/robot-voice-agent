@@ -358,7 +358,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
         expression="happy",
         expression_score=0.7,
     )
-    scene = Scene(faces={3: face}, bodies={3: body}, unmatched_bodies=(body,))
+    scene = Scene(faces={3: face}, bodies={3: body}, unmatched_bodies=(body,), speakers={})
 
     people = people_in_view(
         [speaker, other], scene, scale=0.5, width=960, height=540, caption=(3, "hello")
@@ -383,6 +383,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
                 said="hello",
                 face=face.model_copy(update={"landmarks": ((60.0, 70.0), (90.0, 70.0))}),
                 body=half_body,
+                speaker=None,
             ),
             TrackedPerson(
                 track_id=4,
@@ -392,6 +393,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
                 said=None,
                 face=None,
                 body=None,
+                speaker=None,
             ),
         ),
         unmatched_bodies=(half_body,),

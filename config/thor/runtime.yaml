@@ -82,7 +82,7 @@ vision:
       leave_deg: 18.0
     # The main user's lips, moving more than enter (the spread of their gap, over the mouth's
     # width), then until they move less than leave.
-    speaking:
+    lip_motion:
       window_s: 0.4
       enter: 0.03
       leave: 0.015
@@ -112,6 +112,18 @@ vision:
 # User ids of the admins, kept on this machine like the face database they refer to.
 # Start from config/admins.example.yaml.
 admins: ~/.config/robot-voice-agent/admins.yaml
+
+# Light-ASD: which face speaks, from its lips and the microphone together; null to leave it out.
+# Converted to ONNX on first use, which needs PyTorch once: `uv sync --group export`.
+active_speaker:
+  device: cuda
+  model_dir: ~/.cache/robot-voice-agent/models
+  # Each frame scores the last second, at the frame 0.12 s before the newest: Light-ASD reads
+  # both ways, and the newest frame, with nothing after it, scores low.
+  window_s: 1.0
+  delay_s: 0.12
+  enter: -1.0
+  leave: -1.3
 
 # The session page of `lune run --ui` and `lune text --ui`.
 ui:

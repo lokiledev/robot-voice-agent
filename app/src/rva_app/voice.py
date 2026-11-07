@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import numpy as np
 
 from rva_schemas.abc.recorder import Recorder
+from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.audio import AudioClip
 from rva_voice_asr.parakeet import ParakeetRecognizer
 from rva_voice_audio.config import AudioConfig
@@ -25,6 +26,7 @@ async def open_voice_input(
     recorder: Recorder,
     robot_speech: RobotSpeech,
     on_speech_start: Callable[[], None],
+    speaker: SpeakerDetector | None,
 ) -> AsyncGenerator[VoiceInput]:
     recognizer = ParakeetRecognizer()
     # The first CUDA run is several times slower; pay it before the first user turn.
@@ -32,7 +34,9 @@ async def open_voice_input(
         AudioClip(samples=np.zeros(16000, dtype=np.float32), sample_rate=16000)
     )
     endpointer = Endpointer(config.endpoint, SmartTurn().probability)
-    async with Microphone(config.input_device) as microphone:
+    async with Microphone(
+        config.input_device, None if speaker is None else speaker.hear
+    ) as microphone:
         yield VoiceInput(
             frames=microphone.frames(),
             vad=SileroVad(),

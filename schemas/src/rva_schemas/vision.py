@@ -91,6 +91,14 @@ class FaceFeatures(RVABaseModel):
     """Probability of `expression`, from 0 to 1."""
 
 
+class ActiveSpeaker(RVABaseModel):
+    """Whether a face is the one speaking, from its lips and the microphone together."""
+
+    score: float
+    """The model's confidence, unbounded: the higher, the likelier the face speaks."""
+    speaking: bool
+
+
 class MainUser(RVABaseModel):
     """The person the robot attends to: the closest, most central face in view."""
 
@@ -100,11 +108,13 @@ class MainUser(RVABaseModel):
     eye_contact: bool
     """Whether they look at the robot's camera, held through blinks."""
     mouth_motion: float
-    """How much the gap between their lips varied over the last second or so, as a fraction of
-    the mouth's width."""
-    speaking: bool
+    """How much the gap between their lips varied over the last half second or so, as a fraction
+    of the mouth's width."""
+    lips_moving: bool
     """Whether their lips move as in speech, from the image alone: chewing or laughing counts
     too."""
+    active_speaker: ActiveSpeaker | None
+    """Whether their lips go with the sound heard; `None` without a microphone."""
 
 
 class KnownPerson(RVABaseModel):
@@ -137,6 +147,8 @@ class VisionTimings(RVABaseModel):
     """Time left waiting for the skeletons once the faces are done: they run alongside."""
     depth_ms: float
     """Time left waiting for the depth once the skeletons are done: it runs alongside too."""
+    speaker_ms: float
+    """Telling who speaks, from the faces and the microphone."""
 
 
 class TrackedFace(RVABaseModel):

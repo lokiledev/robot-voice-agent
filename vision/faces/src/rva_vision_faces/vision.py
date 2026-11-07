@@ -13,6 +13,7 @@ from opentelemetry import trace
 
 from rva_pydantic import load_yaml
 from rva_schemas.abc.recorder import Recorder
+from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.abc.vision import FrameViewer
 from rva_schemas.record import CameraFrame
 from rva_schemas.vision import (
@@ -78,8 +79,9 @@ class _Models:
             )
         )
         body = config.body
-        self.pool: Final = ThreadPoolExecutor(2, thread_name_prefix="vision-alongside")
-        """Runs the skeletons and the depth alongside the faces: ONNX Runtime lets go of the GIL."""
+        self.pool: Final = ThreadPoolExecutor(3, thread_name_prefix="vision-alongside")
+        """Runs the skeletons, the depth and who speaks alongside the faces: ONNX Runtime lets go
+        of the GIL."""
         self.bodies: Final = (
             None
             if body is None
@@ -114,6 +116,7 @@ class FaceVision:
         stream_video: bool,
         viewer: Callable[[], FrameViewer] | None,
         on_key: Callable[[str], None] | None,
+        speaker: SpeakerDetector | None,
     ) -> None:
         """Set up the pipeline; the camera and models open when `run` starts.
 
@@ -129,6 +132,8 @@ class FaceVision:
                 called in the camera's thread, which the viewer then lives in. `None` to run
                 without one.
             on_key: Called in the event loop with each key pressed in the viewer, except `q`.
+            speaker: Tells which face speaks, with the microphone that feeds it; `None` without
+                one.
         """
         self._config: Final = config
         self._database: Final = database
@@ -139,6 +144,7 @@ class FaceVision:
         # The user's last sentence, the track of the face in front when it was said, and when.
         self._caption: tuple[int, str, float] | None = None
         self._on_key: Final = on_key
+        self._speaker: Final = speaker
         self._tracker: Final = Tracker(config.tracker)
         self._gallery = Gallery((), config.matching)
         self._granted_operators: frozenset[UUID] = frozenset()
@@ -244,7 +250,7 @@ class FaceVision:
         attention = (
             None
             if config.face_features is None
-            else Attention(config.face_features.eye_contact, config.face_features.speaking)
+            else Attention(config.face_features.eye_contact, config.face_features.lip_motion)
         )
         publisher = (
             RtspPublisher(config.stream, config.camera.width, config.camera.height)
@@ -260,6 +266,7 @@ class FaceVision:
             faces_ms=0.0,
             bodies_ms=0.0,
             depth_ms=0.0,
+            speaker_ms=0.0,
         )
         previous = last_logged = time.perf_counter()
         try:
@@ -307,6 +314,7 @@ class FaceVision:
         with _tracer.start_as_current_span("vision:capture"):
             frame = camera.read()
         captured = time.perf_counter()
+        captured_at = time.monotonic()
         # Skeletons need no face: they are estimated meanwhile, on the other thread.
         found = (
             None if models.bodies is None else models.pool.submit(_estimate, models.bodies, frame)
@@ -335,6 +343,14 @@ class FaceVision:
             logger.info("Face event: {}", event)
         if events:
             loop.call_soon_threadsafe(self._publish, events)
+        # The sound is matched to the faces meanwhile too, once they are tracked.
+        heard = (
+            None
+            if self._speaker is None
+            else models.pool.submit(
+                self._speaker.see, captured_at, frame, {id_: d.box for id_, d in visible}
+            )
+        )
         tracked = time.perf_counter()
         faces = {}
         if models.faces is not None:
@@ -348,7 +364,11 @@ class FaceVision:
         posed = time.perf_counter()
         depth = None if measured is None else measured.result()
         sounded = time.perf_counter()
-        scene = Scene(faces=faces, bodies=bodies, unmatched_bodies=tuple(unmatched))
+        speakers = {} if heard is None else heard.result()
+        listened = time.perf_counter()
+        scene = Scene(
+            faces=faces, bodies=bodies, unmatched_bodies=tuple(unmatched), speakers=speakers
+        )
         return (
             frame,
             scene,
@@ -361,6 +381,7 @@ class FaceVision:
                 faces_ms=(analyzed - tracked) * 1e3,
                 bodies_ms=(posed - analyzed) * 1e3,
                 depth_ms=(sounded - posed) * 1e3,
+                speaker_ms=(listened - sounded) * 1e3,
             ),
         )
 
@@ -370,6 +391,7 @@ class FaceVision:
         return attention.update(
             time.monotonic(),
             {track_id: (boxes[track_id], face) for track_id, face in scene.faces.items()},
+            scene.speakers,
             width,
             height,
         )

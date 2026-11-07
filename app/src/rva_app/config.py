@@ -6,6 +6,7 @@ from rva_agent.config import AgentConfig
 from rva_body_client.client import HttpBodyClientConfig
 from rva_llm.client import OpenAiLanguageModelConfig
 from rva_llm.server import LlamaServerConfig
+from rva_multimodal.config import ActiveSpeakerConfig
 from rva_observability.session import ObservabilityConfig
 from rva_pydantic import RVABaseModel, load_yaml
 from rva_schemas.profile import Admins
@@ -28,6 +29,8 @@ class RuntimeConfig(RVABaseModel):
     audio: AudioConfig
     tts: KokoroConfig
     vision: FaceVisionConfig
+    active_speaker: ActiveSpeakerConfig | None
+    """Which face speaks, from the camera and the microphone; `None` to leave it out."""
     admins: Path
     """YAML file of the admins' user ids, outside the source tree like the face database their ids
     refer to; `~` is expanded. Without it there are no admins."""

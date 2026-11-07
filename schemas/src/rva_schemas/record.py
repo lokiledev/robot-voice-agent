@@ -5,7 +5,14 @@ from pydantic import Field
 from rva_body_schemas.motion import Motion
 from rva_pydantic import RVABaseModel
 from rva_schemas.dialogue import ToolSpec
-from rva_schemas.vision import Body, BoundingBox, FaceEvent, FaceFeatures, KnownPerson
+from rva_schemas.vision import (
+    ActiveSpeaker,
+    Body,
+    BoundingBox,
+    FaceEvent,
+    FaceFeatures,
+    KnownPerson,
+)
 from rva_vla_schemas.task import Task
 
 
@@ -105,6 +112,9 @@ class TrackedPerson(RVABaseModel):
     """`None` when the face is out of sight in this frame, or face features are turned off."""
     body: Body | None
     """`None` when no skeleton was found under this face, or poses are turned off."""
+    speaker: ActiveSpeaker | None
+    """Whether they speak, from their lips and the sound; `None` without a microphone, or until
+    enough sound is heard."""
 
 
 class PeopleInView(RVABaseModel):

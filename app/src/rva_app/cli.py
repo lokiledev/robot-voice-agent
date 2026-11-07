@@ -3,7 +3,7 @@ import contextlib
 import os
 import sys
 import time
-from collections.abc import AsyncGenerator, Callable, Coroutine
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AbstractAsyncContextManager, aclosing
 from datetime import UTC, datetime
 from functools import partial
@@ -28,9 +28,12 @@ from rva_app.voice import open_voice_input, open_voice_output, robot_speech
 from rva_body_client.client import HttpBodyClient
 from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
+from rva_multimodal.config import ActiveSpeakerConfig
+from rva_multimodal.light_asd import open_light_asd
 from rva_observability.session import start_session
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
+from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.dialogue import (
     AssistantMessage,
     Message,
@@ -56,6 +59,7 @@ from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.vision import FaceVision
 from rva_vision_viewer.window import DebugWindow
 from rva_vla_client.client import HttpVlaClient
+from rva_voice_audio.devices import Microphone
 
 app = cyclopts.App(
     name="lune",
@@ -347,7 +351,9 @@ async def _listen(profile_dir: Path, viewer: bool) -> None:
     recorder = start_session(config.observability, "listen", viewer=viewer, console_level="WARNING")
     # Nothing is played here, so the robot never speaks and no transcript is an echo.
     silent = robot_speech(config.audio)
-    async with open_voice_input(config.audio, recorder, silent, lambda: write("… ")) as voice:
+    async with open_voice_input(
+        config.audio, recorder, silent, lambda: write("… "), speaker=None
+    ) as voice:
         write("Listening. Ctrl+C to stop.\n")
         async for utterance in voice.utterances():
             delay_ms = (datetime.now(UTC) - utterance.ended_at).total_seconds() * 1000
@@ -386,6 +392,7 @@ async def _run_voice_agent(
         HttpBodyClient(config.body) as body,
     ):
         recorder = _recorder(session, page)
+        speaker = await _speaker(config.active_speaker) if camera else None
         vision = (
             await asyncio.to_thread(
                 _face_vision,
@@ -396,13 +403,14 @@ async def _run_voice_agent(
                 show_window=show,
                 depth=depth,
                 on_key=None,
+                speaker=speaker,
             )
             if camera
             else None
         )
         async with (
             open_voice_output(config.audio, config.tts, speaking, recorder) as speech,
-            open_voice_input(config.audio, recorder, speaking, speech.interrupt) as voice,
+            open_voice_input(config.audio, recorder, speaking, speech.interrupt, speaker) as voice,
         ):
             await _run_agent(
                 profile,
@@ -470,7 +478,30 @@ def see(
             streamed.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_see(profile, viewer, video, stream, window, depth))
+    _run(_see(profile, viewer, video, stream, window, depth, listen=False))
+
+
+@app.command
+def sense(
+    *,
+    profile: ProfileDir = _DEFAULT_PROFILE,
+    viewer: bool = False,
+    video: bool = False,
+    window: bool = True,
+    depth: bool = True,
+) -> None:
+    """Like `see`, with the microphone too: which face speaks, from its lips and the sound.
+
+    Camera, microphone and where they meet, as in `run`, without the agent or any server.
+
+    Args:
+        profile: Robot profile directory.
+        viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
+        video: Record the camera frames with the session, to replay them in rerun.
+        window: Show the debug window; without it, people are only logged and recorded.
+        depth: Estimate the camera's depth, if the profile has a depth model.
+    """
+    _run(_see(profile, viewer, video, False, window, depth, listen=True))
 
 
 async def _run_text_agent(
@@ -501,6 +532,7 @@ async def _run_text_agent(
                 show_window=show,
                 depth=depth,
                 on_key=None,
+                speaker=None,
             )
             if camera
             else None
@@ -539,13 +571,25 @@ def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
 
 
 async def _see(
-    profile_dir: Path, viewer: bool, video: bool, stream: bool, window: bool, depth: bool
+    profile_dir: Path,
+    viewer: bool,
+    video: bool,
+    stream: bool,
+    window: bool,
+    depth: bool,
+    *,
+    listen: bool,
 ) -> None:
     config = RuntimeConfig.load(profile_dir)
     if stream:
         await require_servers(_media_server(config))
-    recorder = start_session(config.observability, "see", viewer=viewer, console_level="INFO")
+    recorder = start_session(
+        config.observability, "sense" if listen else "see", viewer=viewer, console_level="INFO"
+    )
     keys = asyncio.Queue[str]()
+    if listen and config.active_speaker is None:
+        raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no active_speaker to listen with")
+    speaker = await _speaker(config.active_speaker) if listen else None
     vision = await asyncio.to_thread(
         _face_vision,
         config.vision,
@@ -555,13 +599,31 @@ async def _see(
         show_window=window,
         depth=depth,
         on_key=keys.put_nowait,
+        speaker=speaker,
     )
     if stream:
         logger.info("Streaming the window to {}", config.ui.video_page)
-    async with asyncio.TaskGroup() as group:
-        naming = group.create_task(_name_nearest_face(vision, keys))
+    async with contextlib.AsyncExitStack() as stack:
+        group = await stack.enter_async_context(asyncio.TaskGroup())
+        tasks = [group.create_task(_name_nearest_face(vision, keys))]
+        if speaker is not None:
+            microphone = await stack.enter_async_context(
+                Microphone(config.audio.input_device, speaker.hear)
+            )
+            # The speaker detector takes the sound in the audio thread; nothing else needs it.
+            tasks.append(group.create_task(_drain(microphone.frames())))
         await vision.run()
-        naming.cancel()
+        for task in tasks:
+            task.cancel()
+
+
+async def _speaker(config: ActiveSpeakerConfig | None) -> SpeakerDetector | None:
+    return None if config is None else await asyncio.to_thread(open_light_asd, config)
+
+
+async def _drain(items: AsyncIterator[object]) -> None:
+    async for _ in items:
+        pass
 
 
 async def _name_nearest_face(vision: FaceVision, keys: asyncio.Queue[str]) -> None:
@@ -600,6 +662,7 @@ def _face_vision(
     show_window: bool,
     depth: bool,
     on_key: Callable[[str], None] | None,
+    speaker: SpeakerDetector | None,
 ) -> FaceVision:
     return FaceVision(
         config if depth else config.model_copy(update={"depth": None}),
@@ -609,6 +672,7 @@ def _face_vision(
         stream_video=stream_video,
         viewer=partial(DebugWindow, *_WINDOW_SIZE) if show_window else None,
         on_key=on_key,
+        speaker=speaker,
     )
 
 

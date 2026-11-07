@@ -1,6 +1,7 @@
 import asyncio
 import threading
-from collections.abc import AsyncGenerator
+import time
+from collections.abc import AsyncGenerator, Callable
 from types import TracebackType
 from typing import Final, Self
 
@@ -16,7 +17,20 @@ from rva_voice_audio.vad import FRAME_SAMPLES, SAMPLE_RATE
 class Microphone:
     """Mono 16 kHz capture in 512-sample frames, the unit Silero VAD scores."""
 
-    def __init__(self, device: str | None) -> None:
+    def __init__(
+        self,
+        device: str | None,
+        on_frame: Callable[[float, npt.NDArray[np.float32]], None] | None,
+    ) -> None:
+        """Open the device; capture starts on entering.
+
+        Args:
+            device: The input device's name, or `None` for the system's default.
+            on_frame: Also called with each frame and when it was heard, from `time.monotonic`,
+                in the audio thread as soon as the frame is captured: the frames' queue would
+                delay it.
+        """
+        self._on_frame: Final = on_frame
         self._frames: Final = asyncio.Queue[npt.NDArray[np.float32]]()
         self._loop: Final = asyncio.get_running_loop()
         self._stream: Final = sounddevice.InputStream(
@@ -49,12 +63,15 @@ class Microphone:
         self,
         indata: npt.NDArray[np.float32],
         frames: int,
-        time: object,
+        stream_time: object,
         status: sounddevice.CallbackFlags,
     ) -> None:
         if status:
             logger.warning("Microphone: {}", status)
-        self._loop.call_soon_threadsafe(self._frames.put_nowait, indata[:, 0].copy())
+        frame = indata[:, 0].copy()
+        if self._on_frame is not None:
+            self._on_frame(time.monotonic(), frame)
+        self._loop.call_soon_threadsafe(self._frames.put_nowait, frame)
 
 
 class Speaker:

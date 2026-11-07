@@ -94,6 +94,7 @@ flowchart LR
     subgraph process ["Agent process"]
         vin["Voice input<br/>voice activity, end of turn, ASR"]
         vision["Vision<br/>detect, track, recognize faces"]
+        asd["Active speaker<br/>lips and sound together"]
         ui["Session page server"]
         loop["Agent loop<br/>inbox, history, LLM turns"]
         tools["Tools<br/>body, tasks, people, permissions"]
@@ -101,6 +102,9 @@ flowchart LR
         rec["Recorder<br/>every part records to it"]
     end
     vin -- "utterances" --> loop
+    vin -- "sound" --> asd
+    vision -- "faces" --> asd
+    asd -- "who speaks" --> vision
     vision -- "people coming and going" --> loop
     ui -- "typed lines" --> loop
     loop -- "sentences" --> vout
@@ -114,7 +118,7 @@ flowchart LR
     rec -. "rerun file" .-> disk([Recordings])
 
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
-    class vin,vision,loop,tools,vout,ui,rec component
+    class vin,vision,asd,loop,tools,vout,ui,rec component
 ```
 
 The agent loop depends only on interfaces (`typing.Protocol`s): where utterances come from, where
@@ -210,19 +214,35 @@ flowchart LR
   image) with glasses and +1.5 without. So no offset is taken off; the thresholds absorb it.
   Rules rather than a model, until recordings show where they fail.
   Shown in the debug window only for now.
-- **Speaking, from the lips.** The main user speaks while their lips move: the gap between the
+- **Lips moving.** The main user's lips move as in speech while the gap between the
   inner lips over the mouth's width, from the face mesh, has a standard deviation over the last
-  0.4 s above 0.03, then until it falls under 0.015 (`face_features.speaking`). Motion rather than
+  0.4 s above 0.03, then until it falls under 0.015 (`face_features.lip_motion`). Motion rather than
   opening, so a mouth held open does not count, and the window bridges the pauses between words.
   In a recording of talking with pauses, the motion was 0.05 to 0.10 while talking and under 0.007
   in between; a 0.4 s window found the same stretches of speech as a 0.8 s one, each ending 0.3 s
   sooner, which matters for turn-taking, while 0.3 s split them apart.
   The lips rather than the jaw-open blendshape, which barely moves when only the lips do; still,
   the face resting reads about 0.003. It cannot tell speech from chewing, laughing or mouthing
-  words. Active speaker detection models (TalkNet, Light-ASD, LoCoNet, around 92 to 95% mAP on
-  AVA-ActiveSpeaker) learn whether the lips match the audio from both: the next step, to compare
-  against this rule on the same recordings, since turn-taking needs to know who speaks, not only
-  whose lips move. Light-ASD is about a million parameters, small enough to run beside the rest.
+  words, nor whose voice is heard: the active speaker does.
+- **Active speaker: where camera and microphone meet.** Light-ASD (CVPR 2023, MIT) tells which
+  face speaks from its lips and the sound together: about a million parameters, 94.1% mAP on
+  AVA-ActiveSpeaker, against 92.3% for TalkNet and 95.2% for LoCoNet, which is several times
+  larger. Vision and audio each run on their own; they meet in `rva-multimodal`, behind the
+  `SpeakerDetector` protocol, so vision never imports audio code. The microphone hands it each
+  512-sample frame, stamped in the audio thread; the frame loop hands it each frame and the
+  tracked faces' boxes, and it runs alongside the face models, 2.4 ms a frame on the GPU. It keeps
+  the last second of each face, cropped and resampled to 25 fps as the model was trained, and of
+  the sound, as MFCC. Its two GRUs read the window both ways, so the newest frame, with nothing
+  after it, scores low: the frame 0.12 s before it is scored, and the thresholds sit at -1.0 to
+  start and -1.3 to stop, below the model's own 0 (`active_speaker`). On a 60 s take of talking
+  with pauses, scored frame by frame as it runs live, it agreed with Silero VAD on 95.8% of frames
+  (1.3% speaking while the VAD heard nothing, 2.9% missed), where the lips-moving rule agreed on
+  76%: the rule fired on lips moving silently and missed speech with little lip motion. The
+  thresholds were tuned on that same take. There is no ONNX export of Light-ASD to download, so
+  its pinned checkpoint is converted on first use, in a process of its own, as only that needs
+  PyTorch (the `export` dependency group); the network is vendored for it, with the one change
+  ONNX needs. `lune sense` runs it with the camera alone; `lune run` too. It is shown and recorded,
+  not yet used for turn-taking.
 , RTMW places the 133 COCO-WholeBody keypoints on each; the upper
   body (head, shoulders, elbows, wrists and hips) and both hands (21 points each) are kept. Legs and
   feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
@@ -247,11 +267,11 @@ flowchart LR
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
   mouse and whether the camera is calibrated. Underneath, a timeline of the main user's signals,
-  one lane each, the last 30 s: eye contact and speaking. It lives in its own package behind the `FrameViewer`
+  one lane each, the last 30 s: eye contact, lips moving and speaking. It lives in its own package behind the `FrameViewer`
   protocol, so the camera pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
-  with eyes, mouth and gaze plotted under `people/<track>`.
+  with eyes, mouth, gaze and the active speaker's score plotted under `people/<track>`.
 
 ### Agent loop and tools
 
@@ -394,6 +414,7 @@ flowchart BT
     TTS["rva-voice-tts"]
     VIS["rva-vision-faces"]
     VIEW["rva-vision-viewer"]
+    MM["rva-multimodal"]
     UI["rva-ui"]
     OBS["rva-observability"]
     APP["rva-app"]
@@ -402,8 +423,8 @@ flowchart BT
     VLAC --> VLAS
     BODYC --> BODYS
     MOCK --> VLAS & BODYS
-    AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & UI & OBS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & UI & OBS & VLAC & BODYC
+    AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & MM & UI & OBS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & MM & UI & OBS & VLAC & BODYC
 ```
 
 | Package | Contents |
@@ -415,6 +436,7 @@ flowchart BT
 | `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
 | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face database, camera stream |
 | `rva-vision-viewer` | Debug window for the camera pipeline, with Dear PyGui; vision runs without it |
+| `rva-multimodal` | Where camera and microphone meet: which face speaks, with Light-ASD |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |
 | `rva-vla-client`, `rva-body-client` | HTTP and WebSocket clients of the robot API |
@@ -436,6 +458,7 @@ flowchart BT
 | Face features | MediaPipe face mesh and blendshapes, L2CS-Net, ViT (FER2013) | GPU |
 | Skeletons | YOLOX-L, RTMW-L 256x192 | GPU; with the face features, 1.7 GB more |
 | Depth | Depth Anything 3 Metric-Large, fp16, 504x504 | GPU, about 22 ms and 1.4 GB alone |
+| Active speaker | Light-ASD, AVA checkpoint, 1 s windows | GPU, about 2.4 ms a frame |
 
 **Why a cascade.** Speech-to-speech models such as Kyutai's Moshi reason over audio: they have no
 text history to edit, no tool calls and no system prompt of your own, which an agent driving a

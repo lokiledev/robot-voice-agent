@@ -262,7 +262,10 @@ def signals(main_user: MainUser | None) -> dict[str, bool]:
     """The main user's signals shown on the timeline, each off while nobody is in view."""
     return {
         "eye contact": main_user is not None and main_user.eye_contact,
-        "speaking": main_user is not None and main_user.speaking,
+        "lips moving": main_user is not None and main_user.lips_moving,
+        "speaking": main_user is not None
+        and main_user.active_speaker is not None
+        and main_user.active_speaker.speaking,
     }
 
 
@@ -270,10 +273,17 @@ def describe_main_user(main_user: MainUser | None) -> str:
     if main_user is None:
         return "nobody in view"
     contact = "eye contact" if main_user.eye_contact else "no eye contact"
-    speaking = "speaking" if main_user.speaking else "silent"
+    lips = "lips moving" if main_user.lips_moving else "lips still"
+    match main_user.active_speaker:
+        case None:
+            speaking = "no microphone"
+        case speaker:
+            speaking = (
+                f"{'speaking' if speaker.speaking else 'not speaking'} ({speaker.score:+.1f})"
+            )
     return (
         f"main user #{main_user.track_id}: {contact}, gaze {main_user.gaze_off_camera:.0f} deg off"
-        f"; {speaking}, mouth motion {main_user.mouth_motion:.3f}"
+        f"; {lips}, motion {main_user.mouth_motion:.3f}; {speaking}"
     )
 
 
@@ -332,6 +342,7 @@ def describe_timings(timings: VisionTimings) -> str:
         f"capture {timings.capture_ms:.1f} ms  detect {timings.detect_ms:.1f} ms\n"
         f"embed {timings.embed_ms:.1f} ms  faces {timings.faces_ms:.1f} ms\n"
         f"bodies {timings.bodies_ms:.1f} ms  depth {timings.depth_ms:.1f} ms"
+        f"\nspeaker {timings.speaker_ms:.1f} ms"
     )
 
 

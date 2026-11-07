@@ -3,7 +3,16 @@ from uuid import UUID
 import numpy as np
 
 from rva_schemas.record import TrackedPerson
-from rva_schemas.vision import Body, BoundingBox, DepthMap, Hand, Keypoint, KnownPerson, MainUser
+from rva_schemas.vision import (
+    ActiveSpeaker,
+    Body,
+    BoundingBox,
+    DepthMap,
+    Hand,
+    Keypoint,
+    KnownPerson,
+    MainUser,
+)
 from rva_vision_viewer.window import (
     depth_at,
     describe_body,
@@ -32,6 +41,7 @@ def test_title_names_the_person_and_what_they_said() -> None:
         said="hello",
         face=None,
         body=None,
+        speaker=None,
     )
 
     assert title(person) == '#3 Alice (3f2a1b4c): "hello"'
@@ -75,12 +85,22 @@ def test_describe_depth_says_whether_it_is_calibrated() -> None:
 
 def test_the_main_user_is_described_and_their_signals_are_off_while_nobody_is_in_view() -> None:
     user = MainUser(
-        track_id=4, gaze_off_camera=6.4, eye_contact=True, mouth_motion=0.0412, speaking=True
+        track_id=4,
+        gaze_off_camera=6.4,
+        eye_contact=True,
+        mouth_motion=0.0412,
+        lips_moving=True,
+        active_speaker=ActiveSpeaker(score=-0.42, speaking=True),
     )
+    unheard = user.model_copy(update={"lips_moving": False, "active_speaker": None})
 
     assert describe_main_user(user) == (
-        "main user #4: eye contact, gaze 6 deg off; speaking, mouth motion 0.041"
+        "main user #4: eye contact, gaze 6 deg off; lips moving, motion 0.041; speaking (-0.4)"
+    )
+    assert describe_main_user(unheard) == (
+        "main user #4: eye contact, gaze 6 deg off; lips still, motion 0.041; no microphone"
     )
     assert describe_main_user(None) == "nobody in view"
-    assert signals(user) == {"eye contact": True, "speaking": True}
-    assert signals(None) == {"eye contact": False, "speaking": False}
+    assert signals(user) == {"eye contact": True, "lips moving": True, "speaking": True}
+    assert signals(unheard) == {"eye contact": True, "lips moving": False, "speaking": False}
+    assert signals(None) == {"eye contact": False, "lips moving": False, "speaking": False}

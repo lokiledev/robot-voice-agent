@@ -12,6 +12,7 @@ dependencies = [
   "rva-agent",
   "rva-body-client",
   "rva-llm",
+  "rva-multimodal",
   "rva-observability",
   "rva-pydantic",
   "rva-schemas",
@@ -34,6 +35,7 @@ build-backend = "uv_build"
 rva-agent = {workspace = true}
 rva-body-client = {workspace = true}
 rva-llm = {workspace = true}
+rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}

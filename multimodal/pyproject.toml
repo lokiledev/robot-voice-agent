@@ -1,0 +1,36 @@
+[project]
+name = "rva-multimodal"
+version = "0.1.0"
+description = "Where the camera and the microphone meet: who speaks, with Light-ASD; implements SpeakerDetector"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "loguru>=0.7",
+  "numpy>=2.0",
+  "onnxruntime-gpu>=1.22; platform_machine == 'aarch64'",
+  "onnxruntime-gpu[cuda,cudnn]>=1.22; platform_machine != 'aarch64'",
+  "opencv-python>=4.10",
+  "pydantic>=2.11",
+  "python-speech-features>=0.6",
+  # python-speech-features imports it without declaring it.
+  "scipy>=1.13",
+  "rva-pydantic",
+  "rva-schemas",
+]
+
+[project.optional-dependencies]
+# Converts the Light-ASD checkpoint to ONNX, once per machine; nothing else needs it.
+export = [
+  "onnx>=1.17",
+  "torch>=2.5",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-schemas = {workspace = true}

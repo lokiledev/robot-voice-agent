@@ -8,7 +8,16 @@ from rerun.chunk import RrdReader
 
 from rva_observability.rerun_sink import RerunRecorder
 from rva_schemas.record import CameraFrame, PeopleInView, Speaker, TrackedPerson, UserLine
-from rva_schemas.vision import Body, BoundingBox, FaceFeatures, Gaze, Hand, Keypoint, KnownPerson
+from rva_schemas.vision import (
+    ActiveSpeaker,
+    Body,
+    BoundingBox,
+    FaceFeatures,
+    Gaze,
+    Hand,
+    Keypoint,
+    KnownPerson,
+)
 
 
 def test_camera_image_and_people_share_one_view(tmp_path: Path) -> None:
@@ -50,6 +59,7 @@ def test_camera_image_and_people_share_one_view(tmp_path: Path) -> None:
                     said="authorize Bob",
                     face=face,
                     body=body,
+                    speaker=ActiveSpeaker(score=0.7, speaking=True),
                 ),
             ),
             unmatched_bodies=(body,),
@@ -71,5 +81,6 @@ def test_camera_image_and_people_share_one_view(tmp_path: Path) -> None:
         "/camera/people/1/body/left_hand",
         "/camera/unmatched_bodies/0",
         "/people/1/mouth",
+        "/people/1/speaking",
         "/dialogue/user",
     } <= entities

@@ -22,6 +22,12 @@ dev = [
   "pytest>=8",
   "ruff>=0.15",
   "ty>=0.0.1",
+  # For ty to check the conversion of Light-ASD.
+  {include-group = "export"},
+]
+# PyTorch, to convert Light-ASD to ONNX on first use: `uv sync --group export`.
+export = [
+  "rva-multimodal[export]",
 ]
 
 [tool.uv]
@@ -42,6 +48,7 @@ rva-app = {workspace = true}
 rva-body-client = {workspace = true}
 rva-body-schemas = {workspace = true}
 rva-llm = {workspace = true}
+rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}
@@ -54,6 +61,13 @@ rva-vision-viewer = {workspace = true}
 rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
 rva-voice-tts = {workspace = true}
+# Only converts a checkpoint once: the CPU build spares the CUDA libraries.
+torch = {index = "pytorch-cpu"}
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.uv.workspace]
 members = [
@@ -64,6 +78,7 @@ members = [
   "common/observability",
   "common/pydantic",
   "llm",
+  "multimodal",
   "schemas",
   "ui",
   "vla/client",

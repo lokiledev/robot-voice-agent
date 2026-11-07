@@ -7,3 +7,14 @@ respect-type-ignore-comments = false
 
 [rules]
 all = "error"
+
+# Light-ASD's network, vendored to convert its checkpoint: PyTorch declares `Module.forward` as an
+# attribute and types calling a module as returning `Any`, which every layer of it trips.
+[[overrides]]
+include = ["multimodal/src/rva_multimodal/light_asd_network.py"]
+
+[overrides.rules]
+invalid-mutable-override = "ignore"
+missing-override-decorator = "ignore"
+unsound-assignment = "ignore"
+unsound-return-statement = "ignore"

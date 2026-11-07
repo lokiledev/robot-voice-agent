@@ -95,7 +95,7 @@ def draw(
         f"{timings.fps:.0f} fps  capture {timings.capture_ms:.1f} ms  "
         f"detect {timings.detect_ms:.1f} ms  embed {timings.embed_ms:.1f} ms  "
         f"faces {timings.faces_ms:.1f} ms  bodies {timings.bodies_ms:.1f} ms  "
-        f"depth {timings.depth_ms:.1f} ms"
+        f"depth {timings.depth_ms:.1f} ms  speaker {timings.speaker_ms:.1f} ms"
     )
     cv2.putText(
         frame,

@@ -140,6 +140,10 @@ class RerunRecorder:
                 self._face_series(person.track_id, person.face)
             if person.body is not None:
                 entities.update(_body(f"{path}/body", person.body, _color(person)))
+            if person.speaker is not None:
+                self._recording.log(
+                    f"people/{person.track_id}/speaking", rr.Scalars(person.speaker.score)
+                )
         for index, body in enumerate(entry.unmatched_bodies):
             entities.update(_body(f"{_CAMERA}/unmatched_bodies/{index}", body, _UNCONFIRMED))
         for path, archetype in entities.items():

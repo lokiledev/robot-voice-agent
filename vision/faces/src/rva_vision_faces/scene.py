@@ -2,7 +2,7 @@ from collections.abc import Mapping, Sequence
 
 from rva_pydantic import RVABaseModel
 from rva_schemas.record import PeopleInView, TrackedPerson
-from rva_schemas.vision import Body, BoundingBox, FaceFeatures, Hand, Keypoint
+from rva_schemas.vision import ActiveSpeaker, Body, BoundingBox, FaceFeatures, Hand, Keypoint
 from rva_vision_faces.tracker import Track
 
 
@@ -14,6 +14,8 @@ class Scene(RVABaseModel):
     bodies: Mapping[int, Body]
     """The skeleton under each face that has one, by track id."""
     unmatched_bodies: tuple[Body, ...]
+    speakers: Mapping[int, ActiveSpeaker]
+    """Whether each face speaks, by track id; empty without a microphone."""
 
 
 def people_in_view(
@@ -44,6 +46,7 @@ def people_in_view(
                 body=_scale_body(body, scale)
                 if (body := scene.bodies.get(track.track_id)) is not None
                 else None,
+                speaker=scene.speakers.get(track.track_id),
             )
             for track in tracks
         ),
