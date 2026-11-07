@@ -4,8 +4,7 @@ import cv2
 import numpy as np
 import onnxruntime
 
-from rva_schemas.vision import DepthMap
-from rva_vision_faces.config import CameraIntrinsics
+from rva_schemas.vision import CameraIntrinsics, DepthMap
 from rva_vision_faces.detector import Image
 
 _MEAN: Final = np.array([0.485, 0.456, 0.406], np.float32)

@@ -11,6 +11,7 @@ from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import (
     Body,
     BoundingBox,
+    CameraIntrinsics,
     FaceAppeared,
     FaceFeatures,
     FaceLeft,
@@ -19,6 +20,7 @@ from rva_schemas.vision import (
     Keypoint,
     KnownPerson,
     NameTakenError,
+    Point3D,
     TrackedFace,
     UnknownPersonError,
 )
@@ -342,10 +344,12 @@ def test_database_renames_and_grants_without_changing_the_user(tmp_path: Path) -
 def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
     speaker = Track(track_id=3, detection=_detection(100, 0.0), now=0, samples=1)
     other = Track(track_id=4, detection=_detection(400, 0.0), now=0, samples=1)
-    hand = Hand(keypoints=(Keypoint(x=10, y=20, score=0.9), None))
+    hand = Hand(
+        keypoints=(Keypoint(x=10, y=20, score=0.9, position=Point3D(x=-0.4, y=-0.2, z=1.6)), None)
+    )
     body = Body(
         box=BoundingBox(x=100, y=100, width=200, height=400),
-        keypoints=(Keypoint(x=150, y=160, score=0.8), None),
+        keypoints=(Keypoint(x=150, y=160, score=0.8, position=None), None),
         left_hand=hand,
         right_hand=hand,
     )
@@ -355,25 +359,39 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
         right_eye_open=0.8,
         mouth_open=0.1,
         gaze=Gaze(yaw=5.0, pitch=-2.0),
+        gaze_ray=None,
         expression="happy",
         expression_score=0.7,
     )
     scene = Scene(faces={3: face}, bodies={3: body}, unmatched_bodies=(body,), speakers={})
 
     people = people_in_view(
-        [speaker, other], scene, scale=0.5, width=960, height=540, caption=(3, "hello")
+        [speaker, other],
+        scene,
+        scale=0.5,
+        width=960,
+        height=540,
+        intrinsics=CameraIntrinsics(
+            calibrated=False, width=1920, height=1080, fx=1360.0, fy=1360.0, cx=959.5, cy=539.5
+        ),
+        caption=(3, "hello"),
     )
 
-    half_hand = Hand(keypoints=(Keypoint(x=5, y=10, score=0.9), None))
+    half_hand = Hand(
+        keypoints=(Keypoint(x=5, y=10, score=0.9, position=Point3D(x=-0.4, y=-0.2, z=1.6)), None)
+    )
     half_body = Body(
         box=BoundingBox(x=50, y=50, width=100, height=200),
-        keypoints=(Keypoint(x=75, y=80, score=0.8), None),
+        keypoints=(Keypoint(x=75, y=80, score=0.8, position=None), None),
         left_hand=half_hand,
         right_hand=half_hand,
     )
     assert people == PeopleInView(
         image_width=960,
         image_height=540,
+        intrinsics=CameraIntrinsics(
+            calibrated=False, width=960, height=540, fx=680.0, fy=680.0, cx=479.75, cy=269.75
+        ),
         people=(
             TrackedPerson(
                 track_id=3,

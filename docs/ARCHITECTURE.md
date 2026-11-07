@@ -264,9 +264,15 @@ flowchart LR
   for a camera of its own focal length; the camera's intrinsics (`camera.intrinsics`, a file in
   the profile) scale it to this camera. The C920's are assumed from its datasheet until it is
   calibrated, and the depth is marked uncalibrated meanwhile. Unscaled, it was 1.2 to 1.4 times
-  too far at desk distance; the assumed focal length scales it by a further 1.19. It is
-  only shown, in the debug window, and is meant to place the skeletons in 3D. `--no-depth`, or
-  `depth: null` in the profile, leaves it out.
+  too far at desk distance; the assumed focal length scales it by a further 1.19. `--no-depth`,
+  or `depth: null` in the profile, leaves it out.
+- **People in 3D.** With depth and intrinsics, each skeleton and hand keypoint gets a position in
+  the camera's frame (x right, y down, z forward, in metres), and each face a gaze ray from
+  between its irises. A keypoint's depth is the 25th percentile of a 5x5 patch of the depth map
+  around it: keypoints sit on the edges of limbs and fingers, where the patch also holds the room
+  behind, and the person is the nearer side. The gaze angles are measured from the line from the
+  eyes to the camera, so the ray turns that line by the yaw towards the image's right and the
+  pitch upwards. An occluded keypoint, a wrist behind the body, takes the occluder's depth.
 - **TensorRT.** With `device: {kind: tensorrt}`, every vision model but YuNet runs as an fp16
   TensorRT engine, built on first use (about 7 minutes in all, depth the longest) and cached.
   Together they take 2.8 GB where ONNX Runtime's CUDA provider took 3.5 GB, and run two to three
@@ -282,7 +288,11 @@ flowchart LR
   protocol, so the camera pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
-  with eyes, mouth, gaze and the active speaker's score plotted under `people/<track>`.
+  with eyes, mouth, gaze and the active speaker's score plotted under `people/<track>`. In 3D,
+  the skeletons, hands and gaze rays are under `space/people/<track>`, in the camera's frame,
+  which is the 3D view's; `camera` holds the camera's pinhole, so the image and its 2D overlay
+  show in that view too. With `--video`, the depth is recorded under `depth`, as a point cloud
+  around the people, every other pixel in millimetres.
 
 ### Agent loop and tools
 

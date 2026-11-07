@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from rva_schemas.vision import Body, BoundingBox, Gaze, Hand, Keypoint
+from rva_schemas.vision import Body, BoundingBox, CameraIntrinsics, Gaze, Hand, Keypoint
 from rva_vision_faces.body import (
     attach,
     decode_simcc,
@@ -15,14 +15,13 @@ from rva_vision_faces.body import (
     pose_transform,
     to_body,
 )
-from rva_vision_faces.config import CameraIntrinsics
 from rva_vision_faces.depth import letterbox, metres_per_unit
 from rva_vision_faces.detector import Detection
 from rva_vision_faces.face_features import box_transform, gaze_from_bins, mesh_transform
 
 
 def _body(nose: tuple[float, float] | None) -> Body:
-    head = None if nose is None else Keypoint(x=nose[0], y=nose[1], score=0.9)
+    head = None if nose is None else Keypoint(x=nose[0], y=nose[1], score=0.9, position=None)
     return Body(
         box=BoundingBox(x=0, y=0, width=100, height=300),
         keypoints=(head, head, head, *[None] * 10),
@@ -111,7 +110,9 @@ def test_box_transform_maps_the_box_onto_the_crop() -> None:
 def _hand_at(x: float, score: float) -> Hand:
     """A hand spread over 100 by 100 pixels from `x`, its points all scoring `score`."""
     return Hand(
-        keypoints=tuple(Keypoint(x=x + 5 * (i % 21), y=5.0 * i, score=score) for i in range(21))
+        keypoints=tuple(
+            Keypoint(x=x + 5 * (i % 21), y=5.0 * i, score=score, position=None) for i in range(21)
+        )
     )
 
 
@@ -132,7 +133,8 @@ def test_one_hand_each_keeps_both_hands_when_they_are_apart() -> None:
 def test_linked_to_torso_drops_a_wrist_whose_elbow_was_not_found() -> None:
     def found(*indices: int) -> tuple[Keypoint | None, ...]:
         return tuple(
-            Keypoint(x=float(i), y=0.0, score=0.5) if i in indices else None for i in range(13)
+            Keypoint(x=float(i), y=0.0, score=0.5, position=None) if i in indices else None
+            for i in range(13)
         )
 
     # The right arm is whole; the left wrist floats, its elbow out of frame.
@@ -144,7 +146,8 @@ def test_linked_to_torso_drops_a_wrist_whose_elbow_was_not_found() -> None:
 def test_linked_to_wrist_drops_finger_segments_floating_on_their_own() -> None:
     def found(*indices: int) -> tuple[Keypoint | None, ...]:
         return tuple(
-            Keypoint(x=float(i), y=0.0, score=0.5) if i in indices else None for i in range(21)
+            Keypoint(x=float(i), y=0.0, score=0.5, position=None) if i in indices else None
+            for i in range(21)
         )
 
     # Thumb and index whole; the ring finger's tip end without its base (13).

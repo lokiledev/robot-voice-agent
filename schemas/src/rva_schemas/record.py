@@ -9,6 +9,8 @@ from rva_schemas.vision import (
     ActiveSpeaker,
     Body,
     BoundingBox,
+    CameraIntrinsics,
+    DepthMap,
     FaceEvent,
     FaceFeatures,
     KnownPerson,
@@ -124,6 +126,8 @@ class PeopleInView(RVABaseModel):
     image_width: int
     image_height: int
     """Size of the image the coordinates are in: the recorded video's when there is one."""
+    intrinsics: CameraIntrinsics | None
+    """The camera's at that size; `None` when not even assumed ones are known."""
     people: tuple[TrackedPerson, ...]
     unmatched_bodies: tuple[Body, ...]
     """Skeletons with no tracked face: turned away, or too far away to be tracked."""
@@ -132,6 +136,15 @@ class PeopleInView(RVABaseModel):
 class CameraFrame(RVABaseModel):
     kind: Literal["camera_frame"] = "camera_frame"
     jpeg: bytes
+
+
+class DepthFrame(RVABaseModel):
+    """The depth of a camera frame, to see the people in it in 3D."""
+
+    kind: Literal["depth_frame"] = "depth_frame"
+    depth: DepthMap
+    intrinsics: CameraIntrinsics
+    """The camera's at the depth's resolution."""
 
 
 type Record = Annotated[
@@ -147,6 +160,7 @@ type Record = Annotated[
     | Measurement
     | FaceUpdate
     | PeopleInView
-    | CameraFrame,
+    | CameraFrame
+    | DepthFrame,
     Field(discriminator="kind"),
 ]

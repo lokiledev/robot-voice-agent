@@ -221,7 +221,9 @@ def to_body(
 
     def keypoints(part: slice) -> tuple[Keypoint | None, ...]:
         return tuple(
-            Keypoint(x=float(x), y=float(y), score=float(score)) if score >= threshold else None
+            Keypoint(x=float(x), y=float(y), score=float(score), position=None)
+            if score >= threshold
+            else None
             for (x, y), score in zip(in_frame[part], points[part, 2], strict=True)
         )
 

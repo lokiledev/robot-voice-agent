@@ -88,6 +88,7 @@ class FaceAnalyzer:
                     right_eye_open=1.0 - float(blendshapes[_EYE_BLINK_RIGHT]),
                     mouth_open=float(blendshapes[_JAW_OPEN]),
                     gaze=self._run_gaze(rgb, detection.box),
+                    gaze_ray=None,
                     expression=_EXPRESSIONS[best],
                     expression_score=float(expressions[index, best]),
                 )

@@ -1,7 +1,9 @@
 import math
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Final, assert_never, override
 
+import numpy as np
 import rerun as rr
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
@@ -9,6 +11,7 @@ from rva_body_schemas.motion import describe
 from rva_schemas.record import (
     AgentStarted,
     CameraFrame,
+    DepthFrame,
     FaceUpdate,
     GazeUpdate,
     Measurement,
@@ -24,13 +27,31 @@ from rva_schemas.record import (
     TrackedPerson,
     UserLine,
 )
-from rva_schemas.vision import BODY_CONNECTIONS, FINGERS, Body, FaceFeatures, Hand, Keypoint
+from rva_schemas.vision import (
+    BODY_CONNECTIONS,
+    FINGERS,
+    Body,
+    CameraIntrinsics,
+    FaceFeatures,
+    GazeRay,
+    Hand,
+    Keypoint,
+    Point3D,
+)
 
 _TIMELINE: Final = "wall"
 _CAMERA: Final = "camera"
-"""Image and people share this entity, so rerun draws them in one 2D view."""
+"""Image and people share this entity, so rerun draws them in one 2D view; with the camera's
+intrinsics, it is also the camera's pinhole in the 3D view."""
 _PEOPLE: Final = f"{_CAMERA}/people"
 """One entity per face track, under which its face, skeleton and hands hang."""
+_SPACE: Final = "space"
+"""The people in 3D, in the camera's frame, which is the 3D view's."""
+_PEOPLE_3D: Final = f"{_SPACE}/people"
+_DEPTH: Final = "depth"
+"""The depth's pinhole, at its own resolution, with the depth under it as a point cloud."""
+_DEPTH_STRIDE: Final = 2
+_GAZE_LENGTH_M: Final = 0.5
 _BODY_CLASS: Final = 1
 # RGB, as in the debug window.
 _KNOWN: Final = (80, 200, 80)
@@ -61,17 +82,19 @@ class RerunRecorder:
 
     def __init__(self, recording: rr.RecordingStream) -> None:
         self._recording: Final = recording
-        self._recording.log(
-            _CAMERA,
-            rr.AnnotationContext(
-                [
-                    rr.ClassDescription(
-                        info=(_BODY_CLASS, "body"), keypoint_connections=BODY_CONNECTIONS
-                    ),
-                ]
-            ),
-            static=True,
-        )
+        self._recording.log("/", rr.ViewCoordinates.RDF, static=True)
+        for path in (_CAMERA, _SPACE):
+            self._recording.log(
+                path,
+                rr.AnnotationContext(
+                    [
+                        rr.ClassDescription(
+                            info=(_BODY_CLASS, "body"), keypoint_connections=BODY_CONNECTIONS
+                        ),
+                    ]
+                ),
+                static=True,
+            )
         # Entities of the last frame's people, cleared once they are not seen.
         self._people_entities: set[str] = set()
 
@@ -121,13 +144,37 @@ class RerunRecorder:
                     f"{_CAMERA}/image",
                     rr.EncodedImage(contents=entry.jpeg, media_type="image/jpeg"),
                 )
+            case DepthFrame():
+                # Every other pixel, in millimetres on 16 bits: an eighth of the size, about
+                # 2 MB/s, and still enough points to see the people against the room.
+                metres = entry.depth.metres[::_DEPTH_STRIDE, ::_DEPTH_STRIDE]
+                rows, columns = metres.shape
+                intrinsics = entry.intrinsics
+                strided = intrinsics.model_copy(
+                    update={
+                        "width": columns,
+                        "height": rows,
+                        **{
+                            name: getattr(intrinsics, name) / _DEPTH_STRIDE
+                            for name in ("fx", "fy", "cx", "cy")
+                        },
+                    }
+                )
+                self._recording.log(_DEPTH, _pinhole(strided))
+                millimetres = np.clip(metres * 1000, 0, np.iinfo(np.uint16).max)
+                self._recording.log(
+                    f"{_DEPTH}/image", rr.DepthImage(millimetres.astype(np.uint16), meter=1000)
+                )
             case _:
                 assert_never(entry)
 
     def _people(self, entry: PeopleInView) -> None:
+        if entry.intrinsics is not None:
+            self._recording.log(_CAMERA, _pinhole(entry.intrinsics))
         entities: dict[str, rr.AsComponents] = {}
         for person in entry.people:
             path = f"{_PEOPLE}/{person.track_id}"
+            path_3d = f"{_PEOPLE_3D}/{person.track_id}"
             entities[f"{path}/box"] = rr.Boxes2D(
                 array=[[person.box.x, person.box.y, person.box.width, person.box.height]],
                 array_format=rr.Box2DFormat.XYWH,
@@ -138,14 +185,18 @@ class RerunRecorder:
             if person.face is not None:
                 entities.update(_face(path, person.face, _color(person)))
                 self._face_series(person.track_id, person.face)
+                if person.face.gaze_ray is not None:
+                    entities[f"{path_3d}/gaze"] = _gaze_3d(person.face.gaze_ray, _label(person))
             if person.body is not None:
                 entities.update(_body(f"{path}/body", person.body, _color(person)))
+                entities.update(_body_3d(f"{path_3d}/body", person.body, _color(person)))
             if person.speaker is not None:
                 self._recording.log(
                     f"people/{person.track_id}/speaking", rr.Scalars(person.speaker.score)
                 )
         for index, body in enumerate(entry.unmatched_bodies):
             entities.update(_body(f"{_CAMERA}/unmatched_bodies/{index}", body, _UNCONFIRMED))
+            entities.update(_body_3d(f"{_SPACE}/unmatched_bodies/{index}", body, _UNCONFIRMED))
         for path, archetype in entities.items():
             self._recording.log(path, archetype)
         for path in self._people_entities - entities.keys():
@@ -183,33 +234,102 @@ def _face(path: str, face: FaceFeatures, color: tuple[int, int, int]) -> dict[st
 
 def _body(path: str, body: Body, color: tuple[int, int, int]) -> dict[str, rr.AsComponents]:
     entities: dict[str, rr.AsComponents] = {path: _skeleton(body.keypoints, _BODY_CLASS, color)}
-    for name, hand, colors in (
-        ("left_hand", body.left_hand, _LEFT_FINGER_COLORS),
-        ("right_hand", body.right_hand, _RIGHT_FINGER_COLORS),
-    ):
-        if hand is not None:
-            entities[f"{path}/{name}"] = _hand(hand, colors)
+    for name, hand, colors in _hands(body):
+        strips, strip_colors = _fingers(hand, colors, _pixel)
+        entities[f"{path}/{name}"] = rr.LineStrips2D(strips, colors=strip_colors, radii=1.0)
     return entities
 
 
-def _hand(hand: Hand, finger_colors: tuple[tuple[int, int, int], ...]) -> rr.LineStrips2D:
+def _body_3d(path: str, body: Body, color: tuple[int, int, int]) -> dict[str, rr.AsComponents]:
+    """The skeleton and hands in the camera's frame, where their points have a position."""
+    placed = [
+        (index, point.position)
+        for index, point in enumerate(body.keypoints)
+        if point is not None and point.position is not None
+    ]
+    entities: dict[str, rr.AsComponents] = {}
+    if placed:
+        entities[path] = rr.Points3D(
+            [_xyz(position) for _, position in placed],
+            keypoint_ids=[index for index, _ in placed],
+            class_ids=_BODY_CLASS,
+            colors=color,
+            radii=0.015,
+        )
+    for name, hand, colors in _hands(body):
+        strips, strip_colors = _fingers(hand, colors, _position)
+        if strips:
+            entities[f"{path}/{name}"] = rr.LineStrips3D(strips, colors=strip_colors, radii=0.004)
+    return entities
+
+
+def _gaze_3d(ray: GazeRay, label: str) -> rr.Arrows3D:
+    direction = _xyz(ray.direction)
+    return rr.Arrows3D(
+        origins=[_xyz(ray.origin)],
+        vectors=[tuple(_GAZE_LENGTH_M * axis for axis in direction)],
+        colors=[(0, 255, 255)],
+        labels=[label],
+        radii=0.005,
+    )
+
+
+def _pinhole(intrinsics: CameraIntrinsics) -> rr.Pinhole:
+    return rr.Pinhole(
+        focal_length=[intrinsics.fx, intrinsics.fy],
+        principal_point=[intrinsics.cx, intrinsics.cy],
+        width=intrinsics.width,
+        height=intrinsics.height,
+        camera_xyz=rr.ViewCoordinates.RDF,
+    )
+
+
+def _hands(body: Body) -> list[tuple[str, Hand, tuple[tuple[int, int, int], ...]]]:
+    return [
+        (name, hand, colors)
+        for name, hand, colors in (
+            ("left_hand", body.left_hand, _LEFT_FINGER_COLORS),
+            ("right_hand", body.right_hand, _RIGHT_FINGER_COLORS),
+        )
+        if hand is not None
+    ]
+
+
+def _fingers[T](
+    hand: Hand,
+    finger_colors: tuple[tuple[int, int, int], ...],
+    coordinates: Callable[[Keypoint], T | None],
+) -> tuple[list[list[T]], list[tuple[int, int, int]]]:
     """Each finger as a strip from the wrist to its tip, in its own color.
 
-    A strip breaks where a point was not found.
+    A strip breaks where a point was not found, or `coordinates` has none for it.
     """
-    strips: list[list[tuple[float, float]]] = []
+    strips: list[list[T]] = []
     colors: list[tuple[int, int, int]] = []
     for finger, color in zip(FINGERS, finger_colors, strict=True):
-        strip: list[tuple[float, float]] = []
+        strip: list[T] = []
         for point in (*(hand.keypoints[index] for index in finger), None):
-            if point is not None:
-                strip.append((point.x, point.y))
+            at = None if point is None else coordinates(point)
+            if at is not None:
+                strip.append(at)
                 continue
             if len(strip) > 1:
                 strips.append(strip)
                 colors.append(color)
             strip = []
-    return rr.LineStrips2D(strips, colors=colors, radii=1.0)
+    return strips, colors
+
+
+def _pixel(point: Keypoint) -> tuple[float, float]:
+    return point.x, point.y
+
+
+def _position(point: Keypoint) -> tuple[float, float, float] | None:
+    return None if point.position is None else _xyz(point.position)
+
+
+def _xyz(point: Point3D) -> tuple[float, float, float]:
+    return point.x, point.y, point.z
 
 
 def _skeleton(

@@ -1,3 +1,4 @@
+import math
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
@@ -17,6 +18,18 @@ class BoundingBox(RVABaseModel):
     height: float
 
 
+class Point3D(RVABaseModel):
+    """A point or a direction in the camera's frame, in metres.
+
+    x points towards the right of the image, y down and z forward along the camera's axis, as in
+    OpenCV.
+    """
+
+    x: float
+    y: float
+    z: float
+
+
 class Keypoint(RVABaseModel):
     """A point of a skeleton, in image pixels."""
 
@@ -24,6 +37,9 @@ class Keypoint(RVABaseModel):
     y: float
     score: float
     """The pose model's confidence."""
+    position: Point3D | None
+    """Where the point is in the camera's frame, from the depth at it; `None` without depth or
+    the camera's intrinsics."""
 
 
 class Hand(RVABaseModel):
@@ -75,6 +91,15 @@ class Gaze(RVABaseModel):
     """Positive upwards."""
 
 
+class GazeRay(RVABaseModel):
+    """Where the eyes point, in the camera's frame."""
+
+    origin: Point3D
+    """Between the irises."""
+    direction: Point3D
+    """A unit vector."""
+
+
 class FaceFeatures(RVABaseModel):
     """What a face shows in one frame."""
 
@@ -86,6 +111,9 @@ class FaceFeatures(RVABaseModel):
     mouth_open: float
     """From 0, closed, to 1, wide open."""
     gaze: Gaze
+    gaze_ray: GazeRay | None
+    """`gaze` in the camera's frame, from the depth between the eyes; `None` without depth or the
+    camera's intrinsics."""
     expression: Expression
     expression_score: float
     """Probability of `expression`, from 0 to 1."""
@@ -123,6 +151,35 @@ class KnownPerson(RVABaseModel):
     user_id: UUID
     name: str
     """Unique among known people."""
+
+
+class CameraIntrinsics(RVABaseModel):
+    """Pinhole model of a camera at one resolution, in pixels."""
+
+    calibrated: bool
+    """Whether the values were measured; otherwise they are assumed, e.g. from a datasheet."""
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    fx: float = Field(gt=0)
+    fy: float = Field(gt=0)
+    cx: float
+    cy: float
+
+    def scaled_to(self, width: int, height: int) -> "CameraIntrinsics":
+        """The same camera at another resolution of the same aspect ratio."""
+        scale = width / self.width
+        assert math.isclose(height / self.height, scale, rel_tol=0.01), (
+            f"{width}x{height} is not {self.width}x{self.height} scaled"
+        )
+        return CameraIntrinsics(
+            calibrated=self.calibrated,
+            width=width,
+            height=height,
+            fx=self.fx * scale,
+            fy=self.fy * scale,
+            cx=self.cx * scale,
+            cy=self.cy * scale,
+        )
 
 
 class DepthMap(RVABaseModel, arbitrary_types_allowed=True):

@@ -49,7 +49,7 @@ def test_title_names_the_person_and_what_they_said() -> None:
 
 
 def test_describe_body_counts_the_keypoints_found() -> None:
-    point = Keypoint(x=1, y=2, score=0.9)
+    point = Keypoint(x=1, y=2, score=0.9, position=None)
     body = Body(
         box=BoundingBox(x=0, y=0, width=10, height=10),
         keypoints=(point, None, point),

@@ -2,7 +2,15 @@ from collections.abc import Mapping, Sequence
 
 from rva_pydantic import RVABaseModel
 from rva_schemas.record import PeopleInView, TrackedPerson
-from rva_schemas.vision import ActiveSpeaker, Body, BoundingBox, FaceFeatures, Hand, Keypoint
+from rva_schemas.vision import (
+    ActiveSpeaker,
+    Body,
+    BoundingBox,
+    CameraIntrinsics,
+    FaceFeatures,
+    Hand,
+    Keypoint,
+)
 from rva_vision_faces.tracker import Track
 
 
@@ -24,15 +32,18 @@ def people_in_view(
     scale: float,
     width: int,
     height: int,
+    intrinsics: CameraIntrinsics | None,
     caption: tuple[int, str] | None,
 ) -> PeopleInView:
     """The tracks and what was seen of them, in an image scaled by `scale` to `width` by `height`.
 
-    `caption` is a track id and what that person said, shown on their box.
+    `intrinsics` are the camera's at the frame's resolution, if known. `caption` is a track id and
+    what that person said, shown on their box.
     """
     return PeopleInView(
         image_width=width,
         image_height=height,
+        intrinsics=None if intrinsics is None else intrinsics.scaled_to(width, height),
         people=tuple(
             TrackedPerson(
                 track_id=track.track_id,
@@ -74,7 +85,7 @@ def _scale_body(body: Body, scale: float) -> Body:
 
     def points(keypoints: tuple[Keypoint | None, ...]) -> tuple[Keypoint | None, ...]:
         return tuple(
-            None if k is None else Keypoint(x=k.x * scale, y=k.y * scale, score=k.score)
+            None if k is None else k.model_copy(update={"x": k.x * scale, "y": k.y * scale})
             for k in keypoints
         )
 

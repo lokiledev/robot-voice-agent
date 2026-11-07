@@ -1,11 +1,10 @@
 import numpy as np
 import pytest
 
-from rva_schemas.vision import BoundingBox
+from rva_schemas.vision import BoundingBox, CameraIntrinsics
 from rva_vision_faces.body import BodyEstimator
 from rva_vision_faces.config import (
     BodyConfig,
-    CameraIntrinsics,
     Cpu,
     DetectorConfig,
     EyeContactConfig,

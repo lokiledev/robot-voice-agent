@@ -4,7 +4,7 @@ from uuid import UUID
 from rva_app.config import RuntimeConfig, load_admins
 from rva_pydantic import load_yaml
 from rva_schemas.profile import Admins
-from rva_vision_faces.config import CameraIntrinsics
+from rva_schemas.vision import CameraIntrinsics
 
 _REPOSITORY = Path(__file__).parents[4]
 

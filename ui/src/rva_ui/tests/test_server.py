@@ -37,7 +37,11 @@ async def test_a_page_gets_the_session_so_far_then_each_entry_as_it_comes() -> N
     async with _serving(ui) as port, connect(f"ws://127.0.0.1:{port}/session") as page:
         hello, replayed = json.loads(await page.recv()), json.loads(await page.recv())
         # Drawn into the video stream instead.
-        ui.record(PeopleInView(image_width=96, image_height=54, people=(), unmatched_bodies=()))
+        ui.record(
+            PeopleInView(
+                image_width=96, image_height=54, intrinsics=None, people=(), unmatched_bodies=()
+            )
+        )
         ui.record(RobotLine(text="Hi!", interrupted=False))
         live = json.loads(await page.recv())
 

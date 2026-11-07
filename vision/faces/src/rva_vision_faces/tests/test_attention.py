@@ -23,6 +23,7 @@ def face(gaze: Gaze, aperture: float = 0.0) -> FaceFeatures:
         right_eye_open=1.0,
         mouth_open=0.0,
         gaze=gaze,
+        gaze_ray=None,
         expression="neutral",
         expression_score=1.0,
     )

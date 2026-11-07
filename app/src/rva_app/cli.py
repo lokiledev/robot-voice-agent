@@ -125,7 +125,7 @@ def everything(
         camera: Watch for people with the camera.
         viewer: Stream the recording to a rerun viewer.
         show: Also show the camera with the tracked faces in a window.
-        video: Record the camera frames with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
     _run(_up(profile, text, camera, viewer, show, video, depth))
@@ -160,7 +160,7 @@ def text(
         viewer: Stream the recording to a rerun viewer.
         camera: Watch for people with the camera.
         show: Also show the camera with the tracked faces in a window.
-        video: Record the camera frames with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
@@ -207,7 +207,7 @@ def run(
         viewer: Stream the recording to a rerun viewer.
         camera: Watch for people with the camera.
         show: Also show the camera with the tracked faces in a window.
-        video: Record the camera frames with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
@@ -474,7 +474,7 @@ def see(
     Args:
         profile: Robot profile directory.
         viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
-        video: Record the camera frames with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun.
         stream: Also publish the window's image to MediaMTX, to watch on its WebRTC page.
         window: Show the debug window; without it, people are only logged, recorded and
             streamed.
@@ -499,7 +499,7 @@ def sense(
     Args:
         profile: Robot profile directory.
         viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
-        video: Record the camera frames with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun.
         window: Show the debug window; without it, people are only logged and recorded.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """

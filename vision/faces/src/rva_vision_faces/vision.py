@@ -15,9 +15,10 @@ from rva_pydantic import load_yaml
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.abc.vision import FrameViewer
-from rva_schemas.record import CameraFrame
+from rva_schemas.record import CameraFrame, DepthFrame
 from rva_schemas.vision import (
     Body,
+    CameraIntrinsics,
     DepthMap,
     FaceEvent,
     KnownPerson,
@@ -31,7 +32,7 @@ from rva_schemas.vision import (
 from rva_vision_faces.attention import Attention
 from rva_vision_faces.body import POSE_ITEM, BodyEstimator, attach
 from rva_vision_faces.camera import Camera
-from rva_vision_faces.config import CameraIntrinsics, FaceVisionConfig
+from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.depth import DepthEstimator
 from rva_vision_faces.detector import Detection, Image, YunetDetector
@@ -41,6 +42,7 @@ from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
 from rva_vision_faces.overlay import draw
 from rva_vision_faces.scene import Scene, people_in_view
+from rva_vision_faces.space import lift
 from rva_vision_faces.stream import RtspPublisher
 from rva_vision_faces.tracker import Tracker
 
@@ -56,6 +58,15 @@ class _Models:
 
     def __init__(self, config: FaceVisionConfig) -> None:
         device = config.device
+        camera = config.camera
+        self.intrinsics: Final = (
+            None
+            if camera.intrinsics is None
+            else load_yaml(CameraIntrinsics, camera.intrinsics).scaled_to(
+                camera.width, camera.height
+            )
+        )
+        """The camera's at the frame's resolution."""
         self.detector: Final = YunetDetector(
             load_session(config.detector.model, device, dynamic_image_size=True, batch_item=None),
             config.detector,
@@ -97,9 +108,7 @@ class _Models:
             if config.depth is None
             else DepthEstimator(
                 load_session(config.depth.model, device, dynamic_image_size=False, batch_item=None),
-                None
-                if config.camera.intrinsics is None
-                else load_yaml(CameraIntrinsics, config.camera.intrinsics),
+                self.intrinsics,
             )
         )
 
@@ -126,7 +135,8 @@ class FaceVision:
             database: Known people.
             recorder: Receives the faces tracked in each frame, and the frames themselves with
                 `record_video`.
-            record_video: Record the camera frames, scaled down and compressed, to replay them.
+            record_video: Record the camera frames, scaled down and compressed, and their depth, to
+                replay them.
             stream_video: Publish the camera with the tracked faces to the RTSP server of the
                 config, e.g. for a web page to show it.
             viewer: Opens a viewer to show the camera with the tracked people, for debugging;
@@ -282,7 +292,7 @@ class FaceVision:
                 if now - last_logged >= _LOG_EVERY_S:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
-                self._record(frame, scene)
+                self._record(frame, scene, depth, models.intrinsics)
                 if window is None and publisher is None:
                     continue
                 draw(frame, self._tracker.tracks, scene, timings, self._current_caption())
@@ -292,7 +302,13 @@ class FaceVision:
                     continue
                 height, width = frame.shape[:2]
                 people = people_in_view(
-                    self._tracker.tracks, scene, 1.0, width, height, self._current_caption()
+                    self._tracker.tracks,
+                    scene,
+                    1.0,
+                    width,
+                    height,
+                    models.intrinsics,
+                    self._current_caption(),
                 )
                 key = window.show(frame, people, depth, main_user, timings)
                 if key == "q":
@@ -370,6 +386,9 @@ class FaceVision:
         scene = Scene(
             faces=faces, bodies=bodies, unmatched_bodies=tuple(unmatched), speakers=speakers
         )
+        if depth is not None and models.intrinsics is not None:
+            with _tracer.start_as_current_span("vision:lift"):
+                scene = lift(scene, depth, models.intrinsics)
         return (
             frame,
             scene,
@@ -397,7 +416,14 @@ class FaceVision:
             height,
         )
 
-    def _record(self, frame: Image, scene: Scene) -> None:
+    def _record(
+        self,
+        frame: Image,
+        scene: Scene,
+        depth: DepthMap | None,
+        intrinsics: CameraIntrinsics | None,
+    ) -> None:
+        """Record what was seen, and with `record_video` the frame and its depth."""
         height, width = frame.shape[:2]
         scale = 1.0
         if self._record_video:
@@ -412,6 +438,11 @@ class FaceVision:
             if not encoded:
                 raise RuntimeError("Could not encode a camera frame as JPEG")
             self._recorder.record(CameraFrame(jpeg=jpeg.tobytes()))
+            if depth is not None and intrinsics is not None:
+                rows, columns = depth.metres.shape
+                self._recorder.record(
+                    DepthFrame(depth=depth, intrinsics=intrinsics.scaled_to(columns, rows))
+                )
         self._recorder.record(
             people_in_view(
                 self._tracker.tracks,
@@ -419,6 +450,7 @@ class FaceVision:
                 scale,
                 round(width * scale),
                 round(height * scale),
+                intrinsics,
                 self._current_caption(),
             )
         )

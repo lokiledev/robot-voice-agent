@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -34,35 +33,6 @@ class Cpu(RVABaseModel):
 
 
 type Device = Annotated[TensorRt | Cuda | Cpu, Field(discriminator="kind")]
-
-
-class CameraIntrinsics(RVABaseModel):
-    """Pinhole model of a camera at one resolution, in pixels."""
-
-    calibrated: bool
-    """Whether the values were measured; otherwise they are assumed, e.g. from a datasheet."""
-    width: int = Field(gt=0)
-    height: int = Field(gt=0)
-    fx: float = Field(gt=0)
-    fy: float = Field(gt=0)
-    cx: float
-    cy: float
-
-    def scaled_to(self, width: int, height: int) -> "CameraIntrinsics":
-        """The same camera at another resolution of the same aspect ratio."""
-        scale = width / self.width
-        assert math.isclose(height / self.height, scale, rel_tol=0.01), (
-            f"{width}x{height} is not {self.width}x{self.height} scaled"
-        )
-        return CameraIntrinsics(
-            calibrated=self.calibrated,
-            width=width,
-            height=height,
-            fx=self.fx * scale,
-            fy=self.fy * scale,
-            cx=self.cx * scale,
-            cy=self.cy * scale,
-        )
 
 
 class CameraConfig(RVABaseModel):
