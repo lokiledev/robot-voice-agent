@@ -14,6 +14,7 @@ from rva_ui.media import MediaServerConfig
 from rva_ui.server import UiConfig
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vla_client.client import HttpVlaClientConfig
+from rva_voice_asr.parakeet import ParakeetConfig
 from rva_voice_audio.config import AudioConfig
 from rva_voice_tts.kokoro import KokoroConfig
 
@@ -27,6 +28,7 @@ class RuntimeConfig(RVABaseModel):
     vla: HttpVlaClientConfig
     body: HttpBodyClientConfig
     audio: AudioConfig
+    asr: ParakeetConfig
     tts: KokoroConfig
     vision: FaceVisionConfig
     active_speaker: ActiveSpeakerConfig | None

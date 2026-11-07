@@ -352,7 +352,7 @@ async def _listen(profile_dir: Path, viewer: bool) -> None:
     # Nothing is played here, so the robot never speaks and no transcript is an echo.
     silent = robot_speech(config.audio)
     async with open_voice_input(
-        config.audio, recorder, silent, lambda: write("… "), speaker=None
+        config.audio, config.asr, recorder, silent, lambda: write("… "), speaker=None
     ) as voice:
         write("Listening. Ctrl+C to stop.\n")
         async for utterance in voice.utterances():
@@ -410,7 +410,9 @@ async def _run_voice_agent(
         )
         async with (
             open_voice_output(config.audio, config.tts, speaking, recorder) as speech,
-            open_voice_input(config.audio, recorder, speaking, speech.interrupt, speaker) as voice,
+            open_voice_input(
+                config.audio, config.asr, recorder, speaking, speech.interrupt, speaker
+            ) as voice,
         ):
             await _run_agent(
                 profile,

@@ -8,7 +8,7 @@ import numpy.typing as npt
 import pytest
 
 from rva_schemas.record import Record
-from rva_voice_asr.parakeet import ParakeetRecognizer
+from rva_voice_asr.parakeet import ParakeetConfig, ParakeetRecognizer
 from rva_voice_audio.config import EndpointConfig
 from rva_voice_audio.echo import RobotSpeech
 from rva_voice_audio.endpoint import Endpointer
@@ -44,6 +44,8 @@ async def _frames(audio: npt.NDArray[np.float32]) -> AsyncGenerator[npt.NDArray[
 
 @pytest.mark.download
 @pytest.mark.cuda
+# The first run builds Parakeet's TensorRT engines, in about a minute.
+@pytest.mark.timeout(180)
 async def test_synthesized_request_is_heard_back() -> None:
     tts = KokoroSynthesizer(
         KokoroConfig(
@@ -65,7 +67,12 @@ async def test_synthesized_request_is_heard_back() -> None:
         frames=_frames(np.concatenate([silence, at_16k, silence, silence])),
         vad=SileroVad(),
         endpointer=Endpointer(ENDPOINT, SmartTurn().probability),
-        recognizer=ParakeetRecognizer(),
+        recognizer=ParakeetRecognizer(
+            ParakeetConfig(
+                engine_cache=Path("~/.cache/robot-voice-agent/tensorrt/parakeet"),
+                max_utterance_s=20.0,
+            )
+        ),
         recorder=_NoRecorder(),
         robot_speech=RobotSpeech(echo_window_s=2, clock=time.monotonic),
         on_speech_start=lambda: starts.append(None),

@@ -151,7 +151,11 @@ flowchart TB
 - **End of turn.** About 200 ms into a silence, smart-turn judges from the audio whether the
   sentence is finished; if not, Lune keeps listening, up to 1.5 s of silence.
 - **Recognition on whole utterances.** The turn detector already says where an utterance ends,
-  so a streaming ASR model is not needed: Parakeet takes about 40 ms per utterance.
+  so a streaming ASR model is not needed: Parakeet takes about 6 ms per utterance.
+- **Parakeet on TensorRT.** Its fp16 engines, built on first use, are tuned for one utterance of
+  up to 20 s at a time; longer ones still work. That takes 1.9 GB where ONNX Runtime's CUDA
+  provider took 3.8 GB, at 6 ms per utterance instead of 39, with the same transcripts. If TensorRT
+  fails to load, starting fails rather than falling back to CUDA.
 - **Speaking early.** LLM tokens are cut into sentences, and each goes to Kokoro as soon as it is
   complete while the previous one plays.
 - **Barge-in.** Speech while Lune talks stops the playback and the LLM stream, and the history
@@ -451,7 +455,7 @@ flowchart BT
 |---|---|---|
 | Voice activity | Silero VAD v6.2 | CPU |
 | End of turn | smart-turn v3 | CPU |
-| Speech recognition | Parakeet TDT 0.6B v2, English | GPU, about 2 GB |
+| Speech recognition | Parakeet TDT 0.6B v2, English | GPU, fp16 on TensorRT, about 1.5 GB |
 | Dialogue and tools | Qwen3.5-35B-A3B, Q4_K_M | GPU, about 16 GB; some expert layers on the CPU |
 | Speech synthesis | Kokoro-82M, voice `af_heart` | GPU, about 1 GB |
 | Face detection and embeddings | YuNet, SFace | GPU, under 0.8 GB with the camera pipeline |
@@ -484,7 +488,7 @@ On the RTX 4090 and a Ryzen 9 7950X3D:
 
 - From the end of the user's speech to Lune's first audio: 0.72 to 0.86 s.
 - LLM: about 120 tokens/s; first token in 110 to 175 ms, first sentence in 180 to 330 ms.
-- Parakeet about 40 ms per utterance, Kokoro about 100 ms per sentence, smart-turn about 35 ms.
+- Parakeet about 6 ms per utterance on TensorRT (39 ms and 3.4 GB on ONNX Runtime's CUDA provider), Kokoro about 100 ms per sentence, smart-turn about 35 ms.
 - GPU memory for the whole stack: 21 of 24 GB.
 - Vision: about 6 ms per frame for detection; with one face, its features take about 13 ms and the
   skeletons, run alongside, about 16 ms, so it still follows the camera at 24 to 30 fps.

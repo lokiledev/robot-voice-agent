@@ -157,6 +157,11 @@ audio:
     max_silence_ms: 1500
     turn_complete_threshold: 0.5
 
+asr:
+  engine_cache: ~/.cache/robot-voice-agent/tensorrt/parakeet
+  # Turns in a live conversation are short; longer ones still work, a little slower.
+  max_utterance_s: 20.0
+
 tts:
   model_path: ~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx
   voices_path: ~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin

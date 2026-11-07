@@ -9,8 +9,11 @@ dependencies = [
   "onnx-asr>=0.7",
   "onnxruntime-gpu>=1.22; platform_machine == 'aarch64'",
   "onnxruntime-gpu[cuda,cudnn]>=1.22; platform_machine != 'aarch64'",
+  "pydantic>=2.0",
   "rva-pydantic",
   "rva-schemas",
+  # onnxruntime-gpu's TensorRT provider is built against TensorRT 10.
+  "tensorrt-cu13-libs>=10.16,<11",
 ]
 
 [build-system]

@@ -7,7 +7,7 @@ import numpy as np
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.audio import AudioClip
-from rva_voice_asr.parakeet import ParakeetRecognizer
+from rva_voice_asr.parakeet import ParakeetConfig, ParakeetRecognizer
 from rva_voice_audio.config import AudioConfig
 from rva_voice_audio.devices import Microphone, Speaker
 from rva_voice_audio.echo import RobotSpeech
@@ -23,13 +23,15 @@ _KOKORO_SAMPLE_RATE = 24000
 @asynccontextmanager
 async def open_voice_input(
     config: AudioConfig,
+    asr: ParakeetConfig,
     recorder: Recorder,
     robot_speech: RobotSpeech,
     on_speech_start: Callable[[], None],
     speaker: SpeakerDetector | None,
 ) -> AsyncGenerator[VoiceInput]:
-    recognizer = ParakeetRecognizer()
-    # The first CUDA run is several times slower; pay it before the first user turn.
+    recognizer = ParakeetRecognizer(asr)
+    # The first run is several times slower, and builds the TensorRT engines the first time;
+    # pay it before the first user turn.
     await recognizer.transcribe(
         AudioClip(samples=np.zeros(16000, dtype=np.float32), sample_rate=16000)
     )
