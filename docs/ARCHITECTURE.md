@@ -247,15 +247,21 @@ flowchart LR
   PyTorch (the `export` dependency group); the network is vendored for it, with the one change
   ONNX needs. `lune sense` runs it with the camera alone; `lune run` too. It is shown and recorded,
   not yet used for turn-taking.
-, RTMW places the 133 COCO-WholeBody keypoints on each; the upper
+- **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the upper
   body (head, shoulders, elbows, wrists and hips) and both hands (21 points each) are kept. Legs and
   feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
-  is the mesh's job. With a hand held up close and no arm in view, RTMW can find both hands on it;
-  the weaker, often mirrored, is dropped. Body points that no chain of found bones links to the
-  head, shoulders or hips, such as a wrist whose elbow is out of frame, are dropped too, and so are
-  hand points not linked to their wrist. Each finger is drawn in its own color, warm for the right
-  hand and cool for the left. A skeleton belongs to the face track whose box holds its nose and
-  eyes; the others, people turned away or too far to track, are kept apart. They run on a second
+  is the mesh's job. Body points that no chain of found bones links to the head, shoulders or hips,
+  such as a wrist whose elbow is out of frame, are dropped, and so are hand points not linked to
+  their wrist. Each finger is drawn in its own color, warm for the right hand and cool for the left.
+  A skeleton belongs to the face track whose box holds its nose and eyes, or, with no face seen
+  there, whose box held them when the face was last seen: hands over the face, or a face blurred as
+  it moves, keep the skeleton its person's. The others, people turned away or too far to track, are
+  kept apart. Two skeletons with the same nose and eyes, within half the gap between the eyes, are
+  one person found twice, the second box around a raised arm; the more confident is kept. A
+  skeleton's two hands are one when they overlap by half or their wrists are within a quarter of a
+  hand: RTMW puts both hands on the one it sees, shifted or mirrored, and the hand kept is the one
+  whose wrist meets its arm's. A tracked person's hand is shown from its second frame in a row: in
+  recordings, most hands found in a single frame were such doubles. Skeletons are found on a second
   thread while the faces are processed. They are meant for gestures: waving, a handshake, a fist
   bump.
 - **Depth.** Depth Anything 3 Metric-Large (Apache-2.0) estimates the distance of every pixel from

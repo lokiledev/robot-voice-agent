@@ -6,18 +6,22 @@ import pytest
 
 from rva_schemas.vision import Body, BoundingBox, CameraIntrinsics, Gaze, Hand, Keypoint
 from rva_vision_faces.body import (
+    SteadyHands,
     attach,
+    attach_seen_first,
     decode_simcc,
     decode_yolox,
     linked_to_torso,
     linked_to_wrist,
     one_hand_each,
+    one_per_person,
     pose_transform,
     to_body,
 )
 from rva_vision_faces.depth import letterbox, metres_per_unit
 from rva_vision_faces.detector import Detection
 from rva_vision_faces.face_features import box_transform, gaze_from_bins, mesh_transform
+from rva_vision_faces.tracker import iou
 
 
 def _body(nose: tuple[float, float] | None) -> Body:
@@ -74,6 +78,69 @@ def test_attach_gives_each_face_the_skeleton_whose_head_is_in_its_box() -> None:
     assert unmatched == [far_away, turned_away]
 
 
+def test_a_skeleton_stays_with_a_track_whose_face_is_hidden() -> None:
+    alice_last_seen = BoundingBox(x=100, y=100, width=50, height=60)
+    bob_face = BoundingBox(x=400, y=100, width=50, height=60)
+    alice, bob = _body((125, 130)), _body((420, 120))
+
+    attached, unmatched = attach_seen_first([alice, bob], [(2, bob_face)], [(1, alice_last_seen)])
+
+    assert attached == {1: alice, 2: bob}
+    assert unmatched == []
+
+
+def test_a_face_seen_in_the_frame_takes_its_skeleton_before_a_hidden_one() -> None:
+    # Bob's face is where Alice's was last seen, before she left.
+    box = BoundingBox(x=100, y=100, width=50, height=60)
+    bob = _body((125, 130))
+
+    attached, _ = attach_seen_first([bob], [(2, box)], [(1, box)])
+
+    assert attached == {2: bob}
+
+
+def _skeleton(nose: tuple[float, float], eye_gap: float, score: float) -> Body:
+    """A head, the eyes `eye_gap` apart above the nose, and a shoulder, all scoring `score`."""
+    x, y = nose
+
+    def point(px: float, py: float) -> Keypoint:
+        return Keypoint(x=px, y=py, score=score, position=None)
+
+    return Body(
+        box=BoundingBox(x=x - 100, y=y - 50, width=200, height=300),
+        keypoints=(
+            point(x, y),
+            point(x - eye_gap / 2, y - 10),
+            point(x + eye_gap / 2, y - 10),
+            *[None] * 2,
+            point(x - 80, y + 100),
+            *[None] * 7,
+        ),
+        left_hand=None,
+        right_hand=None,
+    )
+
+
+def test_a_person_found_twice_keeps_the_more_confident_skeleton() -> None:
+    # The second skeleton's head is 5 pixels off the first's, with eyes 40 pixels apart.
+    first, double = _skeleton((300, 200), 40, 0.6), _skeleton((305, 200), 40, 0.9)
+    neighbour = _skeleton((360, 200), 40, 0.8)
+
+    assert one_per_person([first, double, neighbour]) == [double, neighbour]
+
+
+def test_steady_hands_shows_a_hand_from_its_second_frame_in_a_row() -> None:
+    hand = Hand(keypoints=(Keypoint(x=10, y=20, score=0.9, position=None),))
+    with_hand = _body((125, 130)).model_copy(update={"left_hand": hand})
+    without = _body((125, 130))
+    steady = SteadyHands()
+
+    assert steady.filter({1: with_hand}) == {1: without}
+    assert steady.filter({1: with_hand}) == {1: with_hand}
+    assert steady.filter({1: without}) == {1: without}
+    assert steady.filter({1: with_hand}) == {1: without}
+
+
 def test_gaze_from_bins_reads_the_expected_angle_in_image_directions() -> None:
     # Bin 47 is +8 degrees: for L2CS-Net, towards the left of the image, and upwards.
     probabilities = np.zeros(90, np.float32)
@@ -116,18 +183,44 @@ def _hand_at(x: float, score: float) -> Hand:
     )
 
 
+NO_ARMS: tuple[Keypoint | None, Keypoint | None] = (None, None)
+
+
 def test_one_hand_each_keeps_the_better_of_two_hands_on_the_same_hand() -> None:
     weak_left, strong_right = _hand_at(100, 0.4), _hand_at(105, 0.8)
 
-    assert one_hand_each(weak_left, strong_right) == (None, strong_right)
-    assert one_hand_each(_hand_at(100, 0.9), strong_right) == (_hand_at(100, 0.9), None)
+    assert one_hand_each(weak_left, strong_right, NO_ARMS) == (None, strong_right)
+    assert one_hand_each(_hand_at(100, 0.9), strong_right, NO_ARMS) == (_hand_at(100, 0.9), None)
 
 
 def test_one_hand_each_keeps_both_hands_when_they_are_apart() -> None:
     left, right = _hand_at(100, 0.4), _hand_at(400, 0.8)
 
-    assert one_hand_each(left, right) == (left, right)
-    assert one_hand_each(None, right) == (None, right)
+    assert one_hand_each(left, right, NO_ARMS) == (left, right)
+    assert one_hand_each(None, right, NO_ARMS) == (None, right)
+
+
+def test_a_shifted_double_of_a_hand_is_told_by_its_wrist() -> None:
+    # The same hand found twice, the fingers 100 pixels apart: they overlap by 40%, but their
+    # wrists, 20 pixels apart, are a ninth of a hand from each other.
+    left = _hand_at(100, 0.9)
+    right = Hand(
+        keypoints=(
+            Keypoint(x=120, y=0, score=0.8, position=None),
+            *(Keypoint(x=200 + 5 * i, y=5.0 * i, score=0.8, position=None) for i in range(1, 21)),
+        )
+    )
+
+    left_extent = BoundingBox(x=100, y=0, width=100, height=100)
+    right_extent = BoundingBox(x=120, y=0, width=180, height=100)
+    assert iou(left_extent, right_extent) == pytest.approx(0.4)
+    assert one_hand_each(left, right, NO_ARMS) == (left, None)
+    # The arms' wrists say whose it is: the right arm's ends on it, the left arm's far away.
+    arms = (
+        Keypoint(x=900, y=0, score=0.9, position=None),
+        Keypoint(x=118, y=2, score=0.9, position=None),
+    )
+    assert one_hand_each(left, right, arms) == (None, right)
 
 
 def test_linked_to_torso_drops_a_wrist_whose_elbow_was_not_found() -> None:

@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+import math
+from collections.abc import Mapping, Sequence
 from itertools import pairwise
 from typing import Final
 
@@ -34,6 +35,12 @@ _LEFT_HAND: Final = slice(91, 112)
 _RIGHT_HAND: Final = slice(112, 133)
 _SAME_HAND_IOU: Final = 0.5
 """Overlap of a skeleton's two hands above which they are one hand, found as both."""
+_SAME_WRIST: Final = 0.25
+"""Distance between a skeleton's two hands' wrists, as a fraction of the larger hand's size,
+below which they are one hand: in recordings, such doubles had their wrists within 0.2 of a hand
+of each other, and two real hands half a hand or more apart."""
+_ARM_WRISTS: Final = (9, 10)
+"""The left and right wrists among the body keypoints."""
 _TORSO: Final = (0, 1, 2, 3, 4, 5, 6, 11, 12)
 """Head, shoulders and hips: the body keypoints the others must be linked to."""
 _WRIST: Final = 0
@@ -41,6 +48,40 @@ _WRIST: Final = 0
 _HAND_BONES: Final = tuple(bone for finger in FINGERS for bone in pairwise(finger))
 _HEAD: Final = (0, 1, 2)
 """Nose and eyes: the keypoints that tie a skeleton to a face."""
+_EYES: Final = (1, 2)
+_SAME_HEAD: Final = 0.5
+"""Distance between two skeletons' head points, as a fraction of the distance between the eyes,
+below which they are one person found twice: two people's heads are never that close."""
+_HANDS: Final = ("left_hand", "right_hand")
+
+
+class SteadyHands:
+    """Shows a tracked person's hand once it has been found in two frames in a row.
+
+    In recordings, most hands found in a single frame were doubles of the other hand or put on
+    nothing, and a real hand lost one frame in the open comes back the next.
+    """
+
+    def __init__(self) -> None:
+        self._found: set[tuple[int, str]] = set()
+        """Each track id and hand found in the last frame."""
+
+    def filter(self, bodies: Mapping[int, Body]) -> dict[int, Body]:
+        """The skeletons by track id, without the hands not found in the last frame too."""
+        found = {
+            (track_id, hand)
+            for track_id, body in bodies.items()
+            for hand in _HANDS
+            if getattr(body, hand) is not None
+        }
+        steady = {
+            track_id: body.model_copy(
+                update={hand: None for hand in _HANDS if (track_id, hand) not in self._found}
+            )
+            for track_id, body in bodies.items()
+        }
+        self._found = found
+        return steady
 
 
 class BodyEstimator:
@@ -66,10 +107,12 @@ class BodyEstimator:
         blob = ((crops - _POSE_MEAN) / _POSE_STD).transpose(0, 3, 1, 2).astype(np.float32)
         simcc_x, simcc_y = self._pose.run(None, {self._pose.get_inputs()[0].name: blob})
         keypoints = decode_simcc(np.asarray(simcc_x, np.float32), np.asarray(simcc_y, np.float32))
-        return [
-            to_body(box, keypoints[index], transform, self._config.keypoint_threshold)
-            for index, (box, transform) in enumerate(zip(boxes, transforms, strict=True))
-        ]
+        return one_per_person(
+            [
+                to_body(box, keypoints[index], transform, self._config.keypoint_threshold)
+                for index, (box, transform) in enumerate(zip(boxes, transforms, strict=True))
+            ]
+        )
 
     def _detect(self, frame: Image) -> list[BoundingBox]:
         height, width = frame.shape[:2]
@@ -189,6 +232,70 @@ def attach(
     return attached, [body for index, body in enumerate(bodies) if index not in taken]
 
 
+def attach_seen_first(
+    bodies: Sequence[Body],
+    seen: Sequence[tuple[int, BoundingBox]],
+    hidden: Sequence[tuple[int, BoundingBox]],
+) -> tuple[dict[int, Body], list[Body]]:
+    """`attach` to the faces seen in the frame, then what is left to the tracks out of sight.
+
+    A track out of sight is matched at its face's last box, so a skeleton stays its person's
+    while their hands hide their face, or it blurs as they move.
+
+    Args:
+        bodies: Skeletons found in a frame.
+        seen: Track ids and boxes of the faces seen in the same frame.
+        hidden: Track ids and last boxes of the tracks whose face was not seen.
+    """
+    attached, left = attach(bodies, seen)
+    attached_hidden, left = attach(left, hidden)
+    return attached | attached_hidden, left
+
+
+def one_per_person(bodies: Sequence[Body]) -> list[Body]:
+    """Drop the skeletons of a person found twice, keeping the one with the most confidence.
+
+    Around someone raising an arm, the person detector can find a second, larger box that
+    overlaps the first too little for its non-maximum suppression; RTMW then puts a second
+    skeleton on them, with the same head.
+    """
+    kept: list[Body] = []
+    for body in sorted(bodies, key=_confidence, reverse=True):
+        if not any(_same_head(body, other) for other in kept):
+            kept.append(body)
+    return kept
+
+
+def _same_head(body: Body, other: Body) -> bool:
+    """Whether two skeletons' nose and eyes are in the same places, those found in both."""
+    pairs = [
+        (point, other_point)
+        for index in _HEAD
+        if (point := body.keypoints[index]) is not None
+        and (other_point := other.keypoints[index]) is not None
+    ]
+    eyes = next(
+        (
+            math.dist((left.x, left.y), (right.x, right.y))
+            for skeleton in (body, other)
+            if (left := skeleton.keypoints[_EYES[0]]) is not None
+            and (right := skeleton.keypoints[_EYES[1]]) is not None
+        ),
+        None,
+    )
+    if len(pairs) < 2 or eyes is None:
+        return False
+    return all(math.dist((a.x, a.y), (b.x, b.y)) < _SAME_HEAD * eyes for a, b in pairs)
+
+
+def _confidence(body: Body) -> float:
+    """The scores of all the skeleton's points, hands included, summed."""
+    hands = [hand for hand in (body.left_hand, body.right_hand) if hand is not None]
+    return sum(point.score for point in body.keypoints if point is not None) + sum(
+        point.score for hand in hands for point in _found(hand)
+    )
+
+
 def _head_points_in(body: Body, box: BoundingBox) -> int:
     return sum(
         1
@@ -228,10 +335,15 @@ def to_body(
         )
 
     # The double of a hand is told by how much it overlaps the other, before any of it is dropped.
-    left, right = one_hand_each(_hand(keypoints(_LEFT_HAND)), _hand(keypoints(_RIGHT_HAND)))
+    body = keypoints(_BODY)
+    left, right = one_hand_each(
+        _hand(keypoints(_LEFT_HAND)),
+        _hand(keypoints(_RIGHT_HAND)),
+        (body[_ARM_WRISTS[0]], body[_ARM_WRISTS[1]]),
+    )
     return Body(
         box=box,
-        keypoints=linked_to_torso(keypoints(_BODY)),
+        keypoints=linked_to_torso(body),
         left_hand=_linked_hand(left),
         right_hand=_linked_hand(right),
     )
@@ -274,15 +386,49 @@ def _linked(
     return tuple(point if index in linked else None for index, point in enumerate(keypoints))
 
 
-def one_hand_each(left: Hand | None, right: Hand | None) -> tuple[Hand | None, Hand | None]:
-    """Keep the better of a skeleton's two hands when they cover the same hand.
+def one_hand_each(
+    left: Hand | None, right: Hand | None, arm_wrists: tuple[Keypoint | None, Keypoint | None]
+) -> tuple[Hand | None, Hand | None]:
+    """Keep one of a skeleton's two hands when they cover the same hand.
 
-    Without the arms in view, as when a hand is held up close, RTMW can put both of a person's
-    hands on the one it sees. The weaker of the two, often mirrored, is dropped.
+    With one hand up and the other out of view, RTMW can put both of a person's hands on the one
+    it sees, the double often shifted or mirrored. Two hands are one when they overlap by half,
+    or their wrists nearly meet. The hand kept is the one whose wrist is nearer its own arm's,
+    when both arms' wrists were found; otherwise the more confident.
+
+    Args:
+        left: The person's left hand, as found.
+        right: Their right hand.
+        arm_wrists: The left and right wrists of the body's skeleton, as found.
     """
-    if left is None or right is None or iou(_extent(left), _extent(right)) < _SAME_HAND_IOU:
+    if left is None or right is None or not _same_hand(left, right):
         return left, right
+    left_off, right_off = (
+        _off_arm(hand, wrist) for hand, wrist in ((left, arm_wrists[0]), (right, arm_wrists[1]))
+    )
+    if left_off is not None and right_off is not None:
+        return (left, None) if left_off <= right_off else (None, right)
     return (left, None) if _mean_score(left) >= _mean_score(right) else (None, right)
+
+
+def _same_hand(left: Hand, right: Hand) -> bool:
+    left_extent, right_extent = _extent(left), _extent(right)
+    if iou(left_extent, right_extent) >= _SAME_HAND_IOU:
+        return True
+    left_wrist, right_wrist = left.keypoints[_WRIST], right.keypoints[_WRIST]
+    if left_wrist is None or right_wrist is None:
+        return False
+    size = max(left_extent.width, left_extent.height, right_extent.width, right_extent.height)
+    gap = math.dist((left_wrist.x, left_wrist.y), (right_wrist.x, right_wrist.y))
+    return gap < _SAME_WRIST * size
+
+
+def _off_arm(hand: Hand, arm_wrist: Keypoint | None) -> float | None:
+    """How far the hand's wrist is from its arm's, in pixels; `None` without either."""
+    wrist = hand.keypoints[_WRIST]
+    if wrist is None or arm_wrist is None:
+        return None
+    return math.dist((wrist.x, wrist.y), (arm_wrist.x, arm_wrist.y))
 
 
 def _hand(keypoints: tuple[Keypoint | None, ...]) -> Hand | None:

@@ -30,7 +30,7 @@ from rva_schemas.vision import (
     VisionTimings,
 )
 from rva_vision_faces.attention import Attention
-from rva_vision_faces.body import POSE_ITEM, BodyEstimator, attach
+from rva_vision_faces.body import POSE_ITEM, BodyEstimator, SteadyHands, attach_seen_first
 from rva_vision_faces.camera import Camera
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
@@ -103,6 +103,8 @@ class _Models:
                 body,
             )
         )
+        self.steady_hands: Final = SteadyHands()
+        """Used in the frame thread only."""
         self.depth: Final = (
             None
             if config.depth is None
@@ -360,6 +362,12 @@ class FaceVision:
         with self._lock:
             events = self._tracker.update(time.monotonic(), detections, embed, self._gallery)
             visible = [(track.track_id, track.detection) for track in self._tracker.visible()]
+            seen_ids = {track_id for track_id, _ in visible}
+            hidden = [
+                (track.track_id, track.box)
+                for track in self._tracker.tracks
+                if track.track_id not in seen_ids
+            ]
         for event in events:
             logger.info("Face event: {}", event)
         if events:
@@ -381,7 +389,10 @@ class FaceVision:
         analyzed = time.perf_counter()
         bodies, unmatched = {}, []
         if found is not None:
-            bodies, unmatched = attach(found.result(), [(id_, d.box) for id_, d in visible])
+            bodies, unmatched = attach_seen_first(
+                found.result(), [(id_, d.box) for id_, d in visible], hidden
+            )
+            bodies = models.steady_hands.filter(bodies)
         posed = time.perf_counter()
         depth = None if measured is None else measured.result()
         sounded = time.perf_counter()
