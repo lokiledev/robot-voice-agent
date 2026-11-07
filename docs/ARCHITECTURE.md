@@ -274,12 +274,14 @@ flowchart LR
   eyes to the camera, so the ray turns that line by the yaw towards the image's right and the
   pitch upwards. An occluded keypoint, a wrist behind the body, takes the occluder's depth.
   Fingers are too thin for the depth model, which sees the room through them, so hands are solved
-  with the bone lengths of an average adult hand instead: the wrist is placed at its depth, and
-  each other point on its pixel's ray, one bone's length from its parent. Of the two points
-  there, a finger's base takes the one nearer its depth, which holds on the palm, and its other
-  joints the one that bends the finger least. The hand is scaled with the person's shoulders, the
-  median of their width over the last 3 s, within 20% either way. Joint limits are not enforced,
-  and a finger bent towards the camera may come out bent away.
+  with the bone lengths of an average adult hand instead: the wrist is placed at its depth, no
+  farther than the palm's size in the image allows (a bone seen turned away looks shorter, never
+  longer), and each other point on its pixel's ray, one bone's length from its parent. Of the two
+  points there, a finger's base takes the one nearer its depth, which holds on the palm, and its
+  other joints the one that bends the finger least. A point whose joints up the hand were not found
+  is reached from the nearest one that was, with the bones' summed length. The hand is scaled with
+  the person's shoulders, the median of their width over the last 3 s, within 20% either way. Joint
+  limits are not enforced, and a finger bent towards the camera may come out bent away.
 - **TensorRT.** With `device: {kind: tensorrt}`, every vision model but YuNet runs as an fp16
   TensorRT engine, built on first use (about 7 minutes in all, depth the longest) and cached.
   Together they take 2.8 GB where ONNX Runtime's CUDA provider took 3.5 GB, and run two to three

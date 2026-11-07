@@ -45,6 +45,8 @@ _HAND_BONES: Final = (
 )  # fmt: skip
 """(parent, child, metres) of each bone of an average adult hand, 18.5 cm from the wrist to the
 tip of the middle finger, parents first. Thumb, then index to little finger, from the wrist."""
+_HAND_PARENTS: Final = {child: (parent, length) for parent, child, length in _HAND_BONES}
+"""Each point of a hand but the wrist, to its parent and the bone's length."""
 _STANDARD_SHOULDERS_M: Final = 0.38
 """Distance between the shoulder keypoints of the person `_HAND_BONES` are for."""
 _SCALE_BOUNDS: Final = (0.8, 1.2)
@@ -198,11 +200,13 @@ def _position(keypoints: tuple[Keypoint | None, ...], index: int) -> Point3D | N
 def _lift_hand(hand: Hand, depth: DepthMap, intrinsics: CameraIntrinsics, scale: float) -> Hand:
     """The hand placed with bones of `_HAND_BONES`' lengths times `scale`.
 
-    The depth places the wrist; each other point is on its pixel's ray, a bone's length from its
-    parent. Of the two such points, the base of a finger takes the one nearer its depth, which
-    holds on the palm; a finger's other joints take the one that bends it the least, as their
-    depth is the room's as often as the finger's. A point whose parent was not found is placed
-    at its depth, kept near the palm's.
+    The depth places the wrist, no farther than the palm's size in the image allows; each other
+    point is on its pixel's ray, a bone's length from its
+    parent. Where joints between were not found, it is the bones' summed length from the nearest
+    point found up the hand: the finger is taken as straight there. Of the two such points on the
+    ray, one after the wrist takes the one nearer its depth, which holds on the palm; the others
+    take the one that bends the finger the least, as their depth is the room's as often as the
+    finger's. A point with nothing found up the hand is placed at its depth, kept near the palm's.
     """
     found = {index: k for index, k in enumerate(hand.keypoints) if k is not None}
     if not found:
@@ -223,24 +227,50 @@ def _lift_hand(hand: Hand, depth: DepthMap, intrinsics: CameraIntrinsics, scale:
         return _unproject(pixels[index][None], np.array([near_palm[index]]), intrinsics)[0]
 
     positions: dict[int, _Vector] = {}
+
+    def placed_above(index: int) -> tuple[int, float] | None:
+        """The nearest point placed up the hand from `index`, and the bones' length to it."""
+        reach = 0.0
+        while index in _HAND_PARENTS:
+            index, length = _HAND_PARENTS[index]
+            reach += length
+            if index in positions:
+                return index, reach
+        return None
+
     if 0 in found:
-        positions[0] = at_depth(0)
-    for parent, child, length in _HAND_BONES:
+        # A bone looks shorter in the image when it is turned away, never longer: the palm's
+        # bones as seen bound how far the hand can be, which the wrist's depth, read from the
+        # room past it as often as not, may be beyond.
+        focal = (intrinsics.fx + intrinsics.fy) / 2
+        farthest = min(
+            (
+                focal * length * scale / pixel_length
+                for parent, child, length in _HAND_BONES
+                if parent == 0
+                and child in found
+                and (pixel_length := float(np.linalg.norm(pixels[child] - pixels[0]))) > 0
+            ),
+            default=math.inf,
+        )
+        positions[0] = _unproject(
+            pixels[0][None], np.array([min(near_palm[0], farthest)]), intrinsics
+        )[0]
+    for _, child, _ in _HAND_BONES:
         if child not in found:
             continue
-        if parent not in positions:
+        above = placed_above(child)
+        if above is None:
             positions[child] = at_depth(child)
             continue
-        ray = _ray(pixels[child], intrinsics)
-        candidates = _on_ray_at(ray, positions[parent], length * scale)
-        if parent == 0:
+        anchor, reach = above
+        candidates = _on_ray_at(_ray(pixels[child], intrinsics), positions[anchor], reach * scale)
+        before = placed_above(anchor)
+        if before is None:
             positions[child] = min(candidates, key=lambda p: abs(p[2] - near_palm[child]))
             continue
-        grandparent = next(bone[0] for bone in _HAND_BONES if bone[1] == parent)
-        before = positions[parent] - positions.get(grandparent, positions[parent])
-        positions[child] = max(
-            candidates, key=lambda p: float(np.dot(p - positions[parent], before))
-        )
+        bone = positions[anchor] - positions[before[0]]
+        positions[child] = max(candidates, key=lambda p: float(np.dot(p - positions[anchor], bone)))
     return Hand(
         keypoints=tuple(
             None
