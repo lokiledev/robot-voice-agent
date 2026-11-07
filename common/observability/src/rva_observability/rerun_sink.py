@@ -15,6 +15,7 @@ from rva_schemas.record import (
     DepthFrame,
     FaceUpdate,
     GazeUpdate,
+    LiveFrame,
     Measurement,
     MotionUpdate,
     MuteUpdate,
@@ -51,6 +52,8 @@ _SPACE: Final = "space"
 _PEOPLE_3D: Final = f"{_SPACE}/people"
 _ATTENTION: Final = f"{_SPACE}/attention"
 """The point attended to, in the 3D view, with the score of each candidate as a series."""
+_ATTENTION_2D: Final = f"{_CAMERA}/attention"
+"""The same point over the camera image, through the last intrinsics recorded."""
 _ATTENTION_COLOR: Final = (255, 0, 255)
 _DEPTH: Final = "depth"
 """The depth's pinhole, at its own resolution, with the depth under it as a point cloud."""
@@ -111,6 +114,8 @@ class RerunRecorder:
         # Entities of the last frame's people, cleared once they are not seen.
         self._people_entities: set[str] = set()
         self._attending = False
+        self._intrinsics: CameraIntrinsics | None = None
+        self._intrinsics: CameraIntrinsics | None = None
 
     def record(self, entry: Record) -> None:
         self._recording.set_time(_TIMELINE, timestamp=datetime.now(UTC))
@@ -160,6 +165,9 @@ class RerunRecorder:
                 )
             case AttentionState():
                 self._attention(entry)
+            case LiveFrame():
+                # Shown in the process; the recording keeps the JPEG camera frames.
+                return
             case DepthFrame():
                 # Every other pixel, in millimetres on 16 bits: an eighth of the size, about
                 # 2 MB/s, and still enough points to see the people against the room.
@@ -185,6 +193,7 @@ class RerunRecorder:
                 assert_never(entry)
 
     def _people(self, entry: PeopleInView) -> None:
+        self._intrinsics = entry.intrinsics
         if entry.intrinsics is not None:
             self._recording.log(_CAMERA, _pinhole(entry.intrinsics))
         entities: dict[str, rr.AsComponents] = {}
@@ -233,18 +242,26 @@ class RerunRecorder:
         if entry.target is None:
             if self._attending:
                 self._recording.log(_ATTENTION, rr.Clear(recursive=False))
+                self._recording.log(_ATTENTION_2D, rr.Clear(recursive=False))
             self._attending = False
             return
+        name = _entity_name(entry.target.entity)
         self._recording.log(
             _ATTENTION,
             rr.Points3D(
                 [_xyz(entry.target.point)],
                 colors=_ATTENTION_COLOR,
                 radii=0.03,
-                labels=[_entity_name(entry.target.entity)],
+                labels=[name],
                 show_labels=True,
             ),
         )
+        pixel = None if self._intrinsics is None else self._intrinsics.project(entry.target.point)
+        if pixel is not None:
+            self._recording.log(
+                _ATTENTION_2D,
+                rr.Points2D([pixel], colors=_ATTENTION_COLOR, radii=6.0, labels=[name]),
+            )
         self._attending = True
 
     def _face_series(self, track_id: int, face: FaceFeatures) -> None:

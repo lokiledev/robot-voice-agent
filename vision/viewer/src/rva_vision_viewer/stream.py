@@ -3,13 +3,24 @@ import subprocess
 from typing import Final
 
 import cv2
+import numpy as np
+import numpy.typing as npt
+from pydantic import Field
 
-from rva_vision_faces.config import VideoStreamConfig
-from rva_vision_faces.detector import Image
+from rva_pydantic import RVABaseModel
 
 _KEYFRAME_EVERY: Final = 30
 """Frames between keyframes: a page that starts playing waits for the next one."""
 _STOP_TIMEOUT_S: Final = 5.0
+
+
+class VideoStreamConfig(RVABaseModel):
+    """Where the camera image with the overlay is published, when streaming is asked for."""
+
+    url: str
+    """RTSP URL to publish to, e.g. MediaMTX's `rtsp://127.0.0.1:8554/lune`."""
+    width: int = Field(gt=0)
+    """Frames are scaled down to this width, keeping their aspect ratio."""
 
 
 class RtspPublisher:
@@ -30,7 +41,7 @@ class RtspPublisher:
             publish_command(config.url, *self._size), stdin=subprocess.PIPE
         )
 
-    def send(self, frame: Image) -> None:
+    def send(self, frame: npt.NDArray[np.uint8]) -> None:
         """Send a frame, scaled down; blocks while ffmpeg catches up.
 
         Raises:

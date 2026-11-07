@@ -164,15 +164,6 @@ class VideoRecordingConfig(RVABaseModel):
     jpeg_quality: int = Field(ge=1, le=100)
 
 
-class VideoStreamConfig(RVABaseModel):
-    """Where the camera image with the tracked faces is published, when streaming is asked for."""
-
-    url: str
-    """RTSP URL to publish to, e.g. MediaMTX's `rtsp://127.0.0.1:8554/lune`."""
-    width: int = Field(gt=0)
-    """Frames are scaled down to this width, keeping their aspect ratio."""
-
-
 class FaceVisionConfig(RVABaseModel):
     device: Device
     """Where the ONNX models run."""
@@ -192,4 +183,3 @@ class FaceVisionConfig(RVABaseModel):
     max_embeddings_per_person: int = Field(gt=0)
     """The oldest samples are dropped beyond this."""
     video: VideoRecordingConfig
-    stream: VideoStreamConfig

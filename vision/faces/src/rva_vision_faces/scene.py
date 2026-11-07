@@ -49,6 +49,7 @@ def people_in_view(
                 track_id=track.track_id,
                 box=_scale_box(track.box, scale),
                 person=None if track.match is None else track.match.person,
+                match_score=None if track.match is None else track.match.score,
                 confirmed=track.confirmed,
                 said=caption[1] if caption is not None and caption[0] == track.track_id else None,
                 face=_scale_face(face, scale)

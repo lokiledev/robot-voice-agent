@@ -3,19 +3,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 from uuid import UUID
 
-import numpy as np
-import numpy.typing as npt
-
-from rva_schemas.record import PeopleInView
-from rva_schemas.vision import (
-    DepthMap,
-    FaceEvent,
-    KnownPerson,
-    MainUser,
-    Remembered,
-    TrackedFace,
-    VisionTimings,
-)
+from rva_schemas.vision import FaceEvent, KnownPerson, Remembered, TrackedFace
 
 
 class Vision(Protocol):
@@ -71,32 +59,3 @@ class Vision(Protocol):
     async def revoke_operator(self, user_id: UUID) -> bool:
         """Remove an operator granted by another one. Returns whether they were one."""
         ...
-
-
-class FrameViewer(Protocol):
-    """Shows the camera pipeline's frames, for debugging. Lives in the thread that creates it."""
-
-    def show(
-        self,
-        frame: npt.NDArray[np.uint8],
-        people: PeopleInView,
-        depth: DepthMap | None,
-        main_user: MainUser | None,
-        timings: VisionTimings,
-    ) -> str | None:
-        """Display a frame, already drawn on, with what was seen in it.
-
-        Args:
-            frame: BGR image, height x width x 3.
-            people: The people in view, in the frame's pixels.
-            depth: The frame's depth; `None` when depth is not estimated.
-            main_user: Who the robot attends to, and whether they make eye contact; `None` when
-                nobody is in view, or without face features.
-            timings: How long the last frames took.
-
-        Returns:
-            A key pressed since the last frame, or `"q"` once the viewer is closed.
-        """
-        ...
-
-    def close(self) -> None: ...

@@ -37,6 +37,7 @@ def test_title_names_the_person_and_what_they_said() -> None:
         track_id=3,
         box=BoundingBox(x=0, y=0, width=10, height=10),
         person=alice,
+        match_score=0.8,
         confirmed=True,
         said="hello",
         face=None,

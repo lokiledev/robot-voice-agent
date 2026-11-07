@@ -106,13 +106,14 @@ vision:
   video:
     width: 960
     jpeg_quality: 80
-  # Used with --ui: the camera with the tracked faces, published to MediaMTX for the page.
-  stream:
-    url: rtsp://127.0.0.1:8554/lune
-    width: 960
 
 # User ids of the admins, kept on this machine like the face database they refer to.
 # Start from config/admins.example.yaml.
+# Used with --ui: the camera with the overlay, published to MediaMTX for the session page.
+stream:
+  url: rtsp://127.0.0.1:8554/lune
+  width: 960
+
 # Visual attention: which face or hand in view Lune attends to, as a point in the camera's frame.
 # A candidate's score is its weighted features, times its habituation, plus its novelty.
 attention:
@@ -159,7 +160,7 @@ active_speaker:
 ui:
   host: 127.0.0.1
   port: 8700
-  # MediaMTX's WebRTC page for vision.stream.url.
+  # MediaMTX's WebRTC page for stream.url.
   video_page: http://127.0.0.1:8889/lune/
 
 # Run by `uv run lune` or `uv run lune serve-video`; downloaded on first use.

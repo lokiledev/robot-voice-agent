@@ -29,7 +29,6 @@ from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.detector import Detection, decode_yunet
 from rva_vision_faces.embedder import Embedding, align
 from rva_vision_faces.gallery import Gallery
-from rva_vision_faces.overlay import label
 from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.tracker import Track, Tracker
 
@@ -313,17 +312,6 @@ def test_tracker_recognizes_every_track_again_when_people_change() -> None:
     assert [track.match for track in tracker.tracks] == [None]
 
 
-def test_window_label_shows_track_name_and_user_id() -> None:
-    tracker = Tracker(TRACKING)
-    gallery = Gallery([(_person("Alice"), np.stack([_unit(1, 0, 0)]))], MATCHING)
-    tracker.update(0.0, [_detection(100, 0.0), _detection(400, 0.05)], _embed_by_score, gallery)
-
-    assert [label(track) for track in tracker.tracks] == [
-        f"#1 Alice ({str(_person('Alice').user_id)[:8]}) 1.00",
-        "#2 unknown",
-    ]
-
-
 def test_database_renames_and_grants_without_changing_the_user(tmp_path: Path) -> None:
     database = FaceDatabase(tmp_path / "faces.sqlite3", max_embeddings_per_person=2)
     alice = database.add("Alice", [_unit(1, 0, 0)])
@@ -397,6 +385,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
                 track_id=3,
                 box=BoundingBox(x=50, y=50, width=50, height=60),
                 person=None,
+                match_score=None,
                 confirmed=False,
                 said="hello",
                 face=face.model_copy(update={"landmarks": ((60.0, 70.0), (90.0, 70.0))}),
@@ -407,6 +396,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
                 track_id=4,
                 box=BoundingBox(x=200, y=50, width=50, height=60),
                 person=None,
+                match_score=None,
                 confirmed=False,
                 said=None,
                 face=None,

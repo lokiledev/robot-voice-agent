@@ -1,13 +1,15 @@
 [project]
 name = "rva-vision-viewer"
 version = "0.1.0"
-description = "Debug window for the camera pipeline, with Dear PyGui; implements FrameViewer"
+description = "Shows the camera as it is processed: the overlay, a Dear PyGui debug window and the RTSP stream; implements Recorder"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
   "dearpygui>=2.3",
   "numpy>=2.0",
   "opencv-python>=4.10",
+  "pydantic>=2.11",
+  "rva-pydantic",
   "rva-schemas",
 ]
 
@@ -18,4 +20,5 @@ requires = [
 build-backend = "uv_build"
 
 [tool.uv.sources]
+rva-pydantic = {workspace = true}
 rva-schemas = {workspace = true}

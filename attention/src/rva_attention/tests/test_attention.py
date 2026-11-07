@@ -91,6 +91,7 @@ def person(
         track_id=track_id,
         box=BOX,
         person=known,
+        match_score=None if known is None else 0.9,
         confirmed=confirmed,
         said=None,
         face=face(point, gaze),

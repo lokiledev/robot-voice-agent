@@ -38,7 +38,7 @@ _KEYS: Final = {
 
 
 class DebugWindow:
-    """`FrameViewer` in a Dear PyGui window.
+    """A Dear PyGui window showing the camera pipeline, for debugging.
 
     The camera image, and beside it each person in view with their eyes, mouth, gaze, expression
     and skeleton, and a plot of how open their mouths have been. Right of the camera image, its depth

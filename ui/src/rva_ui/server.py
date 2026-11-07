@@ -20,6 +20,7 @@ from rva_schemas.record import (
     DepthFrame,
     FaceUpdate,
     GazeUpdate,
+    LiveFrame,
     Measurement,
     MotionUpdate,
     MuteUpdate,
@@ -43,7 +44,7 @@ class UiConfig(RVABaseModel):
     """`127.0.0.1` to open the page on this machine only."""
     port: int
     video_page: str
-    """MediaMTX's WebRTC page for `vision.stream.url`, e.g. `http://127.0.0.1:8889/lune/`."""
+    """MediaMTX's WebRTC page for `stream.url`, e.g. `http://127.0.0.1:8889/lune/`."""
 
 
 class Hello(RVABaseModel):
@@ -88,7 +89,7 @@ class UiServer:
 
     def record(self, entry: Record) -> None:
         match entry:
-            case PeopleInView() | CameraFrame() | DepthFrame() | AttentionState():
+            case PeopleInView() | CameraFrame() | DepthFrame() | LiveFrame() | AttentionState():
                 # The boxes are drawn into the video stream instead.
                 return
             case Measurement():

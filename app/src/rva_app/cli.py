@@ -6,7 +6,6 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AbstractAsyncContextManager, aclosing
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import Annotated, Final, assert_never
 from urllib.parse import urlsplit
@@ -60,7 +59,7 @@ from rva_ui.server import UiServer
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.vision import FaceVision
-from rva_vision_viewer.window import DebugWindow
+from rva_vision_viewer.monitor import CameraMonitor
 from rva_vla_client.client import HttpVlaClient
 from rva_voice_audio.devices import Microphone
 
@@ -340,8 +339,9 @@ def _page(
     return serve_page(config.ui, config.ui.video_page if camera else None)
 
 
-def _recorder(session: Recorder, page: UiServer | None) -> Recorder:
-    return session if page is None else Recorders(session, page)
+def _recorder(session: Recorder, page: UiServer | None, monitor: CameraMonitor | None) -> Recorder:
+    others = [recorder for recorder in (page, monitor) if recorder is not None]
+    return session if not others else Recorders(session, *others)
 
 
 def _typed_too(user_input: UserInput, page: UiServer | None) -> UserInput:
@@ -394,19 +394,12 @@ async def _run_voice_agent(
         HttpVlaClient(config.vla) as vla,
         HttpBodyClient(config.body) as body,
     ):
-        recorder = _recorder(session, page)
+        monitor = _monitor(config, camera, show, stream=page is not None, on_key=None)
+        recorder = _recorder(session, page, monitor)
         speaker = await _speaker(config.active_speaker) if camera else None
         vision = (
             await asyncio.to_thread(
-                _face_vision,
-                config.vision,
-                recorder,
-                video,
-                stream_video=page is not None,
-                show_window=show,
-                depth=depth,
-                on_key=None,
-                speaker=speaker,
+                _face_vision, config.vision, recorder, video, depth=depth, speaker=speaker
             )
             if camera
             else None
@@ -426,6 +419,7 @@ async def _run_voice_agent(
                 recorder,
                 _typed_too(voice, page),
                 vision,
+                monitor,
             )
 
 
@@ -438,6 +432,7 @@ async def _run_agent(
     recorder: Recorder,
     user_input: UserInput,
     vision: FaceVision | None,
+    monitor: CameraMonitor | None,
 ) -> None:
     agent = Agent(
         llm=OpenAiLanguageModel(config.llm),
@@ -452,7 +447,7 @@ async def _run_agent(
         config=config.agent,
     )
     logger.info("{} is up", profile.character.name)
-    await _with_vision(agent.run(), vision, config.attention, recorder)
+    await _with_vision(agent.run(), vision, monitor, config.attention, recorder)
 
 
 async def _one(text: str) -> AsyncGenerator[str]:
@@ -526,18 +521,11 @@ async def _run_text_agent(
         HttpVlaClient(config.vla) as vla,
         HttpBodyClient(config.body) as body,
     ):
-        recorder = _recorder(session, page)
+        monitor = _monitor(config, camera, show, stream=page is not None, on_key=None)
+        recorder = _recorder(session, page, monitor)
         vision = (
             await asyncio.to_thread(
-                _face_vision,
-                config.vision,
-                recorder,
-                video,
-                stream_video=page is not None,
-                show_window=show,
-                depth=depth,
-                on_key=None,
-                speaker=None,
+                _face_vision, config.vision, recorder, video, depth=depth, speaker=None
             )
             if camera
             else None
@@ -551,6 +539,7 @@ async def _run_text_agent(
             recorder,
             _typed_too(TerminalUserInput(), page),
             vision,
+            monitor,
         )
 
 
@@ -588,45 +577,84 @@ async def _see(
     config = RuntimeConfig.load(profile_dir)
     if stream:
         await require_servers(_media_server(config))
-    recorder = start_session(
+    session = start_session(
         config.observability, "sense" if listen else "see", viewer=viewer, console_level="INFO"
     )
     keys = asyncio.Queue[str]()
     if listen and config.active_speaker is None:
         raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no active_speaker to listen with")
     speaker = await _speaker(config.active_speaker) if listen else None
+    closed = asyncio.Event()
+
+    def on_key(key: str) -> None:
+        if key == "q":
+            closed.set()
+        else:
+            keys.put_nowait(key)
+
+    monitor = _monitor(config, True, window, stream=stream, on_key=on_key)
+    recorder = _recorder(session, None, monitor)
     vision = await asyncio.to_thread(
-        _face_vision,
-        config.vision,
-        recorder,
-        video,
-        stream_video=stream,
-        show_window=window,
-        depth=depth,
-        on_key=keys.put_nowait,
-        speaker=speaker,
+        _face_vision, config.vision, recorder, video, depth=depth, speaker=speaker
     )
     if stream:
         logger.info("Streaming the window to {}", config.ui.video_page)
-    async with contextlib.AsyncExitStack() as stack:
-        group = await stack.enter_async_context(asyncio.TaskGroup())
-        tasks = [
-            group.create_task(_name_nearest_face(vision, keys)),
-            group.create_task(_attend(vision, config.attention, recorder)),
-        ]
-        if speaker is not None:
-            microphone = await stack.enter_async_context(
-                Microphone(config.audio.input_device, speaker.hear)
-            )
-            # The speaker detector takes the sound in the audio thread; nothing else needs it.
-            tasks.append(group.create_task(_drain(microphone.frames())))
-        await vision.run()
-        for task in tasks:
-            task.cancel()
+    try:
+        async with contextlib.AsyncExitStack() as stack:
+            group = await stack.enter_async_context(asyncio.TaskGroup())
+            tasks = [
+                group.create_task(_name_nearest_face(vision, keys)),
+                group.create_task(_attend(vision, config.attention, recorder)),
+                group.create_task(closed.wait()),
+            ]
+            if speaker is not None:
+                microphone = await stack.enter_async_context(
+                    Microphone(config.audio.input_device, speaker.hear)
+                )
+                # The speaker detector takes the sound in the audio thread; nothing else needs it.
+                tasks.append(group.create_task(_drain(microphone.frames())))
+            seeing = group.create_task(vision.run())
+            # Until the camera fails or the window is closed.
+            await asyncio.wait([seeing, tasks[2]], return_when=asyncio.FIRST_COMPLETED)
+            for task in [*tasks, seeing]:
+                task.cancel()
+    finally:
+        if monitor is not None:
+            monitor.close()
+
+
+def _monitor(
+    config: RuntimeConfig,
+    camera: bool,
+    window: bool,
+    *,
+    stream: bool,
+    on_key: Callable[[str], None] | None,
+) -> CameraMonitor | None:
+    """What shows the camera live, if anything does: the window, the stream, or both.
+
+    `on_key` is called in the event loop with each key pressed in the window.
+    """
+    if not camera or not (window or stream):
+        return None
+    loop = asyncio.get_running_loop()
+
+    def in_loop(key: str) -> None:
+        assert on_key is not None
+        loop.call_soon_threadsafe(on_key, key)
+
+    return CameraMonitor(
+        window=_WINDOW_SIZE if window else None,
+        stream=config.stream if stream else None,
+        on_key=None if on_key is None else in_loop,
+    )
 
 
 async def _attend(vision: FaceVision, config: VisualAttentionConfig, recorder: Recorder) -> None:
-    """Attend to what the camera sees, until cancelled: nothing takes the target yet."""
+    """Attend to what the camera sees, until cancelled: nothing takes the target yet.
+
+    Each state is recorded, so whatever shows the camera marks the target.
+    """
     async with vision.observations() as observations:
         await _drain(follow(observations, VisualAttention(config), recorder))
 
@@ -672,10 +700,7 @@ def _face_vision(
     recorder: Recorder,
     record_video: bool,
     *,
-    stream_video: bool,
-    show_window: bool,
     depth: bool,
-    on_key: Callable[[str], None] | None,
     speaker: SpeakerDetector | None,
 ) -> FaceVision:
     return FaceVision(
@@ -683,9 +708,6 @@ def _face_vision(
         _face_database(config),
         recorder=recorder,
         record_video=record_video,
-        stream_video=stream_video,
-        viewer=partial(DebugWindow, *_WINDOW_SIZE) if show_window else None,
-        on_key=on_key,
         speaker=speaker,
     )
 
@@ -715,22 +737,27 @@ def _face_database(config: FaceVisionConfig) -> FaceDatabase:
 async def _with_vision(
     main: Coroutine[None, None, None],
     vision: FaceVision | None,
+    monitor: CameraMonitor | None,
     attention: VisualAttentionConfig,
     recorder: Recorder,
 ) -> None:
-    """Run `main` while the camera is watched and what it sees attended to.
+    """Run `main` while the camera is watched, shown and attended to.
 
-    A camera failure stops `main`; closing the window stops only the camera.
+    A camera failure stops `main`; closing the window only closes it.
     """
     if vision is None:
         await main
         return
-    async with asyncio.TaskGroup() as group:
-        seeing = group.create_task(vision.run())
-        attending = group.create_task(_attend(vision, attention, recorder))
-        await main
-        seeing.cancel()
-        attending.cancel()
+    try:
+        async with asyncio.TaskGroup() as group:
+            seeing = group.create_task(vision.run())
+            attending = group.create_task(_attend(vision, attention, recorder))
+            await main
+            seeing.cancel()
+            attending.cancel()
+    finally:
+        if monitor is not None:
+            monitor.close()
 
 
 async def _chat_with_llm(profile_dir: Path, system_prompt: bool) -> None:

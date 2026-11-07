@@ -1,11 +1,14 @@
+import math
 import textwrap
-from collections.abc import Sequence
 from itertools import pairwise
 from typing import Final
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 
+from rva_schemas.attention import AttentionTarget
+from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import (
     BODY_CONNECTIONS,
     FINGERS,
@@ -14,14 +17,17 @@ from rva_schemas.vision import (
     Keypoint,
     VisionTimings,
 )
-from rva_vision_faces.detector import Image
-from rva_vision_faces.scene import Scene
-from rva_vision_faces.tracker import Track
+
+type Image = npt.NDArray[np.uint8]
+"""BGR, height x width x 3."""
 
 # BGR
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (0, 165, 255)
 _UNCONFIRMED: Final = (160, 160, 160)
+_ATTENTION: Final = (255, 0, 255)
+"""The point attended to, as in rerun."""
+_WHITE: Final = (255, 255, 255)
 _SPEECH_LINE_CHARS: Final = 40
 # Face mesh outlines, from MediaPipe's face_mesh_connections: both eyes, then the lips.
 _FACE_CONTOURS: Final = (
@@ -53,32 +59,33 @@ _IRISES: Final = (468, 473)
 
 def draw(
     frame: Image,
-    tracks: Sequence[Track],
-    scene: Scene,
+    people: PeopleInView,
     timings: VisionTimings,
-    caption: tuple[int, str] | None,
+    attention: AttentionTarget | None,
 ) -> None:
-    """Draw the tracks and what was seen of them, the timings, and the user's last sentence.
+    """Draw the people and what was seen of them, the timings, and the user's last sentence.
 
-    Each track gets its box, label, face features and skeleton. `caption` is the track id of the
-    face that said the sentence, and the sentence; it hangs under that face's box. Skeletons
-    without a face are drawn in gray.
+    `people` is in the frame's pixels. Each person gets their box, label, face features and
+    skeleton, and what they said hangs under their box. Skeletons without a face are drawn in
+    gray. `attention` is the point attended to, marked where the camera's intrinsics put it in
+    the frame, if they are known.
     """
     scale = frame.shape[0] / 540
     thickness = max(1, round(2 * scale))
-    for body in scene.unmatched_bodies:
+    for body in people.unmatched_bodies:
         _draw_body(frame, body, _UNCONFIRMED, thickness)
-    for track in tracks:
-        x, y = round(track.box.x), round(track.box.y)
-        right, bottom = round(track.box.x + track.box.width), round(track.box.y + track.box.height)
-        color = color_of(track)
-        if (body := scene.bodies.get(track.track_id)) is not None:
-            _draw_body(frame, body, color, thickness)
+    for person in people.people:
+        box = person.box
+        x, y = round(box.x), round(box.y)
+        right, bottom = round(box.x + box.width), round(box.y + box.height)
+        color = color_of(person)
+        if person.body is not None:
+            _draw_body(frame, person.body, color, thickness)
         cv2.rectangle(frame, (x, y), (right, bottom), color, thickness)
-        lines = [label(track)]
-        if (face := scene.faces.get(track.track_id)) is not None:
-            _draw_face(frame, face, track.box.width, color, thickness)
-            lines.append(describe(face))
+        lines = [label(person)]
+        if person.face is not None:
+            _draw_face(frame, person.face, box.width, color, thickness)
+            lines.append(describe(person.face))
         for index, line in enumerate(reversed(lines)):
             cv2.putText(
                 frame,
@@ -89,8 +96,8 @@ def draw(
                 color,
                 thickness,
             )
-        if caption is not None and caption[0] == track.track_id:
-            _draw_speech(frame, caption[1], (x, bottom), color, scale, thickness)
+        if person.said is not None:
+            _draw_speech(frame, person.said, (x, bottom), color, scale, thickness)
     overlay = (
         f"{timings.fps:.0f} fps  capture {timings.capture_ms:.1f} ms  "
         f"detect {timings.detect_ms:.1f} ms  embed {timings.embed_ms:.1f} ms  "
@@ -106,6 +113,55 @@ def draw(
         (255, 255, 255),
         thickness,
     )
+    if attention is not None and people.intrinsics is not None:
+        _draw_attention(frame, attention, people, scale, thickness)
+
+
+def _draw_attention(
+    frame: Image,
+    attention: AttentionTarget,
+    people: PeopleInView,
+    scale: float,
+    thickness: int,
+) -> None:
+    """A pair of eyes looking down at the point attended to.
+
+    Above a face's labels, or a little above a hand.
+    """
+    assert people.intrinsics is not None
+    pixel = people.intrinsics.project(attention.point)
+    if pixel is None:
+        return
+    x, y = pixel
+    above = y - 70 * scale
+    if attention.entity.kind == "face":
+        track_id = attention.entity.track_id
+        box = next((p.box for p in people.people if p.track_id == track_id), None)
+        if box is not None:
+            above = box.y - 60 * scale
+    radius_x, radius_y = 16 * scale, 11 * scale
+    pupil = max(1, round(4 * scale))
+    for side in (-1, 1):
+        centre = (x + side * 20 * scale, above)
+        cv2.ellipse(
+            frame, _point(*centre), (round(radius_x), round(radius_y)), 0, 0, 360, _WHITE, -1
+        )
+        cv2.ellipse(
+            frame,
+            _point(*centre),
+            (round(radius_x), round(radius_y)),
+            0,
+            0,
+            360,
+            _ATTENTION,
+            thickness,
+        )
+        # The pupils look at the point from where the eyes are.
+        dx, dy = x - centre[0], y - centre[1]
+        norm = max(math.hypot(dx, dy), 1.0)
+        reach_x, reach_y = radius_x - pupil - thickness, radius_y - pupil - thickness
+        gaze = (centre[0] + dx / norm * reach_x, centre[1] + dy / norm * reach_y)
+        cv2.circle(frame, _point(*gaze), pupil, _ATTENTION, -1)
 
 
 def describe(face: FaceFeatures) -> str:
@@ -117,18 +173,18 @@ def describe(face: FaceFeatures) -> str:
     )
 
 
-def label(track: Track) -> str:
-    if track.match is None:
-        return f"#{track.track_id} unknown"
-    person = track.match.person
-    return f"#{track.track_id} {person.name} ({str(person.user_id)[:8]}) {track.match.score:.2f}"
+def label(person: TrackedPerson) -> str:
+    if person.person is None:
+        return f"#{person.track_id} unknown"
+    who = person.person
+    return f"#{person.track_id} {who.name} ({str(who.user_id)[:8]}) {person.match_score:.2f}"
 
 
-def color_of(track: Track) -> tuple[int, int, int]:
+def color_of(person: TrackedPerson) -> tuple[int, int, int]:
     """BGR color of a track: gray until announced, then green if recognized, else orange."""
-    if not track.confirmed:
+    if not person.confirmed:
         return _UNCONFIRMED
-    return _UNKNOWN if track.match is None else _KNOWN
+    return _UNKNOWN if person.person is None else _KNOWN
 
 
 def _draw_speech(

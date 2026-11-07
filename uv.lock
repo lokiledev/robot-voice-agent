@@ -2281,6 +2281,8 @@ dependencies = [
     { name = "dearpygui" },
     { name = "numpy" },
     { name = "opencv-python" },
+    { name = "pydantic" },
+    { name = "rva-pydantic" },
     { name = "rva-schemas" },
 ]
 
@@ -2289,6 +2291,8 @@ requires-dist = [
     { name = "dearpygui", specifier = ">=2.3" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "opencv-python", specifier = ">=4.10" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-schemas", editable = "schemas" },
 ]
 

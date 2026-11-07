@@ -1,7 +1,7 @@
 import asyncio
 import threading
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Final
@@ -14,9 +14,8 @@ from opentelemetry import trace
 from rva_pydantic import load_yaml
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
-from rva_schemas.abc.vision import FrameViewer
 from rva_schemas.observation import VisualObservation
-from rva_schemas.record import CameraFrame, DepthFrame, PeopleInView
+from rva_schemas.record import CameraFrame, DepthFrame, LiveFrame, PeopleInView
 from rva_schemas.vision import (
     Body,
     CameraIntrinsics,
@@ -41,10 +40,8 @@ from rva_vision_faces.embedder import Embedding, SfaceEmbedder
 from rva_vision_faces.face_features import EXPRESSION_ITEM, MESH_ITEM, FaceAnalyzer
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
-from rva_vision_faces.overlay import draw
 from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.space import Lifter
-from rva_vision_faces.stream import RtspPublisher
 from rva_vision_faces.tracker import Tracker
 
 _tracer: Final = trace.get_tracer("rva_vision_faces")
@@ -130,9 +127,6 @@ class FaceVision:
         *,
         recorder: Recorder,
         record_video: bool,
-        stream_video: bool,
-        viewer: Callable[[], FrameViewer] | None,
-        on_key: Callable[[str], None] | None,
         speaker: SpeakerDetector | None,
     ) -> None:
         """Set up the pipeline; the camera and models open when `run` starts.
@@ -140,16 +134,11 @@ class FaceVision:
         Args:
             config: Camera, models and thresholds.
             database: Known people.
-            recorder: Receives the faces tracked in each frame, and the frames themselves with
-                `record_video`.
+            recorder: Receives, from the camera's thread, the people tracked in each frame, the
+                frame itself as a `LiveFrame` for whatever shows the camera, and with
+                `record_video` the frame compressed and its depth.
             record_video: Record the camera frames, scaled down and compressed, and their depth, to
                 replay them.
-            stream_video: Publish the camera with the tracked faces to the RTSP server of the
-                config, e.g. for a web page to show it.
-            viewer: Opens a viewer to show the camera with the tracked people, for debugging;
-                called in the camera's thread, which the viewer then lives in. `None` to run
-                without one.
-            on_key: Called in the event loop with each key pressed in the viewer, except `q`.
             speaker: Tells which face speaks, with the microphone that feeds it; `None` without
                 one.
         """
@@ -157,11 +146,8 @@ class FaceVision:
         self._database: Final = database
         self._recorder: Final = recorder
         self._record_video: Final = record_video
-        self._stream_video: Final = stream_video
-        self._viewer: Final = viewer
         # The user's last sentence, the track of the face in front when it was said, and when.
         self._caption: tuple[int, str, float] | None = None
-        self._on_key: Final = on_key
         self._speaker: Final = speaker
         self._tracker: Final = Tracker(config.tracker)
         self._gallery = Gallery((), config.matching)
@@ -172,7 +158,7 @@ class FaceVision:
         self._observers: Final[set[asyncio.Queue[VisualObservation]]] = set()
 
     async def run(self) -> None:
-        """Process frames until cancelled, or until the viewer is closed or `q` is pressed."""
+        """Process frames until cancelled."""
         loop = asyncio.get_running_loop()
         await self._reload()
         stop = threading.Event()
@@ -279,16 +265,10 @@ class FaceVision:
         config = self._config
         models = _Models(config)
         camera = Camera(config.camera)
-        window = None if self._viewer is None else self._viewer()
         attention = (
             None
             if config.face_features is None
             else Attention(config.face_features.eye_contact, config.face_features.lip_motion)
-        )
-        publisher = (
-            RtspPublisher(config.stream, config.camera.width, config.camera.height)
-            if self._stream_video
-            else None
         )
         logger.info("Watching {} on {}", config.camera.device, config.device.kind)
         timings = VisionTimings(
@@ -315,7 +295,7 @@ class FaceVision:
                 if now - last_logged >= _LOG_EVERY_S:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
-                people = self._record(frame, scene, depth, models.intrinsics)
+                people = self._record(frame, scene, depth, main_user, timings, models.intrinsics)
                 if self._observers:
                     observation = VisualObservation(
                         time=captured_at,
@@ -323,35 +303,9 @@ class FaceVision:
                         main_user=None if main_user is None else main_user.track_id,
                     )
                     loop.call_soon_threadsafe(self._observe, observation)
-                if window is None and publisher is None:
-                    continue
-                draw(frame, self._tracker.tracks, scene, timings, self._current_caption())
-                if publisher is not None:
-                    publisher.send(frame)
-                if window is None:
-                    continue
-                height, width = frame.shape[:2]
-                people = people_in_view(
-                    self._tracker.tracks,
-                    scene,
-                    1.0,
-                    width,
-                    height,
-                    models.intrinsics,
-                    self._current_caption(),
-                )
-                key = window.show(frame, people, depth, main_user, timings)
-                if key == "q":
-                    return
-                if key is not None and self._on_key is not None:
-                    loop.call_soon_threadsafe(self._on_key, key)
         finally:
             models.pool.shutdown()
             camera.close()
-            if publisher is not None:
-                publisher.close()
-            if window is not None:
-                window.close()
 
     def _step(
         self,
@@ -473,16 +427,23 @@ class FaceVision:
         frame: Image,
         scene: Scene,
         depth: DepthMap | None,
+        main_user: MainUser | None,
+        timings: VisionTimings,
         intrinsics: CameraIntrinsics | None,
     ) -> PeopleInView:
-        """Record what was seen, and with `record_video` the frame and its depth.
+        """Record what was seen, the frame live, and with `record_video` the frame compressed.
 
-        Returns the people recorded, in the recorded video's pixels when there is one; their
-        points in 3D are in metres either way.
+        Returns the people in the frame's pixels; in a recording with video, they are kept in the
+        recorded video's pixels instead, their points in 3D in metres either way.
         """
         height, width = frame.shape[:2]
-        scale = 1.0
-        if self._record_video:
+        caption = self._current_caption()
+        people = people_in_view(
+            self._tracker.tracks, scene, 1.0, width, height, intrinsics, caption
+        )
+        if not self._record_video:
+            self._recorder.record(people)
+        else:
             video = self._config.video
             scale = video.width / width
             small = cv2.resize(
@@ -499,16 +460,21 @@ class FaceVision:
                 self._recorder.record(
                     DepthFrame(depth=depth, intrinsics=intrinsics.scaled_to(columns, rows))
                 )
-        people = people_in_view(
-            self._tracker.tracks,
-            scene,
-            scale,
-            round(width * scale),
-            round(height * scale),
-            intrinsics,
-            self._current_caption(),
+            self._recorder.record(
+                people_in_view(
+                    self._tracker.tracks,
+                    scene,
+                    scale,
+                    round(width * scale),
+                    round(height * scale),
+                    intrinsics,
+                    caption,
+                )
+            )
+        # Last, once the frame is encoded: whatever shows it draws over it.
+        self._recorder.record(
+            LiveFrame(frame=frame, depth=depth, people=people, main_user=main_user, timings=timings)
         )
-        self._recorder.record(people)
         return people
 
     def _current_caption(self) -> tuple[int, str] | None:

@@ -96,6 +96,7 @@ flowchart LR
         vision["Vision<br/>detect, track, recognize faces"]
         asd["Active speaker<br/>lips and sound together"]
         att["Visual attention<br/>which face or hand, as a 3D point"]
+        mon["Camera monitor<br/>overlay, debug window, stream"]
         ui["Session page server"]
         loop["Agent loop<br/>inbox, history, LLM turns"]
         tools["Tools<br/>body, tasks, people, permissions"]
@@ -115,12 +116,13 @@ flowchart LR
     loop <--> llm([LLM server])
     tools <--> robot([Robot API])
     vout --> spk([Speaker])
-    vision -- "annotated frames" --> mtx([MediaMTX])
+    rec -. "live frames, attention" .-> mon
+    mon -- "annotated frames" --> mtx([MediaMTX])
     rec -. "live entries" .-> ui
     rec -. "rerun file" .-> disk([Recordings])
 
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
-    class vin,vision,asd,att,loop,tools,vout,ui,rec component
+    class vin,vision,asd,att,mon,loop,tools,vout,ui,rec component
 ```
 
 The agent loop depends only on interfaces (`typing.Protocol`s): where utterances come from, where
@@ -181,8 +183,8 @@ flowchart LR
     body -- "nose and eyes<br/>in a face box" --> scene["People in view<br/>track, person, face, body, hands"]
     feat --> scene
     trk -- "appeared, left" --> loop([Agent loop])
-    scene -- "drawn" --> ff["ffmpeg<br/>H.264 over RTSP"]
-    scene -- "recorded" --> rec([Recorder])
+    scene -- "recorded, with the frame" --> rec([Recorder])
+    rec -- "drawn" --> ff["ffmpeg<br/>H.264 over RTSP"]
     ff --> mtx([MediaMTX])
 ```
 
@@ -310,12 +312,21 @@ flowchart LR
   gaze 0.6 instead of 2.2. YuNet stays on CUDA: on the whole frame TensorRT takes it twice as long.
   The mesh, expression and pose engines take up to 8 faces or people at once; more rebuilds the
   engine, once, in about half a second. Thor's profile keeps CUDA, as TensorRT is not tried there.
+- **The camera is shown by a consumer of the records**, not by the pipeline. Each frame, once
+  what was seen in it is recorded, the pipeline records the frame itself as a `LiveFrame`, with
+  the people in its pixels, its depth, the main user and the timings. The camera monitor
+  (`rva-vision-viewer`) is a `Recorder` like rerun and the session page: it draws over the live
+  frame the boxes, faces, skeletons, what was said, and the point of the last `AttentionState`
+  it received, then shows the frame in the debug window, sends it to ffmpeg for the session page,
+  or both. Nothing to show is routed back into the pipeline: a new signal is one more record for
+  the monitor to draw. Live frames come in the camera's thread, which the window lives in; the
+  window opens with the first frame and, closed, stays closed while the camera goes on.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
   mouse and whether the camera is calibrated. Underneath, a timeline of the main user's signals,
-  one lane each, the last 30 s: eye contact, lips moving and speaking. It lives in its own package behind the `FrameViewer`
-  protocol, so the camera pipeline runs without it, as on the robot.
+  one lane each, the last 30 s: eye contact, lips moving and speaking. It lives in the viewer package, which the camera pipeline
+  never imports, so the pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
   with eyes, mouth, gaze and the active speaker's score plotted under `people/<track>`. In 3D,
@@ -354,8 +365,11 @@ core does no I/O.
   habituation, so a face lost for a few frames comes back as the same entity, without the bonus
   again; a known person back on a new track gets their old entity. Scenarios can later swap the
   scoring function; the dialogue and, with a microphone array, the sound will join the features.
-- **Recorded** every frame: the target as a point under `space/attention`, and each candidate's
-  score under `attention/<entity>/score`, e.g. `face_3` or `right_hand_3`. Nothing takes the target yet: the body API is to be
+- **Recorded** every frame: the target as a point under `space/attention` and over the camera
+  image, and each candidate's score under `attention/<entity>/score`, e.g. `face_3` or
+  `right_hand_3`. The camera monitor marks the target in the window and the stream, from the
+  same record: a pair of eyes above the face's labels, or a little above a hand, looking down
+  at the point. Nothing takes the target yet: the body API is to be
   redone around it.
 
 ### Agent loop and tools
@@ -521,7 +535,7 @@ flowchart BT
 | `rva-llm` | The LLM client over the OpenAI API, and llama-server's launch settings |
 | `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
 | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face database, camera stream |
-| `rva-vision-viewer` | Debug window for the camera pipeline, with Dear PyGui; vision runs without it |
+| `rva-vision-viewer` | Shows the camera as it is processed: overlay, Dear PyGui debug window, RTSP stream; a recorder, so vision runs without it |
 | `rva-attention` | Visual attention: which face or hand in view to attend to, as a 3D point |
 | `rva-multimodal` | Where camera and microphone meet: which face speaks, with Light-ASD |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |

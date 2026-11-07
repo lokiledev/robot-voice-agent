@@ -14,6 +14,7 @@ from rva_schemas.profile import Admins
 from rva_ui.media import MediaServerConfig
 from rva_ui.server import UiConfig
 from rva_vision_faces.config import FaceVisionConfig
+from rva_vision_viewer.stream import VideoStreamConfig
 from rva_vla_client.client import HttpVlaClientConfig
 from rva_voice_asr.parakeet import ParakeetConfig
 from rva_voice_audio.config import AudioConfig
@@ -34,6 +35,8 @@ class RuntimeConfig(RVABaseModel):
     vision: FaceVisionConfig
     attention: VisualAttentionConfig
     """Which face or hand in view to attend to, from what the camera sees."""
+    stream: VideoStreamConfig
+    """Where the camera with the overlay is published for the session page, with `--ui`."""
     active_speaker: ActiveSpeakerConfig | None
     """Which face speaks, from the camera and the microphone; `None` to leave it out."""
     admins: Path

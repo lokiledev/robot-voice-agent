@@ -1,5 +1,7 @@
 from typing import Annotated, Literal
 
+import numpy as np
+import numpy.typing as npt
 from pydantic import Field
 
 from rva_body_schemas.motion import Motion
@@ -15,6 +17,8 @@ from rva_schemas.vision import (
     FaceEvent,
     FaceFeatures,
     KnownPerson,
+    MainUser,
+    VisionTimings,
 )
 from rva_vla_schemas.task import Task
 
@@ -107,6 +111,8 @@ class TrackedPerson(RVABaseModel):
     box: BoundingBox
     """The face's last box."""
     person: KnownPerson | None
+    match_score: float | None
+    """How closely the face matches the person's samples; `None` while it matches nobody."""
     confirmed: bool
     """Whether the face was seen long enough to be announced."""
     said: str | None
@@ -148,6 +154,23 @@ class DepthFrame(RVABaseModel):
     """The camera's at the depth's resolution."""
 
 
+class LiveFrame(RVABaseModel, arbitrary_types_allowed=True):
+    """A camera frame as it is processed, for what shows the camera live in the process.
+
+    Recorded from the camera's thread, once what was seen in the frame is recorded; a recording
+    keeps the JPEG `CameraFrame` instead. The consumer that shows it draws over the frame itself.
+    """
+
+    kind: Literal["live_frame"] = "live_frame"
+    frame: npt.NDArray[np.uint8]
+    """BGR, height x width x 3, at the camera's resolution."""
+    depth: DepthMap | None
+    people: PeopleInView
+    """In the frame's pixels."""
+    main_user: MainUser | None
+    timings: VisionTimings
+
+
 type Record = Annotated[
     AgentStarted
     | UserLine
@@ -163,6 +186,7 @@ type Record = Annotated[
     | PeopleInView
     | CameraFrame
     | DepthFrame
+    | LiveFrame
     | AttentionState,
     Field(discriminator="kind"),
 ]

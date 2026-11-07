@@ -96,6 +96,7 @@ def test_people_are_drawn_on_the_image_and_in_3d(tmp_path: Path) -> None:
                     track_id=1,
                     box=BoundingBox(x=1, y=2, width=3, height=4),
                     person=alice,
+                    match_score=0.8,
                     confirmed=True,
                     said="authorize Bob",
                     face=face,

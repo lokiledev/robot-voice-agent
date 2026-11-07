@@ -179,6 +179,12 @@ class CameraIntrinsics(RVABaseModel):
     cx: float
     cy: float
 
+    def project(self, point: Point3D) -> tuple[float, float] | None:
+        """The pixel a point of the camera's frame is seen at; `None` behind the camera."""
+        if point.z <= 0:
+            return None
+        return self.fx * point.x / point.z + self.cx, self.fy * point.y / point.z + self.cy
+
     def scaled_to(self, width: int, height: int) -> "CameraIntrinsics":
         """The same camera at another resolution of the same aspect ratio."""
         scale = width / self.width
