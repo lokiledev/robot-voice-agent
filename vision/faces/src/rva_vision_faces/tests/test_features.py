@@ -5,7 +5,14 @@ import numpy as np
 import pytest
 
 from rva_schemas.vision import Body, BoundingBox, Gaze, Hand, Keypoint
-from rva_vision_faces.body import attach, decode_simcc, decode_yolox, one_hand_each, pose_transform
+from rva_vision_faces.body import (
+    attach,
+    decode_simcc,
+    decode_yolox,
+    linked_to_torso,
+    one_hand_each,
+    pose_transform,
+)
 from rva_vision_faces.detector import Detection
 from rva_vision_faces.face_features import box_transform, gaze_from_bins, mesh_transform
 
@@ -14,7 +21,7 @@ def _body(nose: tuple[float, float] | None) -> Body:
     head = None if nose is None else Keypoint(x=nose[0], y=nose[1], score=0.9)
     return Body(
         box=BoundingBox(x=0, y=0, width=100, height=300),
-        keypoints=(head, head, head, *[None] * 20),
+        keypoints=(head, head, head, *[None] * 10),
         left_hand=None,
         right_hand=None,
     )
@@ -116,3 +123,15 @@ def test_one_hand_each_keeps_both_hands_when_they_are_apart() -> None:
 
     assert one_hand_each(left, right) == (left, right)
     assert one_hand_each(None, right) == (None, right)
+
+
+def test_linked_to_torso_drops_a_wrist_whose_elbow_was_not_found() -> None:
+    def found(*indices: int) -> tuple[Keypoint | None, ...]:
+        return tuple(
+            Keypoint(x=float(i), y=0.0, score=0.5) if i in indices else None for i in range(13)
+        )
+
+    # The right arm is whole; the left wrist floats, its elbow out of frame.
+    assert linked_to_torso(found(0, 1, 2, 5, 6, 8, 10, 9)) == found(0, 1, 2, 5, 6, 8, 10)
+    # Without the head and shoulders, the hips anchor the torso; the arms hang off nothing.
+    assert linked_to_torso(found(11, 12, 7, 9)) == found(11, 12)

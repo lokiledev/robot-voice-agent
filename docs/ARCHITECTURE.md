@@ -195,12 +195,15 @@ flowchart LR
   being the camera; a ViT fine-tuned on FER2013 for one of seven expressions. They are meant for
   turn-taking (is the user looking at the robot, is their mouth moving) and are not yet given to
   the agent.
-- **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the
-  body (17 points and the feet) and both hands (21 points each) are kept, the face being the
-  mesh's job. With a hand held up close and no arm in view, RTMW can find both hands on it;
-  the weaker, often mirrored, is dropped. A skeleton belongs to the face track whose box holds its nose and eyes; the others,
-  people turned away or too far to track, are kept apart. They run on a second thread while the
-  faces are processed. They are meant for gestures: waving, a handshake, a fist bump.
+- **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the upper
+  body (head, shoulders, elbows, wrists and hips) and both hands (21 points each) are kept. Legs and
+  feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
+  is the mesh's job. With a hand held up close and no arm in view, RTMW can find both hands on it;
+  the weaker, often mirrored, is dropped. Body points that no chain of found bones links to the
+  head, shoulders or hips, such as a wrist whose elbow is out of frame, are dropped too. A skeleton
+  belongs to the face track whose box holds its nose and eyes; the others, people turned away or too
+  far to track, are kept apart. They run on a second thread while the faces are processed. They are
+  meant for gestures: waving, a handshake, a fist bump.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. It lives in its own package behind the `FrameViewer`

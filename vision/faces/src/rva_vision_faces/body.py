@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime
 
-from rva_schemas.vision import Body, BoundingBox, Hand, Keypoint
+from rva_schemas.vision import BODY_CONNECTIONS, Body, BoundingBox, Hand, Keypoint
 from rva_vision_faces.config import BodyConfig
 from rva_vision_faces.detector import Image
 from rva_vision_faces.tracker import iou
@@ -24,12 +24,15 @@ _SIMCC_SPLIT: Final = 2.0
 """RTMW locates keypoints on a grid twice as fine as its input."""
 _POSE_MEAN: Final = np.array([123.675, 116.28, 103.53], np.float32)
 _POSE_STD: Final = np.array([58.395, 57.12, 57.375], np.float32)
-# Ranges of COCO-WholeBody's 133 keypoints; the 68 of the face are left to the face mesh.
-_BODY: Final = slice(0, 23)
+# Ranges of COCO-WholeBody's 133 keypoints: the upper body and the hands. The legs and feet are
+# left out, and the 68 points of the face are left to the face mesh.
+_BODY: Final = slice(0, 13)
 _LEFT_HAND: Final = slice(91, 112)
 _RIGHT_HAND: Final = slice(112, 133)
 _SAME_HAND_IOU: Final = 0.5
 """Overlap of a skeleton's two hands above which they are one hand, found as both."""
+_TORSO: Final = (0, 1, 2, 3, 4, 5, 6, 11, 12)
+"""Head, shoulders and hips: the body keypoints the others must be linked to."""
 _HEAD: Final = (0, 1, 2)
 """Nose and eyes: the keypoints that tie a skeleton to a face."""
 
@@ -205,7 +208,28 @@ def _body(
         )
 
     left, right = one_hand_each(_hand(keypoints(_LEFT_HAND)), _hand(keypoints(_RIGHT_HAND)))
-    return Body(box=box, keypoints=keypoints(_BODY), left_hand=left, right_hand=right)
+    return Body(
+        box=box, keypoints=linked_to_torso(keypoints(_BODY)), left_hand=left, right_hand=right
+    )
+
+
+def linked_to_torso(keypoints: tuple[Keypoint | None, ...]) -> tuple[Keypoint | None, ...]:
+    """Drop the body keypoints that no chain of found bones links to the head, shoulders or hips.
+
+    RTMW can place a joint that is out of frame or hidden, such as a wrist whose elbow it did not
+    find; with the joints between it and the body missing, it floats free.
+    """
+    linked = {index for index in _TORSO if keypoints[index] is not None}
+    frontier = list(linked)
+    while frontier:
+        joint = frontier.pop()
+        for bone in BODY_CONNECTIONS:
+            if joint in bone:
+                other = bone[1] if bone[0] == joint else bone[0]
+                if other not in linked and keypoints[other] is not None:
+                    linked.add(other)
+                    frontier.append(other)
+    return tuple(point if index in linked else None for index, point in enumerate(keypoints))
 
 
 def one_hand_each(left: Hand | None, right: Hand | None) -> tuple[Hand | None, Hand | None]:

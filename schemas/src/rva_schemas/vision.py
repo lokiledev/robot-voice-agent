@@ -36,9 +36,8 @@ class Body(RVABaseModel):
     box: BoundingBox
     """Where the person was detected."""
     keypoints: tuple[Keypoint | None, ...]
-    """23 points in COCO-WholeBody order: the 17 of COCO (nose, eyes, ears, shoulders, elbows,
-    wrists, hips, knees, ankles, each pair left first), then the big toe, small toe and heel of the
-    left foot and of the right; `None` where the model is not confident."""
+    """The 13 upper-body points of COCO: nose, eyes, ears, shoulders, elbows, wrists and hips, each
+    pair left first; `None` where the model is not confident. Legs and feet are left out."""
     left_hand: Hand | None
     """The person's own left; `None` when not found, or when it is the hand the right one is on."""
     right_hand: Hand | None
@@ -48,8 +47,7 @@ class Body(RVABaseModel):
 BODY_CONNECTIONS: Final = (
     (0, 1), (0, 2), (1, 3), (2, 4), (3, 5), (4, 6),
     (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
-    (5, 11), (6, 12), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
-    (15, 17), (15, 18), (15, 19), (16, 20), (16, 21), (16, 22),
+    (5, 11), (6, 12), (11, 12),
 )  # fmt: skip
 """Bones between `Body.keypoints`, as index pairs."""
 FINGERS: Final = tuple((0, base, base + 1, base + 2, base + 3) for base in (1, 5, 9, 13, 17))
