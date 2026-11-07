@@ -2,7 +2,7 @@ import math
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from rva_pydantic import RVABaseModel
 
@@ -17,6 +17,8 @@ class ModelFile(RVABaseModel):
 class CameraIntrinsics(RVABaseModel):
     """Pinhole model of a camera at one resolution, in pixels."""
 
+    calibrated: bool
+    """Whether the values were measured; otherwise they are assumed, e.g. from a datasheet."""
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     fx: float = Field(gt=0)
@@ -31,6 +33,7 @@ class CameraIntrinsics(RVABaseModel):
             f"{width}x{height} is not {self.width}x{self.height} scaled"
         )
         return CameraIntrinsics(
+            calibrated=self.calibrated,
             width=width,
             height=height,
             fx=self.fx * scale,
@@ -46,9 +49,9 @@ class CameraConfig(RVABaseModel):
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     fps: int = Field(gt=0)
-    intrinsics: CameraIntrinsics | None
-    """From a calibration, at any resolution of the frame's aspect ratio; `None` until the camera
-    is calibrated."""
+    intrinsics: Path | None
+    """YAML file of the camera's `CameraIntrinsics`, at any resolution of the frame's aspect ratio;
+    relative to the profile. `None` when not even assumed ones are known."""
 
 
 class DetectorConfig(RVABaseModel):
@@ -82,6 +85,27 @@ class MatchConfig(RVABaseModel):
     """When the two best people score within this of each other, the face counts as unknown."""
 
 
+class EyeContactConfig(RVABaseModel):
+    """When the main user's gaze counts as meeting the camera's.
+
+    The gaze's angle off the camera is the median over a short window, so a blink or a bad frame
+    does not break eye contact; two thresholds keep it from flickering at the edge.
+    """
+
+    window_s: float = Field(gt=0)
+    """How much of the gaze's history the median is taken over."""
+    enter_deg: float = Field(gt=0)
+    """Eye contact starts once the gaze is closer than this to the camera."""
+    leave_deg: float = Field(gt=0)
+    """Eye contact ends once the gaze is farther than this from the camera."""
+
+    @model_validator(mode="after")
+    def _leave_beyond_enter(self) -> "EyeContactConfig":
+        if self.leave_deg < self.enter_deg:
+            raise ValueError(f"leave_deg {self.leave_deg} is below enter_deg {self.enter_deg}")
+        return self
+
+
 class FaceFeaturesConfig(RVABaseModel):
     """Models reading eyes, gaze, mouth and expression on each tracked face."""
 
@@ -93,6 +117,7 @@ class FaceFeaturesConfig(RVABaseModel):
     """L2CS-Net trained on Gaze360: gaze yaw and pitch from a 448x448 face crop."""
     expression: ModelFile
     """A ViT fine-tuned on FER2013: seven expressions from a 224x224 face crop."""
+    eye_contact: EyeContactConfig
 
 
 class BodyConfig(RVABaseModel):

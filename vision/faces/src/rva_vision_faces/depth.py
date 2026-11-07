@@ -20,7 +20,7 @@ class DepthEstimator:
     """Metric depth from a single image, with Depth Anything 3 Metric.
 
     The network predicts the depth a camera of a fixed focal length would see; the camera's own
-    focal length, from its calibration, scales it to metres. Without one, the depth is left as
+    focal length, from its intrinsics, scales it to metres. Without them, the depth is left as
     predicted. The export takes a fixed square, so the frame is letterboxed into it: its pixels
     stay square, with one focal length for both axes.
     """
@@ -45,7 +45,7 @@ class DepthEstimator:
         if self._intrinsics is None:
             return DepthMap(metres=metres, calibrated=False)
         scale = metres_per_unit(self._intrinsics.scaled_to(width, height), self._size)
-        return DepthMap(metres=metres * np.float32(scale), calibrated=True)
+        return DepthMap(metres=metres * np.float32(scale), calibrated=self._intrinsics.calibrated)
 
 
 def letterbox(frame: Image, size: int) -> tuple[Image, slice]:

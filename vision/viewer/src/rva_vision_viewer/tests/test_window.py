@@ -3,8 +3,16 @@ from uuid import UUID
 import numpy as np
 
 from rva_schemas.record import TrackedPerson
-from rva_schemas.vision import Body, BoundingBox, DepthMap, Hand, Keypoint, KnownPerson
-from rva_vision_viewer.window import depth_at, describe_body, describe_depth, fit, title
+from rva_schemas.vision import Body, BoundingBox, DepthMap, Hand, Keypoint, KnownPerson, MainUser
+from rva_vision_viewer.window import (
+    depth_at,
+    describe_body,
+    describe_depth,
+    describe_main_user,
+    fit,
+    signals,
+    title,
+)
 
 
 def test_fit_keeps_the_aspect_ratio_within_the_space() -> None:
@@ -63,3 +71,12 @@ def test_describe_depth_says_whether_it_is_calibrated() -> None:
         describe_depth(DepthMap(metres=depth, calibrated=False), (0.5, 0.5))
         == "depth 1.23 m (UNCALIBRATED)"
     )
+
+
+def test_the_main_user_is_described_and_their_signals_are_off_while_nobody_is_in_view() -> None:
+    user = MainUser(track_id=4, gaze_off_camera=6.4, eye_contact=True)
+
+    assert describe_main_user(user) == "main user #4: eye contact, gaze 6 deg off"
+    assert describe_main_user(None) == "nobody in view"
+    assert signals(user) == {"eye contact": True}
+    assert signals(None) == {"eye contact": False}

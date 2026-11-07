@@ -7,6 +7,7 @@ from rva_vision_faces.config import (
     BodyConfig,
     CameraIntrinsics,
     DetectorConfig,
+    EyeContactConfig,
     FaceFeaturesConfig,
     ModelFile,
 )
@@ -60,6 +61,7 @@ FACE_FEATURES = FaceFeaturesConfig(
     expression=ModelFile(
         repo="onnx-community/face-emotion-detection-ONNX", file="onnx/model_fp16.onnx"
     ),
+    eye_contact=EyeContactConfig(window_s=0.4, enter_deg=12.0, leave_deg=18.0),
 )
 BODY = BodyConfig(
     detector=ModelFile(repo="yzd-v/DWPose", file="yolox_l.onnx"),
@@ -114,7 +116,9 @@ def test_body_estimator_finds_nobody_in_a_blank_frame() -> None:
 def test_depth_keeps_the_frame_aspect_ratio_and_says_whether_it_is_calibrated() -> None:
     session = load_session(DEPTH, "cpu", dynamic_image_size=False)
     frame = np.random.default_rng(0).integers(0, 255, (720, 1280, 3), dtype=np.uint8)
-    intrinsics = CameraIntrinsics(width=1920, height=1080, fx=1360, fy=1360, cx=960, cy=540)
+    intrinsics = CameraIntrinsics(
+        calibrated=True, width=1920, height=1080, fx=1360, fy=1360, cx=960, cy=540
+    )
 
     raw = DepthEstimator(session, None).estimate(frame)
     calibrated = DepthEstimator(session, intrinsics).estimate(frame)

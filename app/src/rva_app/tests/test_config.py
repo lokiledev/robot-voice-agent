@@ -2,7 +2,9 @@ from pathlib import Path
 from uuid import UUID
 
 from rva_app.config import RuntimeConfig, load_admins
+from rva_pydantic import load_yaml
 from rva_schemas.profile import Admins
+from rva_vision_faces.config import CameraIntrinsics
 
 _REPOSITORY = Path(__file__).parents[4]
 
@@ -42,3 +44,13 @@ def test_the_default_profile_keeps_its_data_outside_the_source_tree() -> None:
         Path("~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx"),
         Path("~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin"),
     ]
+
+
+def test_the_camera_intrinsics_are_found_next_to_the_profile_and_marked_assumed() -> None:
+    profile = _REPOSITORY / "config" / "default"
+    config = RuntimeConfig.load(profile)
+
+    assert config.vision.camera.intrinsics == profile / "cameras" / "c920.yaml"
+    intrinsics = load_yaml(CameraIntrinsics, config.vision.camera.intrinsics)
+    assert not intrinsics.calibrated
+    assert (intrinsics.width, intrinsics.height, intrinsics.fx) == (1920, 1080, 1360.0)

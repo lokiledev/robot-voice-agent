@@ -11,6 +11,7 @@ import cv2
 from loguru import logger
 from opentelemetry import trace
 
+from rva_pydantic import load_yaml
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.vision import FrameViewer
 from rva_schemas.record import CameraFrame
@@ -19,15 +20,17 @@ from rva_schemas.vision import (
     DepthMap,
     FaceEvent,
     KnownPerson,
+    MainUser,
     NotRecognizedError,
     Remembered,
     TrackedFace,
     UnknownTrackError,
     VisionTimings,
 )
+from rva_vision_faces.attention import Attention
 from rva_vision_faces.body import BodyEstimator, attach
 from rva_vision_faces.camera import Camera
-from rva_vision_faces.config import FaceVisionConfig
+from rva_vision_faces.config import CameraIntrinsics, FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.depth import DepthEstimator
 from rva_vision_faces.detector import Detection, Image, YunetDetector
@@ -91,7 +94,9 @@ class _Models:
             if config.depth is None
             else DepthEstimator(
                 load_session(config.depth.model, device, dynamic_image_size=False),
-                config.camera.intrinsics,
+                None
+                if config.camera.intrinsics is None
+                else load_yaml(CameraIntrinsics, config.camera.intrinsics),
             )
         )
 
@@ -236,6 +241,9 @@ class FaceVision:
         models = _Models(config)
         camera = Camera(config.camera)
         window = None if self._viewer is None else self._viewer()
+        attention = (
+            None if config.face_features is None else Attention(config.face_features.eye_contact)
+        )
         publisher = (
             RtspPublisher(config.stream, config.camera.width, config.camera.height)
             if self._stream_video
@@ -260,6 +268,7 @@ class FaceVision:
                     timings, frame_timings.model_copy(update={"fps": 1 / (now - previous)})
                 )
                 previous = now
+                main_user = None if attention is None else self._attend(attention, frame, scene)
                 if now - last_logged >= _LOG_EVERY_S:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
@@ -275,7 +284,7 @@ class FaceVision:
                 people = people_in_view(
                     self._tracker.tracks, scene, 1.0, width, height, self._current_caption()
                 )
-                key = window.show(frame, people, depth, timings)
+                key = window.show(frame, people, depth, main_user, timings)
                 if key == "q":
                     return
                 if key is not None and self._on_key is not None:
@@ -351,6 +360,16 @@ class FaceVision:
                 bodies_ms=(posed - analyzed) * 1e3,
                 depth_ms=(sounded - posed) * 1e3,
             ),
+        )
+
+    def _attend(self, attention: Attention, frame: Image, scene: Scene) -> MainUser | None:
+        boxes = {track.track_id: track.box for track in self._tracker.tracks}
+        height, width = frame.shape[:2]
+        return attention.update(
+            time.monotonic(),
+            {track_id: (boxes[track_id], face.gaze) for track_id, face in scene.faces.items()},
+            width,
+            height,
         )
 
     def _record(self, frame: Image, scene: Scene) -> None:

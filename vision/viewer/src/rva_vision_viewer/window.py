@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from rva_schemas.record import PeopleInView, TrackedPerson
-from rva_schemas.vision import Body, DepthMap, FaceFeatures, Hand, Keypoint, VisionTimings
+from rva_schemas.vision import Body, DepthMap, FaceFeatures, Hand, Keypoint, MainUser, VisionTimings
 
 _TITLE: Final = "lune see"
 _PANEL_WIDTH: Final = 320
@@ -23,6 +23,11 @@ _MAX_DEPTH_M: Final = 4.0
 """Depth at the far end of the colormap; farther is drawn the same."""
 _PROBE_RADIUS: Final = 2
 """Half the side of the square of depth pixels whose median is shown, in pixels."""
+_TIMELINE_S: Final = 30.0
+"""How much of the main user's signals the timeline shows."""
+_TIMELINE_HEIGHT: Final = 120
+_LANE_HEIGHT: Final = 0.8
+"""Height of a signal when on, in lanes: the gap keeps lanes apart."""
 # RGB
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (255, 165, 0)
@@ -37,8 +42,9 @@ class DebugWindow:
 
     The camera image, and beside it each person in view with their eyes, mouth, gaze, expression
     and skeleton, and a plot of how open their mouths have been. Right of the camera image, its depth
-    once some is given, with the distance under the mouse. Lives in the thread that creates it,
-    which also shows the frames and closes it.
+    once some is given, with the distance under the mouse. Underneath, a timeline of the main user's
+    signals, e.g. eye contact, one lane each. Lives in the thread that creates it, which also shows
+    the frames and closes it.
     """
 
     def __init__(self, width: int, height: int) -> None:
@@ -50,6 +56,8 @@ class DebugWindow:
         self._keys: Final = deque[str]()
         self._mouths: Final[dict[int, deque[tuple[float, float]]]] = {}
         self._series: Final[dict[int, int | str]] = {}
+        self._signals: Final[dict[str, deque[tuple[float, bool]]]] = {}
+        self._lanes: Final[dict[str, int | str]] = {}
         self._start: Final = time.monotonic()
         dpg.create_context()
         # Callbacks run when `show` asks, in this thread, rather than in one of Dear PyGui's.
@@ -69,24 +77,30 @@ class DebugWindow:
         with dpg.handler_registry():
             for key, letter in _KEYS.items():
                 dpg.add_key_press_handler(key, callback=self._on_key, user_data=letter)
-        with dpg.window() as root, dpg.group(horizontal=True):
-            self._picture: Final = dpg.add_image(self._texture)
-            with dpg.group(show=False) as depth_view:
-                self._depth_view: Final = depth_view
-                self._depth_picture: Final = dpg.add_image(self._depth_texture)
-                self._probe: Final = dpg.add_text(wrap=0)
-            with dpg.child_window(width=_PANEL_WIDTH):
-                self._timings: Final = dpg.add_text()
-                self._people: Final = dpg.add_group()
-                with dpg.plot(label="Mouth open", height=220, width=-1):
-                    dpg.add_plot_legend()
-                    self._time_axis: Final = dpg.add_plot_axis(dpg.mvXAxis, label="s")
-                    self._mouth_axis: Final = dpg.add_plot_axis(dpg.mvYAxis)
-                    dpg.set_axis_limits(self._mouth_axis, 0, 1)
+        with dpg.window() as root:
+            with dpg.group(horizontal=True):
+                self._picture: Final = dpg.add_image(self._texture)
+                with dpg.group(show=False) as depth_view:
+                    self._depth_view: Final = depth_view
+                    self._depth_picture: Final = dpg.add_image(self._depth_texture)
+                    self._probe: Final = dpg.add_text(wrap=0)
+                # A negative height leaves that much room below, for the timeline.
+                with dpg.child_window(width=_PANEL_WIDTH, height=-_TIMELINE_HEIGHT - _MARGIN // 4):
+                    self._timings: Final = dpg.add_text()
+                    self._main_user: Final = dpg.add_text(wrap=0)
+                    self._people: Final = dpg.add_group()
+                    with dpg.plot(label="Mouth open", height=220, width=-1):
+                        dpg.add_plot_legend()
+                        self._time_axis: Final = dpg.add_plot_axis(dpg.mvXAxis, label="s")
+                        self._mouth_axis: Final = dpg.add_plot_axis(dpg.mvYAxis)
+                        dpg.set_axis_limits(self._mouth_axis, 0, 1)
+            with dpg.plot(label="Main user", height=_TIMELINE_HEIGHT, width=-1):
+                self._timeline_axis: Final = dpg.add_plot_axis(dpg.mvXAxis, label="s")
+                self._lane_axis: Final = dpg.add_plot_axis(dpg.mvYAxis)
         dpg.create_viewport(
             title=_TITLE,
             width=round(width * (1 + _DEPTH_SCALE)) + _PANEL_WIDTH + 2 * _MARGIN,
-            height=height + _MARGIN,
+            height=height + _TIMELINE_HEIGHT + _MARGIN,
             # Drawing must not wait for the screen: it would slow the camera pipeline down.
             vsync=False,
         )
@@ -99,6 +113,7 @@ class DebugWindow:
         frame: npt.NDArray[np.uint8],
         people: PeopleInView,
         depth: DepthMap | None,
+        main_user: MainUser | None,
         timings: VisionTimings,
     ) -> str | None:
         if not dpg.is_dearpygui_running():
@@ -110,7 +125,8 @@ class DebugWindow:
         if depth is not None:
             # The camera and its depth share the width, the depth at its smaller scale.
             space_width = round((space_width - _MARGIN) / (1 + _DEPTH_SCALE))
-        width, height = fit(self._size, (space_width, dpg.get_viewport_client_height() - _MARGIN))
+        space_height = dpg.get_viewport_client_height() - _TIMELINE_HEIGHT - _MARGIN
+        width, height = fit(self._size, (space_width, space_height))
         dpg.configure_item(self._picture, width=width, height=height)
         dpg.configure_item(self._depth_view, show=depth is not None)
         if depth is not None:
@@ -118,6 +134,12 @@ class DebugWindow:
         dpg.set_value(self._timings, describe_timings(timings))
         self._show_people(people)
         self._plot_mouths(people)
+        dpg.set_value(self._main_user, describe_main_user(main_user))
+        dpg.configure_item(
+            self._main_user,
+            color=_KNOWN if main_user is not None and main_user.eye_contact else _UNCONFIRMED,
+        )
+        self._plot_signals(signals(main_user))
         dpg.render_dearpygui_frame()
         dpg.run_callbacks(dpg.get_callback_queue())
         if not dpg.is_dearpygui_running():
@@ -210,6 +232,44 @@ class DebugWindow:
             if track_id in self._series:
                 dpg.delete_item(self._series.pop(track_id))
         dpg.set_axis_limits(self._time_axis, now - _PLOT_S, now)
+
+    def _plot_signals(self, values: dict[str, bool]) -> None:
+        """Add a value to each signal's lane, shaded while on, and scroll the timeline."""
+        now = time.monotonic() - self._start
+        for name, value in values.items():
+            history = self._signals.setdefault(name, deque())
+            history.append((now, value))
+            while history[0][0] < now - _TIMELINE_S:
+                history.popleft()
+            lane = list(self._signals).index(name)
+            times = [t for t, _ in history]
+            tops = [lane + _LANE_HEIGHT * on for _, on in history]
+            if name in self._lanes:
+                dpg.set_value(self._lanes[name], [times, tops, [lane] * len(times)])
+                continue
+            self._lanes[name] = dpg.add_shade_series(
+                times, tops, y2=[lane] * len(times), parent=self._lane_axis
+            )
+            dpg.set_axis_ticks(
+                self._lane_axis,
+                tuple((label, index + _LANE_HEIGHT / 2) for index, label in enumerate(self._lanes)),
+            )
+            dpg.set_axis_limits(self._lane_axis, -0.1, len(self._lanes))
+        dpg.set_axis_limits(self._timeline_axis, now - _TIMELINE_S, now)
+
+
+def signals(main_user: MainUser | None) -> dict[str, bool]:
+    """The main user's signals shown on the timeline, each off while nobody is in view."""
+    return {"eye contact": main_user is not None and main_user.eye_contact}
+
+
+def describe_main_user(main_user: MainUser | None) -> str:
+    if main_user is None:
+        return "nobody in view"
+    contact = "eye contact" if main_user.eye_contact else "no eye contact"
+    return (
+        f"main user #{main_user.track_id}: {contact}, gaze {main_user.gaze_off_camera:.0f} deg off"
+    )
 
 
 def fit(image: tuple[int, int], space: tuple[int, int]) -> tuple[int, int]:

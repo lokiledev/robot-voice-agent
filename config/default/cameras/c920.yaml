@@ -1,0 +1,10 @@
+# Logitech HD Pro Webcam C920 at 1920x1080. Assumed, not measured: Logitech's 78 degree diagonal
+# field of view, square pixels, the principal point at the center. Replace it with a calibration
+# (e.g. OpenCV's checkerboard) and set calibrated: true.
+calibrated: false
+width: 1920
+height: 1080
+fx: 1360.0
+fy: 1360.0
+cx: 959.5
+cy: 539.5

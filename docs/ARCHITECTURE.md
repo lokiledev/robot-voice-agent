@@ -196,7 +196,21 @@ flowchart LR
   being the camera; a ViT fine-tuned on FER2013 for one of seven expressions. They are meant for
   turn-taking (is the user looking at the robot, is their mouth moving) and are not yet given to
   the agent.
-- **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the upper
+- **Main user and eye contact.** The main user is the most prominent face: its height, less the
+  farther it is from the middle of the image, down to nothing at the edges. Another face takes over
+  only once it scores a quarter higher, so two people side by side do not swap at every frame.
+  Their gaze's angle off the camera is the median over the last 0.4 s, so a blink or a bad frame
+  passes; eye contact starts under 12 degrees and ends over 18, so it does not flicker at the edge
+  (`face_features.eye_contact`). L2CS-Net only sees the face's crop, and its angles turn out to be
+  taken from the line between the face and the camera, not from the camera's axis: in a recording
+  with the face from 28 degrees left of the axis to 32 right, its yaw moved 0.06 degrees per degree
+  the face did. So 0 degrees is the camera wherever the face is, and no correction for the face's
+  position is needed while the camera is the robot's eye. Its bias depends on the person: looking
+  into the lens from both edges, one person read about +7 degrees of yaw (towards the right of the
+  image) with glasses and +1.5 without. So no offset is taken off; the thresholds absorb it.
+  Rules rather than a model, until recordings show where they fail.
+  Shown in the debug window only for now.
+, RTMW places the 133 COCO-WholeBody keypoints on each; the upper
   body (head, shoulders, elbows, wrists and hips) and both hands (21 points each) are kept. Legs and
   feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
   is the mesh's job. With a hand held up close and no arm in view, RTMW can find both hands on it;
@@ -210,15 +224,17 @@ flowchart LR
 - **Depth.** Depth Anything 3 Metric-Large (Apache-2.0) estimates the distance of every pixel from
   the camera image alone, alongside the skeletons. Its export takes a fixed 504x504 square, so the
   frame is letterboxed into it, keeping one focal length for both axes. The network predicts depth
-  for a camera of its own focal length; the camera's calibrated intrinsics (`camera.intrinsics`)
-  scale it to this camera. Until the camera is calibrated, the depth stays as predicted and is
-  marked uncalibrated: then it was 1.2 to 1.4 times too far at desk distance with the C920. It is
+  for a camera of its own focal length; the camera's intrinsics (`camera.intrinsics`, a file in
+  the profile) scale it to this camera. The C920's are assumed from its datasheet until it is
+  calibrated, and the depth is marked uncalibrated meanwhile. Unscaled, it was 1.2 to 1.4 times
+  too far at desk distance; the assumed focal length scales it by a further 1.19. It is
   only shown, in the debug window, and is meant to place the skeletons in 3D. `--no-depth`, or
   `depth: null` in the profile, leaves it out.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
-  mouse and whether the camera is calibrated. It lives in its own package behind the `FrameViewer`
+  mouse and whether the camera is calibrated. Underneath, a timeline of the main user's signals,
+  one lane each, the last 30 s: eye contact for now. It lives in its own package behind the `FrameViewer`
   protocol, so the camera pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,

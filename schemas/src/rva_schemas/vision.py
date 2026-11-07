@@ -61,7 +61,13 @@ type Expression = Literal["angry", "disgust", "fear", "happy", "sad", "surprise"
 
 
 class Gaze(RVABaseModel):
-    """Where the eyes point, in degrees; both are 0 when looking straight at the camera."""
+    """Where the eyes point, in degrees; both are 0 when looking straight at the camera.
+
+    Wherever the face is in the image: the angles are taken from the line between the face and the
+    camera, not from the camera's axis: in a recording with the face from 28 degrees left of the
+    axis to 32 right, the yaw changed by 0.06 degrees per degree the face moved, where angles from
+    the axis would change by 1.
+    """
 
     yaw: float
     """Positive towards the right of the image."""
@@ -85,6 +91,16 @@ class FaceFeatures(RVABaseModel):
     """Probability of `expression`, from 0 to 1."""
 
 
+class MainUser(RVABaseModel):
+    """The person the robot attends to: the closest, most central face in view."""
+
+    track_id: int
+    gaze_off_camera: float
+    """Angle between the gaze and the camera, in degrees, as a median over the last few frames."""
+    eye_contact: bool
+    """Whether they look at the robot's camera, held through blinks."""
+
+
 class KnownPerson(RVABaseModel):
     """Someone the robot has been told the name of."""
 
@@ -99,8 +115,8 @@ class DepthMap(RVABaseModel, arbitrary_types_allowed=True):
     metres: npt.NDArray[np.float32]
     """Distance along the camera's axis, height x width."""
     calibrated: bool
-    """Whether the camera's own focal length scaled it. Otherwise the model assumed one, so
-    distances may be off by tens of percent."""
+    """Whether the camera's measured focal length scaled it. Otherwise an assumed one did, the
+    datasheet's or the model's own, so distances may be off by tens of percent."""
 
 
 class VisionTimings(RVABaseModel):

@@ -191,7 +191,9 @@ def test_letterbox_pads_a_landscape_frame_above_and_below() -> None:
 
 
 def test_intrinsics_scale_with_the_resolution() -> None:
-    intrinsics = CameraIntrinsics(width=1920, height=1080, fx=1400, fy=1380, cx=950, cy=530)
+    intrinsics = CameraIntrinsics(
+        calibrated=True, width=1920, height=1080, fx=1400, fy=1380, cx=950, cy=530
+    )
 
     scaled = intrinsics.scaled_to(1280, 720)
 
@@ -204,7 +206,9 @@ def test_intrinsics_scale_with_the_resolution() -> None:
 
 
 def test_depth_is_scaled_by_the_focal_length_at_the_network_input() -> None:
-    intrinsics = CameraIntrinsics(width=1920, height=1080, fx=1400, fy=1380, cx=960, cy=540)
+    intrinsics = CameraIntrinsics(
+        calibrated=True, width=1920, height=1080, fx=1400, fy=1380, cx=960, cy=540
+    )
 
     # A 1390 px mean focal at 1920 wide is 364.875 px at 504 wide; the network assumes 300.
     assert metres_per_unit(intrinsics, 504) == pytest.approx(364.875 / 300)

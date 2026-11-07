@@ -11,6 +11,7 @@ from rva_schemas.vision import (
     DepthMap,
     FaceEvent,
     KnownPerson,
+    MainUser,
     Remembered,
     TrackedFace,
     VisionTimings,
@@ -80,6 +81,7 @@ class FrameViewer(Protocol):
         frame: npt.NDArray[np.uint8],
         people: PeopleInView,
         depth: DepthMap | None,
+        main_user: MainUser | None,
         timings: VisionTimings,
     ) -> str | None:
         """Display a frame, already drawn on, with what was seen in it.
@@ -88,6 +90,8 @@ class FrameViewer(Protocol):
             frame: BGR image, height x width x 3.
             people: The people in view, in the frame's pixels.
             depth: The frame's depth; `None` when depth is not estimated.
+            main_user: Who the robot attends to, and whether they make eye contact; `None` when
+                nobody is in view, or without face features.
             timings: How long the last frames took.
 
         Returns:

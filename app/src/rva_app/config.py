@@ -37,7 +37,15 @@ class RuntimeConfig(RVABaseModel):
 
     @classmethod
     def load(cls, profile: Path) -> "RuntimeConfig":
-        return load_yaml(cls, profile / "runtime.yaml")
+        """The profile's runtime config, with the paths it gives relative to it made whole."""
+        config = load_yaml(cls, profile / "runtime.yaml")
+        camera = config.vision.camera
+        if camera.intrinsics is None:
+            return config
+        camera = camera.model_copy(update={"intrinsics": profile / camera.intrinsics})
+        return config.model_copy(
+            update={"vision": config.vision.model_copy(update={"camera": camera})}
+        )
 
 
 def load_admins(path: Path) -> Admins:

@@ -41,7 +41,7 @@ vision:
     width: 1280
     height: 720
     fps: 30
-    intrinsics: null  # Not calibrated yet.
+    intrinsics: null  # Not calibrated yet; see config/default/cameras for the format.
   detector:
     model:
       repo: opencv/face_detection_yunet
@@ -75,6 +75,11 @@ vision:
     expression:
       repo: onnx-community/face-emotion-detection-ONNX
       file: onnx/model_fp16.onnx
+    # The main user's gaze, closer to the camera than enter_deg, then until farther than leave_deg.
+    eye_contact:
+      window_s: 0.4
+      enter_deg: 12.0
+      leave_deg: 18.0
   body:
     detector:
       repo: yzd-v/DWPose
