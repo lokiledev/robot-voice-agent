@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 from websockets.asyncio.client import connect
 
-from rva_schemas.record import FaceBoxes, Measurement, RobotLine, UserLine
+from rva_schemas.record import Measurement, PeopleInView, RobotLine, UserLine
 from rva_ui.server import UiServer
 
 
@@ -37,7 +37,7 @@ async def test_a_page_gets_the_session_so_far_then_each_entry_as_it_comes() -> N
     async with _serving(ui) as port, connect(f"ws://127.0.0.1:{port}/session") as page:
         hello, replayed = json.loads(await page.recv()), json.loads(await page.recv())
         # Drawn into the video stream instead.
-        ui.record(FaceBoxes(image_width=96, image_height=54, boxes=()))
+        ui.record(PeopleInView(image_width=96, image_height=54, people=(), unmatched_bodies=()))
         ui.record(RobotLine(text="Hi!", interrupted=False))
         live = json.loads(await page.recv())
 

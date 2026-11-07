@@ -431,7 +431,7 @@ def see(
     video: bool = False,
     stream: bool = False,
 ) -> None:
-    """Show the camera with each tracked face and who it is, without the agent.
+    """Show the camera with each tracked face, who it is and what it shows, without the agent.
 
     Faces coming and going are logged. Press n in the window to type a name for the nearest face in
     the terminal, q to quit.

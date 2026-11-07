@@ -5,7 +5,7 @@ from pydantic import Field
 from rva_body_schemas.motion import Motion
 from rva_pydantic import RVABaseModel
 from rva_schemas.dialogue import ToolSpec
-from rva_schemas.vision import BoundingBox, FaceEvent, KnownPerson
+from rva_schemas.vision import Body, BoundingBox, FaceEvent, FaceFeatures, KnownPerson
 from rva_vla_schemas.task import Task
 
 
@@ -90,24 +90,33 @@ class FaceUpdate(RVABaseModel):
     event: FaceEvent
 
 
-class FaceBox(RVABaseModel):
+class TrackedPerson(RVABaseModel):
+    """A face track, with what was seen of that person in one frame."""
+
     track_id: int
     box: BoundingBox
+    """The face's last box."""
     person: KnownPerson | None
     confirmed: bool
     """Whether the face was seen long enough to be announced."""
     said: str | None
     """What this person said last, while it is still shown."""
+    face: FaceFeatures | None
+    """`None` when the face is out of sight in this frame, or face features are turned off."""
+    body: Body | None
+    """`None` when no skeleton was found under this face, or poses are turned off."""
 
 
-class FaceBoxes(RVABaseModel):
-    """Every face tracked in one camera frame."""
+class PeopleInView(RVABaseModel):
+    """Every person tracked or seen in one camera frame."""
 
-    kind: Literal["face_boxes"] = "face_boxes"
+    kind: Literal["people"] = "people"
     image_width: int
     image_height: int
-    """Size of the image the boxes are in: the recorded video's when there is one."""
-    boxes: tuple[FaceBox, ...]
+    """Size of the image the coordinates are in: the recorded video's when there is one."""
+    people: tuple[TrackedPerson, ...]
+    unmatched_bodies: tuple[Body, ...]
+    """Skeletons with no tracked face: turned away, or too far away to be tracked."""
 
 
 class CameraFrame(RVABaseModel):
@@ -127,7 +136,7 @@ type Record = Annotated[
     | MuteUpdate
     | Measurement
     | FaceUpdate
-    | FaceBoxes
+    | PeopleInView
     | CameraFrame,
     Field(discriminator="kind"),
 ]

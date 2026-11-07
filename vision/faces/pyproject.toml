@@ -1,7 +1,7 @@
 [project]
 name = "rva-vision-faces"
 version = "0.1.0"
-description = "Face detection, tracking and recognition from the camera; implements Vision"
+description = "Face detection, tracking and recognition, face features and skeletons from the camera; implements Vision"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [

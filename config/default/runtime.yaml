@@ -59,6 +59,29 @@ vision:
   matching:
     threshold: 0.363
     margin: 0.05
+  face_features:
+    landmarks:
+      repo: fernandotonon/QtMeshEditor-facemesh-onnx
+      file: face_landmarks.onnx
+    blendshapes:
+      repo: fernandotonon/QtMeshEditor-faceblendshapes-onnx
+      file: face_blendshapes.onnx
+    gaze:
+      repo: mlboydaisuke/L2CS-Gaze360-OpenVINO
+      file: gaze_fp16.onnx
+    expression:
+      repo: onnx-community/face-emotion-detection-ONNX
+      file: onnx/model_fp16.onnx
+  body:
+    detector:
+      repo: yzd-v/DWPose
+      file: yolox_l.onnx
+    score_threshold: 0.5
+    nms_threshold: 0.45
+    pose:
+      repo: bukuroo/RTMW-ONNX
+      file: rtmw-l-256.onnx
+    keypoint_threshold: 0.3
   database: ~/.local/share/robot-voice-agent/faces.sqlite3
   max_embeddings_per_person: 10
   # Used with --video: camera frames recorded with the session, to replay in rerun.

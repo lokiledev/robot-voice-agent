@@ -165,21 +165,44 @@ flowchart LR
     det & emb --> trk["Tracker<br/>box overlap, then<br/>re-identification"]
     trk --> gal["Gallery<br/>cosine match"]
     db[("Face database")] <--> gal
+    trk --> feat["Face features<br/>[face mesh, blendshapes,<br/>L2CS-Net, ViT; GPU]"]
+    cam --> body["Skeletons<br/>[YOLOX, RTMW; GPU]"]
+    body -- "nose and eyes<br/>in a face box" --> scene["People in view<br/>track, person, face, body, hands"]
+    feat --> scene
     trk -- "appeared, left" --> loop([Agent loop])
-    trk -- "boxes, names,<br/>last sentence" --> ff["ffmpeg<br/>H.264 over RTSP"]
+    scene -- "drawn" --> ff["ffmpeg<br/>H.264 over RTSP"]
+    scene -- "recorded" --> rec([Recorder])
     ff --> mtx([MediaMTX])
 ```
 
 - **Per frame**, 1920x1080 at up to 30 fps: YuNet finds faces in about 6 ms; faces too small to
-  be close are ignored. Each track gets an SFace embedding when it starts, then every second.
+  be close are ignored. A new track gets an SFace embedding, then one every second until it is
+  recognized.
 - **Tracking.** A face keeps its track number across frames by box overlap, and across a quick
   move or occlusion by embedding. It is announced after 0.5 s in view and said to have left after
   3 s out of view.
 - **Recognition.** A track is someone when its embeddings match that person's closely enough and
-  clearly better than anyone else's. The largest face is taken as the person in front of the
-  robot, and as whoever is speaking.
+  clearly better than anyone else's. Once recognized, a track keeps its person while it lives and
+  is no longer embedded: a continuous track is the same face, so the name does not flicker and
+  the embedder rests. A person already on a track is not given to another one. Every track is
+  matched again when the known people change: someone is named, renamed or forgotten. The largest
+  face is taken as the person in front of the robot, and as whoever is speaking.
 - **Memory.** The database is pseudonymous: people are user ids, names sit in a table of their
   own, and embeddings, operators and admins refer to ids only. No image is stored.
+- **Face features**, on every face detected in the frame: MediaPipe's face mesh (478 points,
+  irises included) on a crop levelled on the eyes; MediaPipe's blendshapes on those points, for
+  how open each eye and the mouth are; L2CS-Net (Gaze360) for where the eyes point, 0 degrees
+  being the camera; a ViT fine-tuned on FER2013 for one of seven expressions. They are meant for
+  turn-taking (is the user looking at the robot, is their mouth moving) and are not yet given to
+  the agent.
+- **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the
+  body (17 points and the feet) and both hands (21 points each) are kept, the face being the
+  mesh's job. A skeleton belongs to the face track whose box holds its nose and eyes; the others,
+  people turned away or too far to track, are kept apart. They run on a second thread while the
+  faces are processed. They are meant for gestures: waving, a handshake, a fist bump.
+- **One tree per person.** Each frame records every track with its person, face features,
+  skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
+  with eyes, mouth and gaze plotted under `people/<track>`.
 
 ### Agent loop and tools
 
@@ -340,7 +363,7 @@ flowchart BT
 | `rva-agent` | Agent loop, history, system prompt, tools, supervisors, permissions |
 | `rva-llm` | The LLM client over the OpenAI API, and llama-server's launch settings |
 | `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
-| `rva-vision-faces` | Camera, detection, tracking, recognition, face database, camera stream |
+| `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, face database, camera stream |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |
 | `rva-vla-client`, `rva-body-client` | HTTP and WebSocket clients of the robot API |
@@ -358,7 +381,9 @@ flowchart BT
 | Speech recognition | Parakeet TDT 0.6B v2, English | GPU, about 2 GB |
 | Dialogue and tools | Qwen3.5-35B-A3B, Q4_K_M | GPU, about 16 GB; some expert layers on the CPU |
 | Speech synthesis | Kokoro-82M, voice `af_heart` | GPU, about 1 GB |
-| Face detection and embeddings | YuNet, SFace | GPU, under 0.5 GB |
+| Face detection and embeddings | YuNet, SFace | GPU, under 0.8 GB with the camera pipeline |
+| Face features | MediaPipe face mesh and blendshapes, L2CS-Net, ViT (FER2013) | GPU |
+| Skeletons | YOLOX-L, RTMW-L 256x192 | GPU; with the face features, 1.7 GB more |
 
 **Why a cascade.** Speech-to-speech models such as Kyutai's Moshi reason over audio: they have no
 text history to edit, no tool calls and no system prompt of your own, which an agent driving a
@@ -373,8 +398,8 @@ Thinking is off: the turns are short and latency matters more.
 
 Each session gets a directory under `~/Captures/robot-voice-agent/`, with a rerun recording and
 the log. The recording holds the dialogue, every tool call, the actions as they start and end,
-people coming and going, and the boxes of every tracked face, with `--video` the camera frames
-under them. Durations are OpenTelemetry spans, drawn as plots in the same recording: each turn,
+people coming and going, and every tracked person with their face features and skeleton, with
+`--video` the camera frames under them. Durations are OpenTelemetry spans, drawn as plots in the same recording: each turn,
 the LLM call with its time to the first text, the speech with its time to the first audio, ASR,
 each tool, and the vision steps.
 
@@ -386,6 +411,7 @@ On the RTX 4090 and a Ryzen 9 7950X3D:
 - LLM: about 120 tokens/s; first token in 110 to 175 ms, first sentence in 180 to 330 ms.
 - Parakeet about 40 ms per utterance, Kokoro about 100 ms per sentence, smart-turn about 35 ms.
 - GPU memory for the whole stack: 21 of 24 GB.
-- Vision: about 6 ms per frame for detection, so it follows the camera at 24 to 30 fps.
+- Vision: about 6 ms per frame for detection; with one face, its features take about 13 ms and the
+  skeletons, run alongside, about 16 ms, so it still follows the camera at 24 to 30 fps.
 - Through the speakers with echo cancellation, Lune finished a five-sentence paragraph without
   interrupting itself. Without echo cancellation, it cut itself off in the first sentence.

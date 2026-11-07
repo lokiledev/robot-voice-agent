@@ -12,15 +12,20 @@ from rva_vision_faces.gallery import Gallery, Match
 class Track:
     """One face followed across frames. Owned and changed by the `Tracker` only."""
 
-    def __init__(self, track_id: int, box: BoundingBox, now: float, samples: int) -> None:
+    def __init__(self, track_id: int, detection: Detection, now: float, samples: int) -> None:
         self.track_id: Final = track_id
-        self.box = box
+        self.detection = detection
+        """The face's last detection."""
         self.first_seen: Final = now
         self.last_seen = now
         self.last_embedded = now
         self.confirmed = False
         self.embeddings: Final = deque[Embedding](maxlen=samples)
         self.match: Match | None = None
+
+    @property
+    def box(self) -> BoundingBox:
+        return self.detection.box
 
 
 class Tracker:
@@ -29,6 +34,10 @@ class Tracker:
     Detections continue a track when they overlap its last box. A detection that overlaps none is
     compared by embedding with the tracks that did not find their face in this frame, so that a
     face keeps its track across a short occlusion or a fast move.
+
+    Once a track is recognized it keeps its person for as long as it lives, and its face is no
+    longer embedded: a track that stays continuous is the same face. Unrecognized tracks are
+    embedded every `embed_every_s` and matched again with each new sample.
     """
 
     def __init__(self, config: TrackerConfig) -> None:
@@ -58,12 +67,14 @@ class Tracker:
             gallery: Known people, to recognize the tracks.
         """
         matched = self._match_by_overlap(detections)
+        sampled: list[Track] = []
         for index, detection in enumerate(detections):
             if index in matched:
                 track = matched[index]
-                if now - track.last_embedded >= self._config.embed_every_s:
+                if track.match is None and now - track.last_embedded >= self._config.embed_every_s:
                     track.embeddings.append(embed(detection))
                     track.last_embedded = now
+                    sampled.append(track)
             else:
                 embedding = embed(detection)
                 track = self._reidentify(embedding, set(matched.values())) or self._new_track(
@@ -71,18 +82,23 @@ class Tracker:
                 )
                 track.embeddings.append(embedding)
                 track.last_embedded = now
+                sampled.append(track)
                 matched[index] = track
-            track.box = detection.box
+            track.detection = detection
             track.last_seen = now
         self._seen_now = {track.track_id for track in matched.values()}
         # Announced faces are allowed to flicker; new ones must be seen on every frame.
         self._tracks[:] = [
             track for track in self._tracks if track.confirmed or track.track_id in self._seen_now
         ]
-        assignments = gallery.assign({track.track_id: track.embeddings for track in self._tracks})
-        for track in self._tracks:
-            track.match = assignments[track.track_id]
+        self._recognize([track for track in sampled if track.match is None], gallery)
         return [*self._confirm(now), *self._leave(now)]
+
+    def recognize(self, gallery: Gallery) -> None:
+        """Match every track again, once the known people changed."""
+        for track in self._tracks:
+            track.match = None
+        self._recognize(self._tracks, gallery)
 
     def faces(self) -> tuple[TrackedFace, ...]:
         """The announced faces, including those briefly out of sight."""
@@ -92,6 +108,10 @@ class Tracker:
             for track in self._tracks
             if track.confirmed
         )
+
+    def visible(self) -> tuple[Track, ...]:
+        """The tracks whose face was detected in the last frame, announced or not."""
+        return tuple(track for track in self._tracks if track.track_id in self._seen_now)
 
     def find(self, track_id: int) -> Track | None:
         """An announced track by id."""
@@ -118,6 +138,15 @@ class Tracker:
                 matched[index] = track
         return matched
 
+    def _recognize(self, tracks: Sequence[Track], gallery: Gallery) -> None:
+        """Match unrecognized tracks; a person already on another track stays there."""
+        taken = {track.match.person for track in self._tracks if track.match is not None}
+        assignments = gallery.assign({track.track_id: track.embeddings for track in tracks})
+        for track in tracks:
+            match = assignments[track.track_id]
+            if match is not None and match.person not in taken:
+                track.match = match
+
     def _reidentify(self, embedding: Embedding, taken: set[Track]) -> Track | None:
         candidates = [
             (max(float(embedding @ sample) for sample in track.embeddings), track)
@@ -130,7 +159,7 @@ class Tracker:
         return track if score >= self._config.reid_threshold else None
 
     def _new_track(self, detection: Detection, now: float) -> Track:
-        track = Track(self._next_id, detection.box, now, self._config.embeddings_per_track)
+        track = Track(self._next_id, detection, now, self._config.embeddings_per_track)
         self._next_id += 1
         self._tracks.append(track)
         return track

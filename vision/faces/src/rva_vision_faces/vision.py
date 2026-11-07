@@ -2,6 +2,7 @@ import asyncio
 import threading
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Final
 from uuid import UUID
@@ -11,9 +12,9 @@ from loguru import logger
 from opentelemetry import trace
 
 from rva_schemas.abc.recorder import Recorder
-from rva_schemas.record import CameraFrame, FaceBox, FaceBoxes
+from rva_schemas.record import CameraFrame
 from rva_schemas.vision import (
-    BoundingBox,
+    Body,
     FaceEvent,
     KnownPerson,
     NotRecognizedError,
@@ -21,15 +22,18 @@ from rva_schemas.vision import (
     TrackedFace,
     UnknownTrackError,
 )
+from rva_vision_faces.body import BodyEstimator, attach
 from rva_vision_faces.camera import Camera
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.detector import Detection, Image, YunetDetector
 from rva_vision_faces.embedder import Embedding, SfaceEmbedder
+from rva_vision_faces.face_features import FaceAnalyzer
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
+from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.stream import RtspPublisher
-from rva_vision_faces.tracker import Track, Tracker
+from rva_vision_faces.tracker import Tracker
 from rva_vision_faces.window import DebugWindow, Timings, draw
 
 _tracer: Final = trace.get_tracer("rva_vision_faces")
@@ -38,6 +42,47 @@ _SMOOTHING: Final = 0.1
 _LOG_EVERY_S: Final = 5.0
 _CAPTION_S: Final = 6.0
 """How long the user's last sentence stays over the image."""
+
+
+class _Models:
+    """The models of the frame thread, loaded in it."""
+
+    def __init__(self, config: FaceVisionConfig) -> None:
+        device = config.device
+        self.detector: Final = YunetDetector(
+            load_session(config.detector.model, device, dynamic_image_size=True), config.detector
+        )
+        self.embedder: Final = SfaceEmbedder(
+            load_session(config.recognizer, device, dynamic_image_size=False)
+        )
+        features = config.face_features
+        self.faces: Final = (
+            None
+            if features is None
+            else FaceAnalyzer(
+                *(
+                    load_session(model, device, dynamic_image_size=False)
+                    for model in (
+                        features.landmarks,
+                        features.blendshapes,
+                        features.gaze,
+                        features.expression,
+                    )
+                )
+            )
+        )
+        body = config.body
+        self.pool: Final = ThreadPoolExecutor(1, thread_name_prefix="vision-bodies")
+        """Runs the skeletons alongside the faces: ONNX Runtime lets go of the GIL."""
+        self.bodies: Final = (
+            None
+            if body is None
+            else BodyEstimator(
+                load_session(body.detector, device, dynamic_image_size=False),
+                load_session(body.pose, device, dynamic_image_size=False),
+                body,
+            )
+        )
 
 
 class FaceVision:
@@ -166,19 +211,16 @@ class FaceVision:
             self._caption = (nearest.track_id, text, time.monotonic())
 
     async def _reload(self) -> None:
-        self._gallery = Gallery(await asyncio.to_thread(self._database.load), self._config.matching)
+        gallery = Gallery(await asyncio.to_thread(self._database.load), self._config.matching)
+        with self._lock:
+            self._gallery = gallery
+            self._tracker.recognize(gallery)
         self._granted_operators = await asyncio.to_thread(self._database.granted_operators)
 
     def _process(self, loop: asyncio.AbstractEventLoop, stop: threading.Event) -> None:
         cv2.setNumThreads(2)
         config = self._config
-        detector = YunetDetector(
-            load_session(config.detector.model, config.device, dynamic_image_size=True),
-            config.detector,
-        )
-        embedder = SfaceEmbedder(
-            load_session(config.recognizer, config.device, dynamic_image_size=False)
-        )
+        models = _Models(config)
         camera = Camera(config.camera)
         window = DebugWindow(*_WINDOW_SIZE) if self._show_window else None
         publisher = (
@@ -187,21 +229,25 @@ class FaceVision:
             else None
         )
         logger.info("Watching {} on {}", config.camera.device, config.device)
-        timings = Timings(fps=0.0, capture_ms=0.0, detect_ms=0.0, embed_ms=0.0)
+        timings = Timings(
+            fps=0.0, capture_ms=0.0, detect_ms=0.0, embed_ms=0.0, faces_ms=0.0, bodies_ms=0.0
+        )
         previous = last_logged = time.perf_counter()
         try:
             while not stop.is_set():
-                frame, frame_timings = self._step(camera, detector, embedder, loop)
+                frame, scene, frame_timings = self._step(camera, models, loop)
                 now = time.perf_counter()
-                timings = _smooth(timings, frame_timings, 1 / (now - previous))
+                timings = _smooth(
+                    timings, frame_timings.model_copy(update={"fps": 1 / (now - previous)})
+                )
                 previous = now
                 if now - last_logged >= _LOG_EVERY_S:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
-                self._record(frame)
+                self._record(frame, scene)
                 if window is None and publisher is None:
                     continue
-                draw(frame, self._tracker.tracks, timings, self._current_caption())
+                draw(frame, self._tracker.tracks, scene, timings, self._current_caption())
                 if publisher is not None:
                     publisher.send(frame)
                 if window is None:
@@ -212,6 +258,7 @@ class FaceVision:
                 if key is not None and self._on_key is not None:
                     loop.call_soon_threadsafe(self._on_key, key)
         finally:
+            models.pool.shutdown()
             camera.close()
             if publisher is not None:
                 publisher.close()
@@ -219,20 +266,20 @@ class FaceVision:
                 window.close()
 
     def _step(
-        self,
-        camera: Camera,
-        detector: YunetDetector,
-        embedder: SfaceEmbedder,
-        loop: asyncio.AbstractEventLoop,
-    ) -> tuple[Image, tuple[float, float, float]]:
-        """Process one frame; returns it with its capture, detection and embedding times in s."""
+        self, camera: Camera, models: _Models, loop: asyncio.AbstractEventLoop
+    ) -> tuple[Image, Scene, Timings]:
+        """Process one frame; returns it with what was seen and how long each stage took."""
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
             frame = camera.read()
         captured = time.perf_counter()
+        # Skeletons need no face: they are estimated meanwhile, on the other thread.
+        found = (
+            None if models.bodies is None else models.pool.submit(_estimate, models.bodies, frame)
+        )
         with _tracer.start_as_current_span("vision:detect"):
             min_height = self._config.tracker.min_face_height * frame.shape[0]
-            detections = [d for d in detector.detect(frame) if d.box.height >= min_height]
+            detections = [d for d in models.detector.detect(frame) if d.box.height >= min_height]
         detected = time.perf_counter()
         embedding_time = 0.0
 
@@ -240,19 +287,43 @@ class FaceVision:
             nonlocal embedding_time
             begin = time.perf_counter()
             with _tracer.start_as_current_span("vision:embed"):
-                embedding = embedder.embed(frame, detection)
+                embedding = models.embedder.embed(frame, detection)
             embedding_time += time.perf_counter() - begin
             return embedding
 
         with self._lock:
             events = self._tracker.update(time.monotonic(), detections, embed, self._gallery)
+            visible = [(track.track_id, track.detection) for track in self._tracker.visible()]
         for event in events:
             logger.info("Face event: {}", event)
         if events:
             loop.call_soon_threadsafe(self._publish, events)
-        return frame, (captured - start, detected - captured, embedding_time)
+        tracked = time.perf_counter()
+        faces = {}
+        if models.faces is not None:
+            with _tracer.start_as_current_span("vision:faces"):
+                features = models.faces.analyze(frame, [detection for _, detection in visible])
+            faces = {track_id: f for (track_id, _), f in zip(visible, features, strict=True)}
+        analyzed = time.perf_counter()
+        bodies, unmatched = {}, []
+        if found is not None:
+            bodies, unmatched = attach(found.result(), [(id_, d.box) for id_, d in visible])
+        posed = time.perf_counter()
+        scene = Scene(faces=faces, bodies=bodies, unmatched_bodies=tuple(unmatched))
+        return (
+            frame,
+            scene,
+            Timings(
+                fps=0.0,
+                capture_ms=(captured - start) * 1e3,
+                detect_ms=(detected - captured) * 1e3,
+                embed_ms=embedding_time * 1e3,
+                faces_ms=(analyzed - tracked) * 1e3,
+                bodies_ms=(posed - analyzed) * 1e3,
+            ),
+        )
 
-    def _record(self, frame: Image) -> None:
+    def _record(self, frame: Image, scene: Scene) -> None:
         height, width = frame.shape[:2]
         scale = 1.0
         if self._record_video:
@@ -268,8 +339,9 @@ class FaceVision:
                 raise RuntimeError("Could not encode a camera frame as JPEG")
             self._recorder.record(CameraFrame(jpeg=jpeg.tobytes()))
         self._recorder.record(
-            face_boxes(
+            people_in_view(
                 self._tracker.tracks,
+                scene,
                 scale,
                 round(width * scale),
                 round(height * scale),
@@ -290,49 +362,17 @@ class FaceVision:
                 queue.put_nowait(event)
 
 
-def face_boxes(
-    tracks: Sequence[Track],
-    scale: float,
-    width: int,
-    height: int,
-    caption: tuple[int, str] | None,
-) -> FaceBoxes:
-    """The tracks' boxes in an image scaled by `scale`, of size `width` by `height`.
-
-    `caption` is a track id and what that person said, shown on their box.
-    """
-    return FaceBoxes(
-        image_width=width,
-        image_height=height,
-        boxes=tuple(
-            FaceBox(
-                track_id=track.track_id,
-                box=BoundingBox(
-                    x=track.box.x * scale,
-                    y=track.box.y * scale,
-                    width=track.box.width * scale,
-                    height=track.box.height * scale,
-                ),
-                person=None if track.match is None else track.match.person,
-                confirmed=track.confirmed,
-                said=caption[1] if caption is not None and caption[0] == track.track_id else None,
-            )
-            for track in tracks
-        ),
-    )
+def _estimate(estimator: BodyEstimator, frame: Image) -> list[Body]:
+    with _tracer.start_as_current_span("vision:bodies"):
+        return estimator.estimate(frame)
 
 
-def _smooth(timings: Timings, frame: tuple[float, float, float], fps: float) -> Timings:
-    capture, detect, embed = frame
-
+def _smooth(timings: Timings, frame: Timings) -> Timings:
     def ema(old: float, new: float) -> float:
         return old + _SMOOTHING * (new - old) if old else new
 
     return Timings(
-        fps=ema(timings.fps, fps),
-        capture_ms=ema(timings.capture_ms, capture * 1e3),
-        detect_ms=ema(timings.detect_ms, detect * 1e3),
-        embed_ms=ema(timings.embed_ms, embed * 1e3),
+        **{name: ema(getattr(timings, name), getattr(frame, name)) for name in Timings.model_fields}
     )
 
 

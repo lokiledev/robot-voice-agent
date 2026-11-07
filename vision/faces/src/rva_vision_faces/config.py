@@ -52,6 +52,32 @@ class MatchConfig(RVABaseModel):
     """When the two best people score within this of each other, the face counts as unknown."""
 
 
+class FaceFeaturesConfig(RVABaseModel):
+    """Models reading eyes, gaze, mouth and expression on each tracked face."""
+
+    landmarks: ModelFile
+    """MediaPipe's face mesh v2: 478 points with the irises, on a 256x256 crop."""
+    blendshapes: ModelFile
+    """MediaPipe's blendshapes: 52 ARKit coefficients from 146 of the mesh points."""
+    gaze: ModelFile
+    """L2CS-Net trained on Gaze360: gaze yaw and pitch from a 448x448 face crop."""
+    expression: ModelFile
+    """A ViT fine-tuned on FER2013: seven expressions from a 224x224 face crop."""
+
+
+class BodyConfig(RVABaseModel):
+    """Models finding people and their skeletons, hands included."""
+
+    detector: ModelFile
+    """YOLOX on COCO; only its person class is used."""
+    score_threshold: float = Field(gt=0, lt=1)
+    nms_threshold: float = Field(gt=0, lt=1)
+    pose: ModelFile
+    """RTMW: 133 COCO-WholeBody keypoints, top-down from each person's box."""
+    keypoint_threshold: float = Field(gt=0)
+    """Keypoints scoring lower are left out."""
+
+
 class VideoRecordingConfig(RVABaseModel):
     """How camera frames are recorded, when recording video is asked for."""
 
@@ -77,6 +103,10 @@ class FaceVisionConfig(RVABaseModel):
     recognizer: ModelFile
     tracker: TrackerConfig
     matching: MatchConfig
+    face_features: FaceFeaturesConfig | None
+    """`None` to only detect, track and recognize faces."""
+    body: BodyConfig | None
+    """`None` to leave out skeletons."""
     database: Path
     """SQLite file of known people and their face embeddings; `~` is expanded."""
     max_embeddings_per_person: int = Field(gt=0)

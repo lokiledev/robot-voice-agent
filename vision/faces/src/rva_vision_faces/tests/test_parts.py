@@ -7,11 +7,16 @@ from uuid import NAMESPACE_URL, uuid5
 import numpy as np
 import pytest
 
-from rva_schemas.record import FaceBox, FaceBoxes
+from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import (
+    Body,
     BoundingBox,
     FaceAppeared,
+    FaceFeatures,
     FaceLeft,
+    Gaze,
+    Hand,
+    Keypoint,
     KnownPerson,
     NameTakenError,
     TrackedFace,
@@ -22,8 +27,8 @@ from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.detector import Detection, decode_yunet
 from rva_vision_faces.embedder import Embedding, align
 from rva_vision_faces.gallery import Gallery
+from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.tracker import Track, Tracker
-from rva_vision_faces.vision import face_boxes
 from rva_vision_faces.window import label
 
 MATCHING = MatchConfig(threshold=0.363, margin=0.05)
@@ -236,6 +241,76 @@ def test_tracker_keeps_the_track_of_a_face_that_jumped_by_its_embedding() -> Non
     ]
 
 
+def test_tracker_stops_embedding_a_recognized_track_and_keeps_its_person() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([(_person("Alice"), np.stack([_unit(1, 0, 0)]))], MATCHING)
+    embedded: list[float] = []
+
+    def embed(detection: Detection) -> Embedding:
+        embedded.append(detection.box.x)
+        return _embed_by_score(detection)
+
+    tracker.update(0.0, [_detection(100, 0.0)], embed, gallery)
+    # Seconds later, with samples due, the face moved a little: still Alice, not embedded again.
+    tracker.update(1.5, [_detection(110, 0.0)], embed, gallery)
+    tracker.update(3.0, [_detection(120, 0.0)], embed, gallery)
+
+    assert embedded == [100]
+    assert [face.person for face in tracker.faces()] == [_person("Alice")]
+
+
+def test_tracker_samples_an_unknown_track_until_it_is_recognized() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([(_person("Alice"), np.stack([_unit(1, 0, 0)]))], MATCHING)
+    samples = iter([_unit(0, 0, 1), _unit(0, 0, 1), _unit(1, 0.1, 0), _unit(0, 0, 1)])
+
+    def embed(detection: Detection) -> Embedding:
+        return next(samples)
+
+    tracker.update(0.0, [_detection(100, 0.0)], embed, gallery)
+    tracker.update(0.5, [_detection(100, 0.0)], embed, gallery)
+    assert [face.person for face in tracker.faces()] == [None]
+    tracker.update(1.0, [_detection(100, 0.0)], embed, gallery)
+    assert [face.person for face in tracker.faces()] == [None]
+    tracker.update(2.0, [_detection(100, 0.0)], embed, gallery)
+    assert [face.person for face in tracker.faces()] == [_person("Alice")]
+    tracker.update(3.0, [_detection(100, 0.0)], embed, gallery)
+    assert [face.person for face in tracker.faces()] == [_person("Alice")]
+
+
+def test_tracker_gives_a_person_already_on_a_track_to_no_other() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([(_person("Alice"), np.stack([_unit(1, 0, 0)]))], MATCHING)
+    tracker.update(0.0, [_detection(100, 0.0)], lambda _: _unit(1, 0.5, 0), gallery)
+
+    # A second face, closer to Alice's samples, appears while the first is still followed.
+    tracker.update(
+        0.6, [_detection(100, 0.0), _detection(1000, 0.05)], lambda _: _unit(1, 0, 0), gallery
+    )
+
+    assert [
+        (track.track_id, None if track.match is None else track.match.person)
+        for track in tracker.tracks
+    ] == [(1, _person("Alice")), (2, None)]
+
+
+def test_tracker_recognizes_every_track_again_when_people_change() -> None:
+    tracker = Tracker(TRACKING)
+    alice = _person("Alice")
+    tracker.update(
+        0.0,
+        [_detection(100, 0.0)],
+        _embed_by_score,
+        Gallery([(alice, np.stack([_unit(1, 0, 0)]))], MATCHING),
+    )
+    renamed = KnownPerson(user_id=alice.user_id, name="Alicia")
+
+    tracker.recognize(Gallery([(renamed, np.stack([_unit(1, 0, 0)]))], MATCHING))
+    assert [track.match.person for track in tracker.tracks if track.match is not None] == [renamed]
+    tracker.recognize(Gallery([], MATCHING))
+    assert [track.match for track in tracker.tracks] == [None]
+
+
 def test_window_label_shows_track_name_and_user_id() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([(_person("Alice"), np.stack([_unit(1, 0, 0)]))], MATCHING)
@@ -264,31 +339,60 @@ def test_database_renames_and_grants_without_changing_the_user(tmp_path: Path) -
     assert not database.revoke_operator(bob.user_id)
 
 
-def test_face_boxes_are_scaled_and_carry_what_the_speaker_said() -> None:
-    speaker = Track(
-        track_id=3, box=BoundingBox(x=100, y=200, width=50, height=80), now=0, samples=1
+def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
+    speaker = Track(track_id=3, detection=_detection(100, 0.0), now=0, samples=1)
+    other = Track(track_id=4, detection=_detection(400, 0.0), now=0, samples=1)
+    hand = Hand(keypoints=(Keypoint(x=10, y=20, score=0.9), None))
+    body = Body(
+        box=BoundingBox(x=100, y=100, width=200, height=400),
+        keypoints=(Keypoint(x=150, y=160, score=0.8), None),
+        left_hand=hand,
+        right_hand=hand,
     )
-    other = Track(track_id=4, box=BoundingBox(x=0, y=0, width=10, height=10), now=0, samples=1)
+    face = FaceFeatures(
+        landmarks=((120.0, 140.0), (180.0, 140.0)),
+        left_eye_open=0.9,
+        right_eye_open=0.8,
+        mouth_open=0.1,
+        gaze=Gaze(yaw=5.0, pitch=-2.0),
+        expression="happy",
+        expression_score=0.7,
+    )
+    scene = Scene(faces={3: face}, bodies={3: body}, unmatched_bodies=(body,))
 
-    boxes = face_boxes([speaker, other], scale=0.5, width=960, height=540, caption=(3, "hello"))
+    people = people_in_view(
+        [speaker, other], scene, scale=0.5, width=960, height=540, caption=(3, "hello")
+    )
 
-    assert boxes == FaceBoxes(
+    half_hand = Hand(keypoints=(Keypoint(x=5, y=10, score=0.9), None))
+    half_body = Body(
+        box=BoundingBox(x=50, y=50, width=100, height=200),
+        keypoints=(Keypoint(x=75, y=80, score=0.8), None),
+        left_hand=half_hand,
+        right_hand=half_hand,
+    )
+    assert people == PeopleInView(
         image_width=960,
         image_height=540,
-        boxes=(
-            FaceBox(
+        people=(
+            TrackedPerson(
                 track_id=3,
-                box=BoundingBox(x=50, y=100, width=25, height=40),
+                box=BoundingBox(x=50, y=50, width=50, height=60),
                 person=None,
                 confirmed=False,
                 said="hello",
+                face=face.model_copy(update={"landmarks": ((60.0, 70.0), (90.0, 70.0))}),
+                body=half_body,
             ),
-            FaceBox(
+            TrackedPerson(
                 track_id=4,
-                box=BoundingBox(x=0, y=0, width=5, height=5),
+                box=BoundingBox(x=200, y=50, width=50, height=60),
                 person=None,
                 confirmed=False,
                 said=None,
+                face=None,
+                body=None,
             ),
         ),
+        unmatched_bodies=(half_body,),
     )

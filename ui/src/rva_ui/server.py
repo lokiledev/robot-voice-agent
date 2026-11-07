@@ -16,12 +16,12 @@ from rva_schemas.dialogue import UserUtterance
 from rva_schemas.record import (
     AgentStarted,
     CameraFrame,
-    FaceBoxes,
     FaceUpdate,
     GazeUpdate,
     Measurement,
     MotionUpdate,
     MuteUpdate,
+    PeopleInView,
     Record,
     RobotLine,
     RobotSentence,
@@ -86,7 +86,7 @@ class UiServer:
 
     def record(self, entry: Record) -> None:
         match entry:
-            case FaceBoxes() | CameraFrame():
+            case PeopleInView() | CameraFrame():
                 # The boxes are drawn into the video stream instead.
                 return
             case Measurement():

@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -13,6 +13,78 @@ class BoundingBox(RVABaseModel):
     y: float
     width: float
     height: float
+
+
+class Keypoint(RVABaseModel):
+    """A point of a skeleton, in image pixels."""
+
+    x: float
+    y: float
+    score: float
+    """The pose model's confidence."""
+
+
+class Hand(RVABaseModel):
+    keypoints: tuple[Keypoint | None, ...]
+    """21 points in COCO-WholeBody order: the wrist, then each finger from the thumb, from its base
+    to its tip; `None` where the model is not confident."""
+
+
+class Body(RVABaseModel):
+    """The skeleton of one person."""
+
+    box: BoundingBox
+    """Where the person was detected."""
+    keypoints: tuple[Keypoint | None, ...]
+    """23 points in COCO-WholeBody order: the 17 of COCO (nose, eyes, ears, shoulders, elbows,
+    wrists, hips, knees, ankles, each pair left first), then the big toe, small toe and heel of the
+    left foot and of the right; `None` where the model is not confident."""
+    left_hand: Hand
+    """The person's own left."""
+    right_hand: Hand
+
+
+BODY_CONNECTIONS: Final = (
+    (0, 1), (0, 2), (1, 3), (2, 4), (3, 5), (4, 6),
+    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
+    (5, 11), (6, 12), (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),
+    (15, 17), (15, 18), (15, 19), (16, 20), (16, 21), (16, 22),
+)  # fmt: skip
+"""Bones between `Body.keypoints`, as index pairs."""
+HAND_CONNECTIONS: Final = tuple(
+    (0 if joint == 0 else base + joint - 1, base + joint)
+    for base in (1, 5, 9, 13, 17)
+    for joint in range(4)
+)
+"""Bones between `Hand.keypoints`: from the wrist along each finger."""
+
+
+type Expression = Literal["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
+
+
+class Gaze(RVABaseModel):
+    """Where the eyes point, in degrees; both are 0 when looking straight at the camera."""
+
+    yaw: float
+    """Positive towards the right of the image."""
+    pitch: float
+    """Positive upwards."""
+
+
+class FaceFeatures(RVABaseModel):
+    """What a face shows in one frame."""
+
+    landmarks: tuple[tuple[float, float], ...]
+    """The 478 points of MediaPipe's face mesh, in image pixels; 468 to 477 are the irises."""
+    left_eye_open: float
+    """From 0, closed, to 1, open; the person's own left."""
+    right_eye_open: float
+    mouth_open: float
+    """From 0, closed, to 1, wide open."""
+    gaze: Gaze
+    expression: Expression
+    expression_score: float
+    """Probability of `expression`, from 0 to 1."""
 
 
 class KnownPerson(RVABaseModel):
