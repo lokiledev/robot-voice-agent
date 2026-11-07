@@ -1,20 +1,42 @@
 import pytest
 
-from rva_schemas.vision import BoundingBox, Gaze
-from rva_vision_faces.attention import Attention, off_camera, prominence
-from rva_vision_faces.config import EyeContactConfig
+from rva_schemas.vision import BoundingBox, FaceFeatures, Gaze
+from rva_vision_faces.attention import Attention, lip_aperture, off_camera, prominence
+from rva_vision_faces.config import EyeContactConfig, SpeakingConfig
 
-CONFIG = EyeContactConfig(window_s=0.4, enter_deg=12.0, leave_deg=18.0)
+EYE_CONTACT = EyeContactConfig(window_s=0.4, enter_deg=12.0, leave_deg=18.0)
+SPEAKING = SpeakingConfig(window_s=0.4, enter=0.03, leave=0.015)
 CENTER = BoundingBox(x=900, y=300, width=120, height=150)
 """A face in the middle of a 1920 x 1080 frame."""
 LOOKING = Gaze(yaw=3.0, pitch=-2.0)
 AWAY = Gaze(yaw=40.0, pitch=0.0)
 
 
+def face(gaze: Gaze, aperture: float = 0.0) -> FaceFeatures:
+    """A face whose lips are `aperture` times its mouth's width of 50 pixels apart."""
+    landmarks = [(0.0, 0.0)] * 478
+    landmarks[78], landmarks[308] = (475.0, 400.0), (525.0, 400.0)
+    landmarks[13], landmarks[14] = (500.0, 400.0), (500.0, 400.0 + 50 * aperture)
+    return FaceFeatures(
+        landmarks=tuple(landmarks),
+        left_eye_open=1.0,
+        right_eye_open=1.0,
+        mouth_open=0.0,
+        gaze=gaze,
+        expression="neutral",
+        expression_score=1.0,
+    )
+
+
 def test_off_camera_is_the_angle_from_looking_straight_at_it() -> None:
     assert off_camera(Gaze(yaw=0.0, pitch=0.0)) == 0.0
     assert off_camera(Gaze(yaw=-15.0, pitch=0.0)) == pytest.approx(15.0)
     assert off_camera(Gaze(yaw=0.0, pitch=20.0)) == pytest.approx(20.0)
+
+
+def test_lip_aperture_is_the_gap_between_the_lips_over_the_mouths_width() -> None:
+    assert lip_aperture(face(LOOKING).landmarks) == 0.0
+    assert lip_aperture(face(LOOKING, 0.3).landmarks) == pytest.approx(0.3)
 
 
 def test_prominence_favors_a_central_face_over_a_larger_one_at_the_edge() -> None:
@@ -26,11 +48,11 @@ def test_prominence_favors_a_central_face_over_a_larger_one_at_the_edge() -> Non
 
 
 def test_eye_contact_holds_through_a_blink_and_ends_when_the_gaze_turns_away() -> None:
-    attention = Attention(CONFIG)
+    attention = Attention(EYE_CONTACT, SPEAKING)
     gazes = [LOOKING, LOOKING, LOOKING, AWAY, LOOKING, AWAY, AWAY, AWAY, AWAY]
 
     contact = [
-        attention.update(0.1 * frame, {7: (CENTER, gaze)}, 1920, 1080)
+        attention.update(0.1 * frame, {7: (CENTER, face(gaze))}, 1920, 1080)
         for frame, gaze in enumerate(gazes)
     ]
 
@@ -40,10 +62,10 @@ def test_eye_contact_holds_through_a_blink_and_ends_when_the_gaze_turns_away() -
 
 
 def test_eye_contact_starts_within_the_tighter_threshold_and_ends_beyond_the_looser() -> None:
-    attention = Attention(CONFIG.model_copy(update={"window_s": 0.0}))
+    attention = Attention(EYE_CONTACT.model_copy(update={"window_s": 0.0}), SPEAKING)
 
     def look(time: float, yaw: float) -> bool:
-        user = attention.update(time, {7: (CENTER, Gaze(yaw=yaw, pitch=0.0))}, 1920, 1080)
+        user = attention.update(time, {7: (CENTER, face(Gaze(yaw=yaw, pitch=0.0)))}, 1920, 1080)
         assert user is not None
         return user.eye_contact
 
@@ -54,14 +76,34 @@ def test_eye_contact_starts_within_the_tighter_threshold_and_ends_beyond_the_loo
     ]  # fmt: skip
 
 
+def test_speaking_needs_the_lips_to_move_not_just_to_be_open() -> None:
+    attention = Attention(EYE_CONTACT, SPEAKING)
+    # Closed, then held wide open, then talking, then closed again; a frame every 0.1 s.
+    apertures = [0.0] * 4 + [0.3] * 6 + [0.05, 0.2, 0.0, 0.15, 0.05, 0.2] + [0.0] * 6
+
+    speaking = []
+    for frame, aperture in enumerate(apertures):
+        user = attention.update(0.1 * frame, {7: (CENTER, face(LOOKING, aperture))}, 1920, 1080)
+        assert user is not None
+        speaking.append(user.speaking)
+
+    assert speaking == [
+        False, False, False, False,
+        True, True, True, True, False, False,  # opening moves the lips, holding them open does not
+        True, True, True, True, True, True,
+        True, True, True, True, False, False,  # the window bridges the end of a word
+    ]  # fmt: skip
+
+
 def test_the_main_user_stays_until_someone_clearly_more_prominent_comes() -> None:
-    attention = Attention(CONFIG)
+    attention = Attention(EYE_CONTACT, SPEAKING)
     beside = BoundingBox(x=700, y=300, width=120, height=160)
     closer = BoundingBox(x=700, y=300, width=200, height=260)
+    looking, away = face(LOOKING), face(AWAY)
 
-    first = attention.update(0.0, {7: (CENTER, LOOKING)}, 1920, 1080)
-    slightly_better = attention.update(0.1, {7: (CENTER, LOOKING), 8: (beside, AWAY)}, 1920, 1080)
-    clearly_better = attention.update(0.2, {7: (CENTER, LOOKING), 8: (closer, AWAY)}, 1920, 1080)
+    first = attention.update(0.0, {7: (CENTER, looking)}, 1920, 1080)
+    slightly_better = attention.update(0.1, {7: (CENTER, looking), 8: (beside, away)}, 1920, 1080)
+    clearly_better = attention.update(0.2, {7: (CENTER, looking), 8: (closer, away)}, 1920, 1080)
 
     assert first is not None and (first.track_id, first.eye_contact) == (7, True)
     assert slightly_better is not None and slightly_better.track_id == 7

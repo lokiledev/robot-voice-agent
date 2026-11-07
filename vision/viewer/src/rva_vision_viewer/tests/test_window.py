@@ -74,9 +74,13 @@ def test_describe_depth_says_whether_it_is_calibrated() -> None:
 
 
 def test_the_main_user_is_described_and_their_signals_are_off_while_nobody_is_in_view() -> None:
-    user = MainUser(track_id=4, gaze_off_camera=6.4, eye_contact=True)
+    user = MainUser(
+        track_id=4, gaze_off_camera=6.4, eye_contact=True, mouth_motion=0.0412, speaking=True
+    )
 
-    assert describe_main_user(user) == "main user #4: eye contact, gaze 6 deg off"
+    assert describe_main_user(user) == (
+        "main user #4: eye contact, gaze 6 deg off; speaking, mouth motion 0.041"
+    )
     assert describe_main_user(None) == "nobody in view"
-    assert signals(user) == {"eye contact": True}
-    assert signals(None) == {"eye contact": False}
+    assert signals(user) == {"eye contact": True, "speaking": True}
+    assert signals(None) == {"eye contact": False, "speaking": False}

@@ -99,6 +99,12 @@ class MainUser(RVABaseModel):
     """Angle between the gaze and the camera, in degrees, as a median over the last few frames."""
     eye_contact: bool
     """Whether they look at the robot's camera, held through blinks."""
+    mouth_motion: float
+    """How much the gap between their lips varied over the last second or so, as a fraction of
+    the mouth's width."""
+    speaking: bool
+    """Whether their lips move as in speech, from the image alone: chewing or laughing counts
+    too."""
 
 
 class KnownPerson(RVABaseModel):

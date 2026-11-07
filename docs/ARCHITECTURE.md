@@ -210,6 +210,19 @@ flowchart LR
   image) with glasses and +1.5 without. So no offset is taken off; the thresholds absorb it.
   Rules rather than a model, until recordings show where they fail.
   Shown in the debug window only for now.
+- **Speaking, from the lips.** The main user speaks while their lips move: the gap between the
+  inner lips over the mouth's width, from the face mesh, has a standard deviation over the last
+  0.4 s above 0.03, then until it falls under 0.015 (`face_features.speaking`). Motion rather than
+  opening, so a mouth held open does not count, and the window bridges the pauses between words.
+  In a recording of talking with pauses, the motion was 0.05 to 0.10 while talking and under 0.007
+  in between; a 0.4 s window found the same stretches of speech as a 0.8 s one, each ending 0.3 s
+  sooner, which matters for turn-taking, while 0.3 s split them apart.
+  The lips rather than the jaw-open blendshape, which barely moves when only the lips do; still,
+  the face resting reads about 0.003. It cannot tell speech from chewing, laughing or mouthing
+  words. Active speaker detection models (TalkNet, Light-ASD, LoCoNet, around 92 to 95% mAP on
+  AVA-ActiveSpeaker) learn whether the lips match the audio from both: the next step, to compare
+  against this rule on the same recordings, since turn-taking needs to know who speaks, not only
+  whose lips move. Light-ASD is about a million parameters, small enough to run beside the rest.
 , RTMW places the 133 COCO-WholeBody keypoints on each; the upper
   body (head, shoulders, elbows, wrists and hips) and both hands (21 points each) are kept. Legs and
   feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
@@ -234,7 +247,7 @@ flowchart LR
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
   mouse and whether the camera is calibrated. Underneath, a timeline of the main user's signals,
-  one lane each, the last 30 s: eye contact for now. It lives in its own package behind the `FrameViewer`
+  one lane each, the last 30 s: eye contact and speaking. It lives in its own package behind the `FrameViewer`
   protocol, so the camera pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,

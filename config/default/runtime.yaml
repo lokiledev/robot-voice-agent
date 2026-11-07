@@ -78,6 +78,12 @@ vision:
       window_s: 0.4
       enter_deg: 12.0
       leave_deg: 18.0
+    # The main user's lips, moving more than enter (the spread of their gap, over the mouth's
+    # width), then until they move less than leave.
+    speaking:
+      window_s: 0.4
+      enter: 0.03
+      leave: 0.015
   body:
     detector:
       repo: yzd-v/DWPose

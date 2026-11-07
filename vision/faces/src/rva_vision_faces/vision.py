@@ -242,7 +242,9 @@ class FaceVision:
         camera = Camera(config.camera)
         window = None if self._viewer is None else self._viewer()
         attention = (
-            None if config.face_features is None else Attention(config.face_features.eye_contact)
+            None
+            if config.face_features is None
+            else Attention(config.face_features.eye_contact, config.face_features.speaking)
         )
         publisher = (
             RtspPublisher(config.stream, config.camera.width, config.camera.height)
@@ -367,7 +369,7 @@ class FaceVision:
         height, width = frame.shape[:2]
         return attention.update(
             time.monotonic(),
-            {track_id: (boxes[track_id], face.gaze) for track_id, face in scene.faces.items()},
+            {track_id: (boxes[track_id], face) for track_id, face in scene.faces.items()},
             width,
             height,
         )

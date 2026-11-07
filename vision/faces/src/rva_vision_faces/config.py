@@ -106,6 +106,29 @@ class EyeContactConfig(RVABaseModel):
         return self
 
 
+class SpeakingConfig(RVABaseModel):
+    """When the main user's mouth moves enough to count as speaking.
+
+    The motion is the standard deviation of the gap between the lips over a short window: it is
+    high while the lips open and close with the syllables, and low for a mouth held still, open or
+    shut. Two thresholds keep it from flickering at the edge.
+    """
+
+    window_s: float = Field(gt=0)
+    """How much of the lips' history the motion is taken over; it bridges the pauses between
+    words."""
+    enter: float = Field(gt=0)
+    """Speaking starts once the motion is above this, as a fraction of the mouth's width."""
+    leave: float = Field(gt=0)
+    """Speaking ends once the motion is below this."""
+
+    @model_validator(mode="after")
+    def _leave_below_enter(self) -> "SpeakingConfig":
+        if self.leave > self.enter:
+            raise ValueError(f"leave {self.leave} is above enter {self.enter}")
+        return self
+
+
 class FaceFeaturesConfig(RVABaseModel):
     """Models reading eyes, gaze, mouth and expression on each tracked face."""
 
@@ -118,6 +141,7 @@ class FaceFeaturesConfig(RVABaseModel):
     expression: ModelFile
     """A ViT fine-tuned on FER2013: seven expressions from a 224x224 face crop."""
     eye_contact: EyeContactConfig
+    speaking: SpeakingConfig
 
 
 class BodyConfig(RVABaseModel):

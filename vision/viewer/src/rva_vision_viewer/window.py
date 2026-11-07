@@ -260,15 +260,20 @@ class DebugWindow:
 
 def signals(main_user: MainUser | None) -> dict[str, bool]:
     """The main user's signals shown on the timeline, each off while nobody is in view."""
-    return {"eye contact": main_user is not None and main_user.eye_contact}
+    return {
+        "eye contact": main_user is not None and main_user.eye_contact,
+        "speaking": main_user is not None and main_user.speaking,
+    }
 
 
 def describe_main_user(main_user: MainUser | None) -> str:
     if main_user is None:
         return "nobody in view"
     contact = "eye contact" if main_user.eye_contact else "no eye contact"
+    speaking = "speaking" if main_user.speaking else "silent"
     return (
         f"main user #{main_user.track_id}: {contact}, gaze {main_user.gaze_off_camera:.0f} deg off"
+        f"; {speaking}, mouth motion {main_user.mouth_motion:.3f}"
     )
 
 
