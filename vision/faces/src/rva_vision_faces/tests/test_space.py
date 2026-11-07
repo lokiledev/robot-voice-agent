@@ -99,7 +99,7 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
         right_eye_open=1.0,
         mouth_open=0.0,
         gaze=Gaze(yaw=0.0, pitch=0.0),
-        gaze_ray=None,
+        in_3d=None,
         expression="neutral",
         expression_score=0.9,
     )
@@ -115,7 +115,9 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
     assert left_hand is not None and left_hand.keypoints[0] is not None
     assert left_hand.keypoints[0].position == Point3D(x=1.0, y=0.5, z=2.0)
     assert lifted.unmatched_bodies[0] == lifted.bodies[1]
-    ray = lifted.faces[1].gaze_ray
-    assert ray is not None
-    assert _xyz(ray.origin) == pytest.approx((0.0, 0.0, 2.0), abs=1e-6)
-    assert _xyz(ray.direction) == pytest.approx((0.0, 0.0, -1.0), abs=1e-6)
+    face_3d = lifted.faces[1].in_3d
+    assert face_3d is not None
+    assert _xyz(face_3d.landmarks[473]) == pytest.approx((0.12, 0.0, 2.0), abs=1e-6)
+    assert _xyz(face_3d.landmarks[0]) == pytest.approx((-1.92, -1.08, 2.0), abs=1e-6)
+    assert _xyz(face_3d.gaze.origin) == pytest.approx((0.0, 0.0, 2.0), abs=1e-6)
+    assert _xyz(face_3d.gaze.direction) == pytest.approx((0.0, 0.0, -1.0), abs=1e-6)

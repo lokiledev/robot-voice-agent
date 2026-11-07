@@ -21,6 +21,7 @@ from rva_schemas.vision import (
     BoundingBox,
     CameraIntrinsics,
     DepthMap,
+    Face3D,
     FaceFeatures,
     Gaze,
     GazeRay,
@@ -76,8 +77,11 @@ def test_people_are_drawn_on_the_image_and_in_3d(tmp_path: Path) -> None:
         right_eye_open=0.8,
         mouth_open=0.3,
         gaze=Gaze(yaw=5.0, pitch=-2.0),
-        gaze_ray=GazeRay(
-            origin=Point3D(x=0.0, y=-0.2, z=1.5), direction=Point3D(x=0.0, y=0.0, z=-1.0)
+        in_3d=Face3D(
+            landmarks=tuple(Point3D(x=i / 1000, y=-0.2, z=1.5) for i in range(478)),
+            gaze=GazeRay(
+                origin=Point3D(x=0.0, y=-0.2, z=1.5), direction=Point3D(x=0.0, y=0.0, z=-1.0)
+            ),
         ),
         expression="happy",
         expression_score=0.7,
@@ -114,6 +118,7 @@ def test_people_are_drawn_on_the_image_and_in_3d(tmp_path: Path) -> None:
         "/camera/image",
         "/depth",
         "/depth/image",
+        "/space/people/1/face",
         "/space/people/1/gaze",
         "/space/people/1/body",
         "/space/people/1/body/left_hand",

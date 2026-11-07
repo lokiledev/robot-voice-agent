@@ -100,6 +100,15 @@ class GazeRay(RVABaseModel):
     """A unit vector."""
 
 
+class Face3D(RVABaseModel):
+    """A face in the camera's frame, from the depth under it."""
+
+    landmarks: tuple[Point3D, ...]
+    """`FaceFeatures.landmarks`, each at the depth around it: the depth model's relief of the
+    face, coarser than the mesh's."""
+    gaze: GazeRay
+
+
 class FaceFeatures(RVABaseModel):
     """What a face shows in one frame."""
 
@@ -111,9 +120,9 @@ class FaceFeatures(RVABaseModel):
     mouth_open: float
     """From 0, closed, to 1, wide open."""
     gaze: Gaze
-    gaze_ray: GazeRay | None
-    """`gaze` in the camera's frame, from the depth between the eyes; `None` without depth or the
-    camera's intrinsics."""
+    in_3d: Face3D | None
+    """The landmarks and the gaze in the camera's frame; `None` without depth or the camera's
+    intrinsics."""
     expression: Expression
     expression_score: float
     """Probability of `expression`, from 0 to 1."""

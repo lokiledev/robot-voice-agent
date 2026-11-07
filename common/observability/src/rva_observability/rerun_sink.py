@@ -53,6 +53,10 @@ _DEPTH: Final = "depth"
 _DEPTH_STRIDE: Final = 2
 _GAZE_LENGTH_M: Final = 0.5
 _BODY_CLASS: Final = 1
+_EYES: Final = {1: "left eye", 2: "right eye"}
+"""The eyes among `Body.keypoints`, labeled in rerun; the person's own left and right."""
+_EYE_COLOR: Final = (0, 255, 255)
+"""As the gaze arrows."""
 # RGB, as in the debug window.
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (255, 165, 0)
@@ -88,8 +92,13 @@ class RerunRecorder:
                 path,
                 rr.AnnotationContext(
                     [
+                        # No label for the class: rerun would put it on every point.
                         rr.ClassDescription(
-                            info=(_BODY_CLASS, "body"), keypoint_connections=BODY_CONNECTIONS
+                            info=rr.AnnotationInfo(_BODY_CLASS),
+                            keypoint_annotations=[
+                                rr.AnnotationInfo(index, label) for index, label in _EYES.items()
+                            ],
+                            keypoint_connections=BODY_CONNECTIONS,
                         ),
                     ]
                 ),
@@ -185,8 +194,14 @@ class RerunRecorder:
             if person.face is not None:
                 entities.update(_face(path, person.face, _color(person)))
                 self._face_series(person.track_id, person.face)
-                if person.face.gaze_ray is not None:
-                    entities[f"{path_3d}/gaze"] = _gaze_3d(person.face.gaze_ray, _label(person))
+                if person.face.in_3d is not None:
+                    face_3d = person.face.in_3d
+                    entities[f"{path_3d}/face"] = rr.Points3D(
+                        [_xyz(point) for point in face_3d.landmarks],
+                        colors=_color(person),
+                        radii=0.0015,
+                    )
+                    entities[f"{path_3d}/gaze"] = _gaze_3d(face_3d.gaze, _label(person))
             if person.body is not None:
                 entities.update(_body(f"{path}/body", person.body, _color(person)))
                 entities.update(_body_3d(f"{path_3d}/body", person.body, _color(person)))
@@ -253,7 +268,7 @@ def _body_3d(path: str, body: Body, color: tuple[int, int, int]) -> dict[str, rr
             [_xyz(position) for _, position in placed],
             keypoint_ids=[index for index, _ in placed],
             class_ids=_BODY_CLASS,
-            colors=color,
+            colors=_keypoint_colors([index for index, _ in placed], color),
             radii=0.015,
         )
     for name, hand, colors in _hands(body):
@@ -340,9 +355,14 @@ def _skeleton(
         [(point.x, point.y) for _, point in visible],
         keypoint_ids=[index for index, _ in visible],
         class_ids=class_id,
-        colors=color,
+        colors=_keypoint_colors([index for index, _ in visible], color),
         radii=2.0,
     )
+
+
+def _keypoint_colors(indices: list[int], color: tuple[int, int, int]) -> list[tuple[int, int, int]]:
+    """`color` for each skeleton point but the eyes, which stand out."""
+    return [_EYE_COLOR if index in _EYES else color for index in indices]
 
 
 def _who(speaker: Speaker | None) -> str:

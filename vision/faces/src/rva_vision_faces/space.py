@@ -2,11 +2,13 @@ import math
 from typing import Final
 
 import numpy as np
+import numpy.typing as npt
 
 from rva_schemas.vision import (
     Body,
     CameraIntrinsics,
     DepthMap,
+    Face3D,
     FaceFeatures,
     Gaze,
     GazeRay,
@@ -52,18 +54,28 @@ def lift(scene: Scene, depth: DepthMap, intrinsics: CameraIntrinsics) -> Scene:
 
 def back_project(x: float, y: float, depth: DepthMap, intrinsics: CameraIntrinsics) -> Point3D:
     """The point seen at pixel (`x`, `y`) of the frame, at the depth around it."""
+    ((px, py, pz),) = _back_project_all(np.array([[x, y]]), depth, intrinsics)
+    return Point3D(x=float(px), y=float(py), z=float(pz))
+
+
+def _back_project_all(
+    pixels: npt.NDArray[np.float64], depth: DepthMap, intrinsics: CameraIntrinsics
+) -> npt.NDArray[np.float64]:
+    """`back_project` for N pixels at once, N x 2 in, N x 3 out; patches stop at the border."""
     rows, columns = depth.metres.shape
-    column = min(max(round(x * columns / intrinsics.width), 0), columns - 1)
-    row = min(max(round(y * rows / intrinsics.height), 0), rows - 1)
-    patch = depth.metres[
-        max(row - _PATCH_RADIUS, 0) : row + _PATCH_RADIUS + 1,
-        max(column - _PATCH_RADIUS, 0) : column + _PATCH_RADIUS + 1,
-    ]
-    z = float(np.percentile(patch, _NEAR_PERCENTILE))
-    return Point3D(
-        x=(x - intrinsics.cx) / intrinsics.fx * z,
-        y=(y - intrinsics.cy) / intrinsics.fy * z,
-        z=z,
+    offsets = np.arange(-_PATCH_RADIUS, _PATCH_RADIUS + 1)
+    row = np.rint(pixels[:, 1] * rows / intrinsics.height).astype(np.intp)
+    column = np.rint(pixels[:, 0] * columns / intrinsics.width).astype(np.intp)
+    patch_rows = np.clip(row[:, None, None] + offsets[None, :, None], 0, rows - 1)
+    patch_columns = np.clip(column[:, None, None] + offsets[None, None, :], 0, columns - 1)
+    patches = depth.metres[patch_rows, patch_columns].reshape(len(pixels), -1)
+    z = np.percentile(patches, _NEAR_PERCENTILE, axis=1).astype(np.float64)
+    return np.column_stack(
+        [
+            (pixels[:, 0] - intrinsics.cx) / intrinsics.fx * z,
+            (pixels[:, 1] - intrinsics.cy) / intrinsics.fy * z,
+            z,
+        ]
     )
 
 
@@ -91,8 +103,12 @@ def gaze_direction(eyes: Point3D, gaze: Gaze) -> Point3D:
 def _lift_face(face: FaceFeatures, depth: DepthMap, intrinsics: CameraIntrinsics) -> FaceFeatures:
     (left_x, left_y), (right_x, right_y) = (face.landmarks[iris] for iris in _IRISES)
     eyes = back_project((left_x + right_x) / 2, (left_y + right_y) / 2, depth, intrinsics)
-    ray = GazeRay(origin=eyes, direction=gaze_direction(eyes, face.gaze))
-    return face.model_copy(update={"gaze_ray": ray})
+    landmarks = _back_project_all(np.array(face.landmarks), depth, intrinsics)
+    in_3d = Face3D(
+        landmarks=tuple(Point3D(x=x, y=y, z=z) for x, y, z in landmarks.tolist()),
+        gaze=GazeRay(origin=eyes, direction=gaze_direction(eyes, face.gaze)),
+    )
+    return face.model_copy(update={"in_3d": in_3d})
 
 
 def _lift_body(body: Body, depth: DepthMap, intrinsics: CameraIntrinsics) -> Body:

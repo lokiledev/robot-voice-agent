@@ -359,7 +359,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
         right_eye_open=0.8,
         mouth_open=0.1,
         gaze=Gaze(yaw=5.0, pitch=-2.0),
-        gaze_ray=None,
+        in_3d=None,
         expression="happy",
         expression_score=0.7,
     )
