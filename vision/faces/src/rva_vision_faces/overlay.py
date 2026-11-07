@@ -1,11 +1,19 @@
 import textwrap
 from collections.abc import Sequence
+from itertools import pairwise
 from typing import Final
 
 import cv2
 import numpy as np
 
-from rva_schemas.vision import BODY_CONNECTIONS, HAND_CONNECTIONS, Body, FaceFeatures, VisionTimings
+from rva_schemas.vision import (
+    BODY_CONNECTIONS,
+    FINGERS,
+    Body,
+    FaceFeatures,
+    Keypoint,
+    VisionTimings,
+)
 from rva_vision_faces.detector import Image
 from rva_vision_faces.scene import Scene
 from rva_vision_faces.tracker import Track
@@ -22,6 +30,15 @@ _FACE_CONTOURS: Final = (
     (61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185),
     (78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191),
 )  # fmt: skip
+_FINGER_COLORS: Final = (
+    (255, 0, 255),
+    (0, 255, 255),
+    (255, 255, 0),
+    (0, 128, 255),
+    (255, 0, 128),
+)
+"""BGR colors of the thumb (magenta), index (yellow), middle (cyan), ring (orange) and little
+finger (purple)."""
 _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
 
@@ -144,18 +161,27 @@ def _draw_speech(
 
 
 def _draw_body(frame: Image, body: Body, color: tuple[int, int, int], thickness: int) -> None:
-    for keypoints, connections in (
-        (body.keypoints, BODY_CONNECTIONS),
-        (body.left_hand.keypoints, HAND_CONNECTIONS),
-        (body.right_hand.keypoints, HAND_CONNECTIONS),
-    ):
-        for start, end in connections:
-            a, b = keypoints[start], keypoints[end]
-            if a is not None and b is not None:
-                cv2.line(frame, _point(a.x, a.y), _point(b.x, b.y), color, thickness)
-        for keypoint in keypoints:
-            if keypoint is not None:
-                cv2.circle(frame, _point(keypoint.x, keypoint.y), thickness + 1, color, -1)
+    """Draw the body in the track's color, and each finger of both hands in a color of its own."""
+    _draw_bones(frame, body.keypoints, BODY_CONNECTIONS, color, thickness)
+    for hand in (body.left_hand, body.right_hand):
+        for finger, finger_color in zip(FINGERS, _FINGER_COLORS, strict=True):
+            _draw_bones(frame, hand.keypoints, tuple(pairwise(finger)), finger_color, thickness)
+
+
+def _draw_bones(
+    frame: Image,
+    keypoints: tuple[Keypoint | None, ...],
+    bones: tuple[tuple[int, int], ...],
+    color: tuple[int, int, int],
+    thickness: int,
+) -> None:
+    for start, end in bones:
+        a, b = keypoints[start], keypoints[end]
+        if a is not None and b is not None:
+            cv2.line(frame, _point(a.x, a.y), _point(b.x, b.y), color, thickness)
+    for index in {index for bone in bones for index in bone}:
+        if (keypoint := keypoints[index]) is not None:
+            cv2.circle(frame, _point(keypoint.x, keypoint.y), thickness + 1, color, -1)
 
 
 def _draw_face(

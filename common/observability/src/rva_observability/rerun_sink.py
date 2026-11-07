@@ -24,7 +24,7 @@ from rva_schemas.record import (
     TrackedPerson,
     UserLine,
 )
-from rva_schemas.vision import BODY_CONNECTIONS, HAND_CONNECTIONS, Body, FaceFeatures, Keypoint
+from rva_schemas.vision import BODY_CONNECTIONS, FINGERS, Body, FaceFeatures, Hand, Keypoint
 
 _TIMELINE: Final = "wall"
 _CAMERA: Final = "camera"
@@ -32,11 +32,18 @@ _CAMERA: Final = "camera"
 _PEOPLE: Final = f"{_CAMERA}/people"
 """One entity per face track, under which its face, skeleton and hands hang."""
 _BODY_CLASS: Final = 1
-_HAND_CLASS: Final = 2
 # RGB, as in the debug window.
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (255, 165, 0)
 _UNCONFIRMED: Final = (160, 160, 160)
+_FINGER_COLORS: Final = (
+    (255, 0, 255),
+    (255, 255, 0),
+    (0, 255, 255),
+    (255, 128, 0),
+    (128, 0, 255),
+)
+"""Thumb, index, middle, ring and little finger, as in the debug window."""
 _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
 
@@ -52,9 +59,6 @@ class RerunRecorder:
                 [
                     rr.ClassDescription(
                         info=(_BODY_CLASS, "body"), keypoint_connections=BODY_CONNECTIONS
-                    ),
-                    rr.ClassDescription(
-                        info=(_HAND_CLASS, "hand"), keypoint_connections=HAND_CONNECTIONS
                     ),
                 ]
             ),
@@ -168,9 +172,29 @@ def _face(path: str, face: FaceFeatures, color: tuple[int, int, int]) -> dict[st
 def _body(path: str, body: Body, color: tuple[int, int, int]) -> dict[str, rr.AsComponents]:
     return {
         path: _skeleton(body.keypoints, _BODY_CLASS, color),
-        f"{path}/left_hand": _skeleton(body.left_hand.keypoints, _HAND_CLASS, color),
-        f"{path}/right_hand": _skeleton(body.right_hand.keypoints, _HAND_CLASS, color),
+        f"{path}/left_hand": _hand(body.left_hand),
+        f"{path}/right_hand": _hand(body.right_hand),
     }
+
+
+def _hand(hand: Hand) -> rr.LineStrips2D:
+    """Each finger as a strip from the wrist to its tip, in its own color.
+
+    A strip breaks where a point was not found.
+    """
+    strips: list[list[tuple[float, float]]] = []
+    colors: list[tuple[int, int, int]] = []
+    for finger, color in zip(FINGERS, _FINGER_COLORS, strict=True):
+        strip: list[tuple[float, float]] = []
+        for point in (*(hand.keypoints[index] for index in finger), None):
+            if point is not None:
+                strip.append((point.x, point.y))
+                continue
+            if len(strip) > 1:
+                strips.append(strip)
+                colors.append(color)
+            strip = []
+    return rr.LineStrips2D(strips, colors=colors, radii=1.0)
 
 
 def _skeleton(

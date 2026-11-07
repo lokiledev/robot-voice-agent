@@ -20,7 +20,8 @@ def test_camera_image_and_people_share_one_view(tmp_path: Path) -> None:
     alice = KnownPerson(user_id=UUID(int=1), name="Alice")
 
     recorder.record(CameraFrame(jpeg=jpeg.tobytes()))
-    hand = Hand(keypoints=(Keypoint(x=10, y=20, score=0.9), None))
+    # 21 points: the wrist and the thumb found, the other fingers not.
+    hand = Hand(keypoints=(*(Keypoint(x=10, y=20 + i, score=0.9) for i in range(5)), *(None,) * 16))
     body = Body(
         box=BoundingBox(x=0, y=0, width=50, height=54),
         keypoints=(Keypoint(x=2, y=4, score=0.8), None, Keypoint(x=3, y=4, score=0.7)),

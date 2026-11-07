@@ -51,12 +51,9 @@ BODY_CONNECTIONS: Final = (
     (15, 17), (15, 18), (15, 19), (16, 20), (16, 21), (16, 22),
 )  # fmt: skip
 """Bones between `Body.keypoints`, as index pairs."""
-HAND_CONNECTIONS: Final = tuple(
-    (0 if joint == 0 else base + joint - 1, base + joint)
-    for base in (1, 5, 9, 13, 17)
-    for joint in range(4)
-)
-"""Bones between `Hand.keypoints`: from the wrist along each finger."""
+FINGERS: Final = tuple((0, base, base + 1, base + 2, base + 3) for base in (1, 5, 9, 13, 17))
+"""`Hand.keypoints` of each finger, from the thumb to the little finger: the wrist, then the finger
+from its base to its tip."""
 
 
 type Expression = Literal["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
