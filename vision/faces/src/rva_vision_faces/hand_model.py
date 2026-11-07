@@ -11,6 +11,7 @@ a left hand is its mirror. A hand's points are in metres in that frame, the wris
 """
 
 import math
+from collections.abc import Mapping
 from typing import Final, Literal
 
 import cv2
@@ -19,7 +20,7 @@ import numpy.typing as npt
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
-from rva_schemas.vision import CameraIntrinsics
+from rva_schemas.vision import CameraIntrinsics, Keypoint
 
 type Side = Literal["left", "right"]
 type Params = npt.NDArray[np.float64]
@@ -55,6 +56,13 @@ _LIMITS: Final = (
 )
 """Range of each finger's four angles, in radians: fingers bend towards the palm, barely back."""
 _SIZE_LIMITS: Final = (0.5, 2.0)
+_PALM_LENGTH: Final = 0.092 * _PALM_SCALE
+"""From the wrist to the base of the middle finger, in metres, of the average hand."""
+_REFERENCE_PALM_PX: Final = 300.0
+"""Length of the palm in the image at which the costs below are in pixels: a hand 0.6 m from the
+C920. A hand's keypoints are as far off it, against its size, near or far, so the costs scale with
+its palm: fixed, they would freeze the fingers of a far hand, 70 pixels across, and barely hold a
+near one."""
 _SMOOTHING_PX: Final = 10.0
 """Cost in pixels of moving a joint by a radian from the last frame's angle: the image decides,
 but bends it cannot see stay put."""
@@ -68,6 +76,12 @@ _REST_PX: Final = 2.0
 """Cost in pixels of a joint a radian away from rest, without a last frame."""
 _OUTLIER_PX: Final = 8.0
 """Keypoints off the fitted hand by more than this weigh less, for a misplaced one."""
+_POOR_FIT: Final = 4.0
+"""A fit from the last frame whose keypoints are off the hand by more than this many outlier
+distances at the median is started afresh too, keeping the best: stuck where it was, it would
+otherwise be followed for as long as the hand is seen. Replayed on a recording, this brought
+frames off by more than 16 pixels from 31% to 23% for 1.5 ms a frame; a tighter threshold cost
+more and found nothing better."""
 _MIN_PALM_PX: Final = 10.0
 """Spread of a palm's keypoints in the image below which its turn is not guessed from them."""
 _MAX_STEPS: Final = 30
@@ -136,7 +150,7 @@ def _rotations(vectors: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
 
 
 def fit(
-    pixels: dict[int, tuple[float, float]],
+    keypoints: Mapping[int, Keypoint],
     wrist: npt.NDArray[np.float64],
     side: Side,
     intrinsics: CameraIntrinsics,
@@ -146,11 +160,12 @@ def fit(
     """The hand whose points, with its wrist at `wrist`, best fall on its keypoints.
 
     The palm and the fingers are fitted together: the fingers tell which way a palm is turned,
-    which its flat points alone leave open. Without a last frame, it is fitted from a flat hand
-    and from a curled one, keeping the better.
+    which its flat points alone leave open. Each keypoint weighs by its score. Without a last
+    frame, or when the fit from it leaves the keypoints far off, the hand is fitted from a flat
+    hand and from a curled one, keeping the best.
 
     Args:
-        pixels: The keypoints found, by index, in frame pixels; the wrist's among them.
+        keypoints: The keypoints found, by index, in frame pixels; the wrist's among them.
         wrist: Where the wrist is in the camera's frame, on its keypoint's ray.
         side: Which hand it is, the person's own.
         intrinsics: The camera at the frame's resolution.
@@ -160,43 +175,50 @@ def fit(
     Returns:
         The 21 points in the camera's frame, and the fit, for the next frame.
     """
-    indices = [index for index in pixels if index != 0]
-    observed = np.array([pixels[index] for index in indices], np.float64).reshape(-1, 2)
+    indices = [index for index in keypoints if index != 0]
+    observed = np.array([(keypoints[i].x, keypoints[i].y) for i in indices], np.float64)
+    observed = observed.reshape(-1, 2)
+    weights = np.sqrt([keypoints[i].score for i in indices]).repeat(2)
     anchor = previous if previous is not None else np.zeros(PARAMS)
-    weight = _SMOOTHING_PX if previous is not None else _REST_PX
+    # In pixels of the reference palm, whatever the hand's distance.
+    scale = intrinsics.fx * size * _PALM_LENGTH / wrist[2] / _REFERENCE_PALM_PX
+    weight = (_SMOOTHING_PX if previous is not None else _REST_PX) * scale
+    outlier = _OUTLIER_PX * scale
 
-    def batch(params: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """The residuals of N fits, N x residuals."""
+    def errors(params: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        """How far off each keypoint N hands' points fall, N x keypoints x 2, in pixels."""
         points = wrist + _hands(params, side)[:, indices]
         z = np.maximum(points[:, :, 2], 1e-3)
-        error = np.stack(
+        return np.stack(
             [
                 intrinsics.fx * points[:, :, 0] / z + intrinsics.cx - observed[:, 0],
                 intrinsics.fy * points[:, :, 1] / z + intrinsics.cy - observed[:, 1],
             ],
             axis=-1,
         )
+
+    def batch(params: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        """The residuals of N fits, N x residuals."""
+        error = errors(params).reshape(len(params), -1)
         prior = np.column_stack(
-            [_SIZE_PX * (params[:, 3] - math.log(size)), weight * (params[:, 4:] - anchor[4:])]
+            [
+                _SIZE_PX * scale * (params[:, 3] - math.log(size)),
+                weight * (params[:, 4:] - anchor[4:]),
+            ]
         )
-        return np.concatenate([_robust(error.reshape(len(params), -1)), prior], axis=1)
+        return np.concatenate([weights * _robust(error, outlier), prior], axis=1)
 
     def residuals(params: Params) -> npt.NDArray[np.float64]:
         return batch(params[None])[0]
 
     def jacobian(params: Params) -> npt.NDArray[np.float64]:
-        # Forward differences, backward at an upper bound, all in one call.
+        # Forward differences, backward at an upper bound, the hand itself first, in one call.
         step = np.where(params + _STEP <= _UPPER, _STEP, -_STEP)
-        moved = params + np.diag(step)
-        return ((batch(moved) - residuals(params)) / step[:, None]).T
+        at, *moved = batch(np.vstack([params, params + np.diag(step)]))
+        return ((np.array(moved) - at) / step[:, None]).T
 
-    if previous is not None:
-        starts = [previous]
-    else:
-        flat = _first_guess(pixels, side, intrinsics, size)
-        starts = [flat, np.concatenate([flat[:4], _CURLED])]
-    solutions = [
-        least_squares(
+    def solve(start: Params) -> Params:
+        solution = least_squares(
             residuals,
             np.clip(start, _LOWER + 1e-9, _UPPER - 1e-9),
             bounds=(_LOWER, _UPPER),
@@ -204,32 +226,43 @@ def fit(
             max_nfev=_MAX_STEPS,
             ftol=_TOLERANCE,
         )
-        for start in starts
-    ]
-    params = np.asarray(min(solutions, key=lambda solution: solution.cost).x, np.float64)
+        return np.asarray(solution.x, np.float64)
+
+    def cost(params: Params) -> float:
+        return float(np.sum(residuals(params) ** 2))
+
+    def poor(params: Params) -> bool:
+        off = np.linalg.norm(errors(params[None])[0], axis=1)
+        return bool(len(off)) and float(np.median(off)) > _POOR_FIT * outlier
+
+    candidates = [] if previous is None else [solve(previous)]
+    if not candidates or poor(candidates[0]):
+        flat = _first_guess(keypoints, side, intrinsics, size)
+        candidates += [solve(flat), solve(np.concatenate([flat[:4], _CURLED]))]
+    params = min(candidates, key=cost)
     return wrist + hand_points(params, side), params
 
 
-def _robust(error: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+def _robust(error: npt.NDArray[np.float64], outlier: float) -> npt.NDArray[np.float64]:
     """Errors in pixels scaled so that their squares sum to a pseudo-Huber cost.
 
-    Quadratic up to `_OUTLIER_PX`, linear past it, for a misplaced keypoint to pull less. The
-    priors are left quadratic: scipy's own robust loss would soften them too.
+    Quadratic up to `outlier`, linear past it, for a misplaced keypoint to pull less. The priors
+    are left quadratic: scipy's own robust loss would soften them too.
     """
-    ratio = error / _OUTLIER_PX
-    return np.sign(error) * _OUTLIER_PX * np.sqrt(2 * (np.sqrt(1 + ratio**2) - 1))
+    ratio = error / outlier
+    return np.sign(error) * outlier * np.sqrt(2 * (np.sqrt(1 + ratio**2) - 1))
 
 
 def _first_guess(
-    pixels: dict[int, tuple[float, float]], side: Side, intrinsics: CameraIntrinsics, size: float
+    keypoints: Mapping[int, Keypoint], side: Side, intrinsics: CameraIntrinsics, size: float
 ) -> Params:
     """A flat hand of `size`, turned as its palm's keypoints are."""
     params = np.zeros(PARAMS)
     params[3] = math.log(size)
     # Palm towards the camera, fingers up, without enough of the palm to turn it.
     params[:3] = Rotation.from_euler("x", math.pi).as_rotvec()
-    palm = [index for index in (0, *_PALM) if index in pixels]
-    seen = np.array([pixels[index] for index in palm], np.float64).reshape(-1, 2)
+    palm = [index for index in (0, *_PALM) if index in keypoints]
+    seen = np.array([(keypoints[i].x, keypoints[i].y) for i in palm], np.float64).reshape(-1, 2)
     # PnP needs four points, spread out: OpenCV's asserts on a palm squeezed into a few pixels,
     # which says nothing of its turn anyway.
     if len(palm) < 4 or np.ptp(seen, axis=0).max() < _MIN_PALM_PX:

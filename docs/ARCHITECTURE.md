@@ -272,9 +272,10 @@ flowchart LR
   calibrated, and the depth is marked uncalibrated meanwhile. Unscaled, it was 1.2 to 1.4 times
   too far at desk distance; the assumed focal length scales it by a further 1.19. `--no-depth`,
   or `depth: null` in the profile, leaves it out.
-- **People in 3D.** With depth and intrinsics, each skeleton and hand keypoint gets a position in
-  the camera's frame (x right, y down, z forward, in metres), and each face a gaze ray from
-  between its irises. A keypoint's depth is the 25th percentile of a 5x5 patch of the depth map
+- **People in 3D.** With depth and intrinsics, each face gets a gaze ray from between its irises,
+  and the main user's skeleton and hands a position per keypoint, in the camera's frame (x right,
+  y down, z forward, in metres). Only theirs: gestures are read from the main user alone, and a
+  hand's fit is paid per hand, so a crowd in view costs nothing more. A keypoint's depth is the 25th percentile of a 5x5 patch of the depth map
   around it: keypoints sit on the edges of limbs and fingers, where the patch also holds the room
   behind, and the person is the nearer side. The gaze angles are measured from the line from the
   eyes to the camera, so the ray turns that line by the yaw towards the image's right and the
@@ -287,14 +288,19 @@ flowchart LR
   fingers than an anatomical one, on three hands of two people. The depth gives one number per hand,
   how far the wrist is: the depth of the arm's wrist, which the forearm holds, so that the two
   skeletons meet, or the palm's without it. With the wrist held there, the hand's turn, its size and
-  its 20 angles are fitted by least squares to the keypoints, with a robust loss for a misplaced
-  one, starting from the last frame's fit and staying near it, or from a flat and a curled hand for
-  a new one. The size is held firmly near the median of the track's last 3 s, so it adapts over
-  seconds but does not pulse: left free, the fit traded size for bends where keypoints are hard to
-  explain, as a fist's, and swung it from 0.7 to 1.2 between frames. None is stored per person, as
-  the depth and an uncalibrated camera measure it less well than adult hands differ, about 6%. A fit
-  takes about 3 to 5 ms per hand, 11 for a hand's first frame. A single image leaves some bends
-  open, a finger curled towards the camera or away: the joint limits and the last frame decide.
+  its 20 angles are fitted by least squares to the keypoints, each weighing by its score, with a
+  robust loss for a misplaced one, starting from the last fit and staying near it, or from a flat
+  and a curled hand for a new one. The costs that hold the fit near the last frame and near its
+  size are in pixels of the hand's palm, so a far hand, 70 pixels across, bends its fingers as
+  freely as a near one. A fit from the last frame that leaves the keypoints far off, stuck where
+  the hand was, is started afresh too, keeping the best. The last fit is kept for half a second
+  while the hand is not seen, so a hand missed for a frame goes on from where it was. The size is
+  held firmly near the median of the track's last 3 s, so it adapts over seconds but does not
+  pulse: left free, the fit traded size for bends where keypoints are hard to explain, as a fist's,
+  and swung it from 0.7 to 1.2 between frames. None is stored per person, as the depth and an
+  uncalibrated camera measure it less well than adult hands differ, about 6%. A fit takes about 5
+  to 7 ms per hand on a recording, 11 for a hand's first frame. A single image leaves some bends open, a finger
+  curled towards the camera or away: the joint limits and the last frame decide.
 - **TensorRT.** With `device: {kind: tensorrt}`, every vision model but YuNet runs as an fp16
   TensorRT engine, built on first use (about 7 minutes in all, depth the longest) and cached.
   Together they take 2.8 GB where ONNX Runtime's CUDA provider took 3.5 GB, and run two to three

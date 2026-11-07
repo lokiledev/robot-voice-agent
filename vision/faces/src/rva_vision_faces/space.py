@@ -37,36 +37,52 @@ _SIDES: Final[tuple[Side, Side]] = ("left", "right")
 _SIZE_SAMPLES: Final = 90
 """Fitted sizes of a track's hands kept, about 3 s: their median is the size its hands are held
 near."""
+_FIT_KEPT_FRAMES: Final = 15
+"""Frames a hand's last fit is kept through while it is not seen, about half a second: a hand
+missed for a frame starts again from where it was, not from scratch."""
 
 
 class Lifter:
     """Places what is seen in the camera's frame, from the depth and the camera's intrinsics.
 
-    Hands are a kinematic hand fitted to their keypoints, each from its fit in the last frame.
+    Every face is placed, with its gaze. One skeleton is, the main user's, with their hands as a
+    kinematic hand fitted to their keypoints, each from its fit in the last frames: gestures are
+    read from the main user alone, and a hand's fit is paid per hand.
     """
 
     def __init__(self, intrinsics: CameraIntrinsics) -> None:
         """Set up the lifter; `intrinsics` are the camera's at the frame's resolution."""
         self._intrinsics: Final = intrinsics
-        self._hands: dict[tuple[int, Side], Params] = {}
-        """The last frame's fit of each tracked person's hands."""
+        self._hands: dict[tuple[int, Side], tuple[Params, int]] = {}
+        """The last fit of each person's hands, and how many frames ago it was."""
         self._sizes: dict[int, deque[float]] = {}
-        """The latest fitted sizes of each tracked person's hands."""
+        """The latest fitted sizes of each person's hands."""
 
-    def lift(self, scene: Scene, depth: DepthMap) -> Scene:
-        """The scene with its keypoints, faces and gazes placed in the camera's frame."""
+    def lift(self, scene: Scene, depth: DepthMap, main_user: int | None) -> Scene:
+        """The scene placed in the camera's frame.
+
+        Every face and gaze is, and the skeleton and hands of the track `main_user`, if it has
+        one.
+        """
         intrinsics = self._intrinsics
-        hands: dict[tuple[int, Side], Params] = {}
         self._sizes = {id_: sizes for id_, sizes in self._sizes.items() if id_ in scene.bodies}
-        bodies = {}
-        for track_id, body in scene.bodies.items():
-            sizes = self._sizes.setdefault(track_id, deque(maxlen=_SIZE_SAMPLES))
+        self._hands = {
+            key: (params, age + 1)
+            for key, (params, age) in self._hands.items()
+            if age + 1 < _FIT_KEPT_FRAMES
+        }
+        bodies = dict(scene.bodies)
+        if main_user is not None and (body := scene.bodies.get(main_user)) is not None:
+            sizes = self._sizes.setdefault(main_user, deque(maxlen=_SIZE_SAMPLES))
             size = statistics.median(sizes) if sizes else 1.0
-            previous = {side: self._hands.get((track_id, side)) for side in _SIDES}
-            bodies[track_id], fits = _lift_body(body, depth, intrinsics, size, previous)
-            hands |= {(track_id, side): params for side, params in fits.items()}
+            previous = {
+                side: None if (kept := self._hands.get((main_user, side))) is None else kept[0]
+                for side in _SIDES
+            }
+            lifted = _lift_body(body, depth, intrinsics)
+            bodies[main_user], fits = _lift_hands(lifted, depth, intrinsics, size, previous)
+            self._hands |= {(main_user, side): (params, 0) for side, params in fits.items()}
             sizes.extend(math.exp(params[3]) for params in fits.values())
-        self._hands = hands
         return scene.model_copy(
             update={
                 "faces": {
@@ -74,10 +90,6 @@ class Lifter:
                     for track_id, face in scene.faces.items()
                 },
                 "bodies": bodies,
-                "unmatched_bodies": tuple(
-                    _lift_body(body, depth, intrinsics, 1.0, {"left": None, "right": None})[0]
-                    for body in scene.unmatched_bodies
-                ),
             }
         )
 
@@ -150,31 +162,39 @@ def _lift_face(face: FaceFeatures, depth: DepthMap, intrinsics: CameraIntrinsics
     return face.model_copy(update={"in_3d": in_3d})
 
 
-def _lift_body(
+def _lift_body(body: Body, depth: DepthMap, intrinsics: CameraIntrinsics) -> Body:
+    """The body's keypoints placed in the camera's frame, each at the depth around it."""
+    return body.model_copy(
+        update={
+            "keypoints": tuple(
+                None
+                if k is None
+                else k.model_copy(update={"position": back_project(k.x, k.y, depth, intrinsics)})
+                for k in body.keypoints
+            )
+        }
+    )
+
+
+def _lift_hands(
     body: Body,
     depth: DepthMap,
     intrinsics: CameraIntrinsics,
     size: float,
     previous: Mapping[Side, Params | None],
 ) -> tuple[Body, dict[Side, Params]]:
-    """The body placed in the camera's frame, and the fit of each of its hands.
+    """The body with its hands placed in the camera's frame, and the fit of each.
 
     Each hand's wrist is at the depth of its arm's wrist, which the forearm holds, so that the two
     skeletons meet; at its palm's depth when the arm's wrist was not found.
 
     Args:
-        body: The skeleton, in pixels of the frame.
+        body: The skeleton, its keypoints placed, its hands in pixels of the frame.
         depth: The frame's depth.
         intrinsics: The camera at the frame's resolution.
         size: The size against the average hand the hands are held near.
-        previous: The last frame's fit of each of the person's hands, if any.
+        previous: The last fit of each of the person's hands, if any.
     """
-    keypoints = tuple(
-        None
-        if k is None
-        else k.model_copy(update={"position": back_project(k.x, k.y, depth, intrinsics)})
-        for k in body.keypoints
-    )
     lifted: dict[Side, Hand | None] = {}
     fits: dict[Side, Params] = {}
     for side, hand, arm in zip(_SIDES, (body.left_hand, body.right_hand), _ARM_WRISTS, strict=True):
@@ -182,10 +202,10 @@ def _lift_body(
         if hand is None or wrist is None:
             lifted[side] = hand
             continue
-        z = _hand_depth(hand, _position(keypoints, arm), depth, intrinsics)
-        pixels = {index: (k.x, k.y) for index, k in enumerate(hand.keypoints) if k is not None}
+        z = _hand_depth(hand, _position(body.keypoints, arm), depth, intrinsics)
+        found = {index: k for index, k in enumerate(hand.keypoints) if k is not None}
         at = _unproject(np.array([[wrist.x, wrist.y]]), np.array([z]), intrinsics)[0]
-        points, fits[side] = fit(pixels, at, side, intrinsics, size, previous[side])
+        points, fits[side] = fit(found, at, side, intrinsics, size, previous[side])
         lifted[side] = Hand(
             keypoints=tuple(
                 None
@@ -203,7 +223,7 @@ def _lift_body(
             )
         )
     return body.model_copy(
-        update={"keypoints": keypoints, "left_hand": lifted["left"], "right_hand": lifted["right"]}
+        update={"left_hand": lifted["left"], "right_hand": lifted["right"]}
     ), fits
 
 

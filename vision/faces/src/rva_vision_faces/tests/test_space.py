@@ -107,7 +107,7 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
     )
     scene = Scene(faces={1: face}, bodies={1: body}, unmatched_bodies=(body,), speakers={})
 
-    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0))
+    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0), 1)
 
     nose = lifted.bodies[1].keypoints[0]
     assert nose is not None and nose.position is not None
@@ -116,7 +116,7 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
     left_hand = lifted.bodies[1].left_hand
     assert left_hand is not None and left_hand.keypoints[0] is not None
     assert left_hand.keypoints[0].position == Point3D(x=1.0, y=0.5, z=2.0)
-    assert lifted.unmatched_bodies[0] == lifted.bodies[1]
+    assert lifted.unmatched_bodies == (body,)
     face_3d = lifted.faces[1].in_3d
     assert face_3d is not None
     assert _xyz(face_3d.landmarks[473]) == pytest.approx((0.12, 0.0, 2.0), abs=1e-6)
@@ -181,7 +181,7 @@ def test_a_hand_is_fitted_with_its_wrist_at_its_arm_s_wrist_depth() -> None:
         right_hand=_hand(pixels),
     )
 
-    lifted = Lifter(INTRINSICS).lift(_scene(body), depth)
+    lifted = Lifter(INTRINSICS).lift(_scene(body), depth, 1)
 
     right_hand = lifted.bodies[1].right_hand
     assert right_hand is not None
@@ -189,3 +189,24 @@ def test_a_hand_is_fitted_with_its_wrist_at_its_arm_s_wrist_depth() -> None:
         [_xyz(k.position) for k in right_hand.keypoints if k is not None and k.position is not None]
     )
     assert np.abs(placed - points).max() == pytest.approx(0.0, abs=1e-3)
+
+
+def test_only_the_main_user_s_skeleton_is_placed() -> None:
+    body = _body({0: (960, 540)}, _hand({0: (1460, 790), 5: (1480, 760)}))
+    other = body.model_copy(update={"box": BoundingBox(x=0, y=0, width=900, height=1080)})
+    scene = Scene(faces={}, bodies={1: body, 2: other}, unmatched_bodies=(), speakers={})
+
+    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0), 2)
+
+    assert lifted.bodies[1] == body
+    nose = lifted.bodies[2].keypoints[0]
+    assert nose is not None and nose.position is not None
+    assert lifted.bodies[2].left_hand != other.left_hand
+
+
+def test_without_a_main_user_the_skeletons_stay_in_the_image() -> None:
+    body = _body({0: (960, 540)}, _hand({0: (1460, 790)}))
+
+    lifted = Lifter(INTRINSICS).lift(_scene(body), _depth(2.0), None)
+
+    assert lifted.bodies[1] == body

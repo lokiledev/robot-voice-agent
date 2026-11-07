@@ -288,13 +288,14 @@ class FaceVision:
         previous = last_logged = time.perf_counter()
         try:
             while not stop.is_set():
-                frame, scene, depth, frame_timings = self._step(camera, models, loop)
+                frame, scene, depth, main_user, frame_timings = self._step(
+                    camera, models, attention, loop
+                )
                 now = time.perf_counter()
                 timings = _smooth(
                     timings, frame_timings.model_copy(update={"fps": 1 / (now - previous)})
                 )
                 previous = now
-                main_user = None if attention is None else self._attend(attention, frame, scene)
                 if now - last_logged >= _LOG_EVERY_S:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
@@ -330,9 +331,16 @@ class FaceVision:
                 window.close()
 
     def _step(
-        self, camera: Camera, models: _Models, loop: asyncio.AbstractEventLoop
-    ) -> tuple[Image, Scene, DepthMap | None, VisionTimings]:
-        """Process one frame; returns it with what was seen, its depth and the stages' times."""
+        self,
+        camera: Camera,
+        models: _Models,
+        attention: Attention | None,
+        loop: asyncio.AbstractEventLoop,
+    ) -> tuple[Image, Scene, DepthMap | None, MainUser | None, VisionTimings]:
+        """Process one frame.
+
+        Returns the image, what was seen, its depth, the main user and the stages' times.
+        """
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
             frame = camera.read()
@@ -401,13 +409,17 @@ class FaceVision:
         scene = Scene(
             faces=faces, bodies=bodies, unmatched_bodies=tuple(unmatched), speakers=speakers
         )
+        main_user = None if attention is None else self._attend(attention, frame, scene)
         if depth is not None and models.lifter is not None:
             with _tracer.start_as_current_span("vision:lift"):
-                scene = models.lifter.lift(scene, depth)
+                scene = models.lifter.lift(
+                    scene, depth, None if main_user is None else main_user.track_id
+                )
         return (
             frame,
             scene,
             depth,
+            main_user,
             VisionTimings(
                 fps=0.0,
                 capture_ms=(captured - start) * 1e3,
