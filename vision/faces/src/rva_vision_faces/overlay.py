@@ -5,13 +5,11 @@ from typing import Final
 import cv2
 import numpy as np
 
-from rva_pydantic import RVABaseModel
-from rva_schemas.vision import BODY_CONNECTIONS, HAND_CONNECTIONS, Body, FaceFeatures
+from rva_schemas.vision import BODY_CONNECTIONS, HAND_CONNECTIONS, Body, FaceFeatures, VisionTimings
 from rva_vision_faces.detector import Image
 from rva_vision_faces.scene import Scene
 from rva_vision_faces.tracker import Track
 
-_NAME: Final = "lune see"
 # BGR
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (0, 165, 255)
@@ -28,48 +26,18 @@ _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
 
 
-class Timings(RVABaseModel):
-    """Smoothed per-frame figures shown over the image."""
-
-    fps: float
-    capture_ms: float
-    detect_ms: float
-    embed_ms: float
-    faces_ms: float
-    bodies_ms: float
-    """Time left waiting for the skeletons once the faces are done: they run alongside."""
-
-
-class DebugWindow:
-    """A resizable window showing the camera with each tracked face. Lives in one thread."""
-
-    def __init__(self, width: int, height: int) -> None:
-        cv2.namedWindow(_NAME, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(_NAME, width, height)
-
-    def show(self, frame: Image) -> str | None:
-        """Display a frame and return the key pressed, or `"q"` once the window is closed."""
-        cv2.imshow(_NAME, frame)
-        key = cv2.waitKey(1)
-        if cv2.getWindowProperty(_NAME, cv2.WND_PROP_VISIBLE) < 1:
-            return "q"
-        return chr(key & 0xFF) if key >= 0 else None
-
-    def close(self) -> None:
-        cv2.destroyWindow(_NAME)
-
-
 def draw(
     frame: Image,
     tracks: Sequence[Track],
     scene: Scene,
-    timings: Timings,
+    timings: VisionTimings,
     caption: tuple[int, str] | None,
 ) -> None:
     """Draw the tracks and what was seen of them, the timings, and the user's last sentence.
 
-    Each track gets its box, label, face features and skeleton. `caption` is the track id of the face that said the sentence, and the sentence; it hangs under
-    that face's box. Skeletons without a face are drawn in gray.
+    Each track gets its box, label, face features and skeleton. `caption` is the track id of the
+    face that said the sentence, and the sentence; it hangs under that face's box. Skeletons
+    without a face are drawn in gray.
     """
     scale = frame.shape[0] / 540
     thickness = max(1, round(2 * scale))
@@ -78,7 +46,7 @@ def draw(
     for track in tracks:
         x, y = round(track.box.x), round(track.box.y)
         right, bottom = round(track.box.x + track.box.width), round(track.box.y + track.box.height)
-        color = _color(track)
+        color = color_of(track)
         if (body := scene.bodies.get(track.track_id)) is not None:
             _draw_body(frame, body, color, thickness)
         cv2.rectangle(frame, (x, y), (right, bottom), color, thickness)
@@ -130,7 +98,8 @@ def label(track: Track) -> str:
     return f"#{track.track_id} {person.name} ({str(person.user_id)[:8]}) {track.match.score:.2f}"
 
 
-def _color(track: Track) -> tuple[int, int, int]:
+def color_of(track: Track) -> tuple[int, int, int]:
+    """BGR color of a track: gray until announced, then green if recognized, else orange."""
     if not track.confirmed:
         return _UNCONFIRMED
     return _UNKNOWN if track.match is None else _KNOWN

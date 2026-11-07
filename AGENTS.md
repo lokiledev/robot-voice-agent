@@ -32,6 +32,7 @@ The repository is one uv workspace. Each package lives in its domain directory w
 | `voice/asr` | `rva-voice-asr` | `SpeechRecognizer` with Parakeet |
 | `voice/tts` | `rva-voice-tts` | `SpeechSynthesizer` with Kokoro |
 | `vision/faces` | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, face memory; implements `Vision` |
+| `vision/viewer` | `rva-vision-viewer` | Debug window for the camera pipeline, with Dear PyGui; implements `FrameViewer` |
 | `ui` | `rva-ui` | Session web page: conversation, actions and camera, with typed input; implements `Recorder` and `UserInput` |
 | `app` | `rva-app` | CLI and composition root; the only package that imports implementations |
 

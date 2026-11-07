@@ -27,9 +27,9 @@ from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.detector import Detection, decode_yunet
 from rva_vision_faces.embedder import Embedding, align
 from rva_vision_faces.gallery import Gallery
+from rva_vision_faces.overlay import label
 from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.tracker import Track, Tracker
-from rva_vision_faces.window import label
 
 MATCHING = MatchConfig(threshold=0.363, margin=0.05)
 TRACKING = TrackerConfig(

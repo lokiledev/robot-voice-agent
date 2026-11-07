@@ -95,6 +95,18 @@ class KnownPerson(RVABaseModel):
     """Unique among known people."""
 
 
+class VisionTimings(RVABaseModel):
+    """Smoothed per-frame figures of the camera pipeline, in milliseconds but for `fps`."""
+
+    fps: float
+    capture_ms: float
+    detect_ms: float
+    embed_ms: float
+    faces_ms: float
+    bodies_ms: float
+    """Time left waiting for the skeletons once the faces are done: they run alongside."""
+
+
 class TrackedFace(RVABaseModel):
     """A face the robot has seen for long enough to be sure it is there."""
 

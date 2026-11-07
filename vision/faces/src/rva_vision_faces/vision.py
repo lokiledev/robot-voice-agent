@@ -12,6 +12,7 @@ from loguru import logger
 from opentelemetry import trace
 
 from rva_schemas.abc.recorder import Recorder
+from rva_schemas.abc.vision import FrameViewer
 from rva_schemas.record import CameraFrame
 from rva_schemas.vision import (
     Body,
@@ -21,6 +22,7 @@ from rva_schemas.vision import (
     Remembered,
     TrackedFace,
     UnknownTrackError,
+    VisionTimings,
 )
 from rva_vision_faces.body import BodyEstimator, attach
 from rva_vision_faces.camera import Camera
@@ -31,13 +33,12 @@ from rva_vision_faces.embedder import Embedding, SfaceEmbedder
 from rva_vision_faces.face_features import FaceAnalyzer
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
+from rva_vision_faces.overlay import draw
 from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.stream import RtspPublisher
 from rva_vision_faces.tracker import Tracker
-from rva_vision_faces.window import DebugWindow, Timings, draw
 
 _tracer: Final = trace.get_tracer("rva_vision_faces")
-_WINDOW_SIZE: Final = (960, 540)
 _SMOOTHING: Final = 0.1
 _LOG_EVERY_S: Final = 5.0
 _CAPTION_S: Final = 6.0
@@ -96,7 +97,7 @@ class FaceVision:
         recorder: Recorder,
         record_video: bool,
         stream_video: bool,
-        show_window: bool,
+        viewer: Callable[[], FrameViewer] | None,
         on_key: Callable[[str], None] | None,
     ) -> None:
         """Set up the pipeline; the camera and models open when `run` starts.
@@ -109,15 +110,17 @@ class FaceVision:
             record_video: Record the camera frames, scaled down and compressed, to replay them.
             stream_video: Publish the camera with the tracked faces to the RTSP server of the
                 config, e.g. for a web page to show it.
-            show_window: Show the camera with the tracked faces in a window.
-            on_key: Called in the event loop with each key pressed in the window, except `q`.
+            viewer: Opens a viewer to show the camera with the tracked people, for debugging;
+                called in the camera's thread, which the viewer then lives in. `None` to run
+                without one.
+            on_key: Called in the event loop with each key pressed in the viewer, except `q`.
         """
         self._config: Final = config
         self._database: Final = database
         self._recorder: Final = recorder
         self._record_video: Final = record_video
         self._stream_video: Final = stream_video
-        self._show_window: Final = show_window
+        self._viewer: Final = viewer
         # The user's last sentence, the track of the face in front when it was said, and when.
         self._caption: tuple[int, str, float] | None = None
         self._on_key: Final = on_key
@@ -129,7 +132,7 @@ class FaceVision:
         self._subscribers: Final[set[asyncio.Queue[FaceEvent]]] = set()
 
     async def run(self) -> None:
-        """Process frames until cancelled, or until the window is closed or `q` is pressed."""
+        """Process frames until cancelled, or until the viewer is closed or `q` is pressed."""
         loop = asyncio.get_running_loop()
         await self._reload()
         stop = threading.Event()
@@ -222,14 +225,14 @@ class FaceVision:
         config = self._config
         models = _Models(config)
         camera = Camera(config.camera)
-        window = DebugWindow(*_WINDOW_SIZE) if self._show_window else None
+        window = None if self._viewer is None else self._viewer()
         publisher = (
             RtspPublisher(config.stream, config.camera.width, config.camera.height)
             if self._stream_video
             else None
         )
         logger.info("Watching {} on {}", config.camera.device, config.device)
-        timings = Timings(
+        timings = VisionTimings(
             fps=0.0, capture_ms=0.0, detect_ms=0.0, embed_ms=0.0, faces_ms=0.0, bodies_ms=0.0
         )
         previous = last_logged = time.perf_counter()
@@ -252,7 +255,11 @@ class FaceVision:
                     publisher.send(frame)
                 if window is None:
                     continue
-                key = window.show(frame)
+                height, width = frame.shape[:2]
+                people = people_in_view(
+                    self._tracker.tracks, scene, 1.0, width, height, self._current_caption()
+                )
+                key = window.show(frame, people, timings)
                 if key == "q":
                     return
                 if key is not None and self._on_key is not None:
@@ -267,7 +274,7 @@ class FaceVision:
 
     def _step(
         self, camera: Camera, models: _Models, loop: asyncio.AbstractEventLoop
-    ) -> tuple[Image, Scene, Timings]:
+    ) -> tuple[Image, Scene, VisionTimings]:
         """Process one frame; returns it with what was seen and how long each stage took."""
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
@@ -313,7 +320,7 @@ class FaceVision:
         return (
             frame,
             scene,
-            Timings(
+            VisionTimings(
                 fps=0.0,
                 capture_ms=(captured - start) * 1e3,
                 detect_ms=(detected - captured) * 1e3,
@@ -367,12 +374,15 @@ def _estimate(estimator: BodyEstimator, frame: Image) -> list[Body]:
         return estimator.estimate(frame)
 
 
-def _smooth(timings: Timings, frame: Timings) -> Timings:
+def _smooth(timings: VisionTimings, frame: VisionTimings) -> VisionTimings:
     def ema(old: float, new: float) -> float:
         return old + _SMOOTHING * (new - old) if old else new
 
-    return Timings(
-        **{name: ema(getattr(timings, name), getattr(frame, name)) for name in Timings.model_fields}
+    return VisionTimings(
+        **{
+            name: ema(getattr(timings, name), getattr(frame, name))
+            for name in VisionTimings.model_fields
+        }
     )
 
 

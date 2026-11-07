@@ -6,8 +6,9 @@ import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import AbstractAsyncContextManager, aclosing
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
-from typing import Annotated, assert_never
+from typing import Annotated, Final, assert_never
 from urllib.parse import urlsplit
 
 import cyclopts
@@ -53,6 +54,7 @@ from rva_ui.server import UiServer
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.vision import FaceVision
+from rva_vision_viewer.window import DebugWindow
 from rva_vla_client.client import HttpVlaClient
 
 app = cyclopts.App(
@@ -62,6 +64,8 @@ app = cyclopts.App(
 
 type ProfileDir = Annotated[Path, cyclopts.Parameter(help="Robot profile directory.")]
 _DEFAULT_PROFILE = Path("config/default")
+_WINDOW_SIZE: Final = (960, 540)
+"""Size of the camera image in the debug window."""
 
 
 @app.command
@@ -430,6 +434,7 @@ def see(
     viewer: bool = False,
     video: bool = False,
     stream: bool = False,
+    window: bool = True,
 ) -> None:
     """Show the camera with each tracked face, who it is and what it shows, without the agent.
 
@@ -441,8 +446,10 @@ def see(
         viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
         video: Record the camera frames with the session, to replay them in rerun.
         stream: Also publish the window's image to MediaMTX, to watch on its WebRTC page.
+        window: Show the debug window; without it, people are only logged, recorded and
+            streamed.
     """
-    _run(_see(profile, viewer, video, stream))
+    _run(_see(profile, viewer, video, stream, window))
 
 
 async def _run_text_agent(
@@ -503,7 +510,7 @@ def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
         write(f"{person.user_id}  {person.name}{role}\n")
 
 
-async def _see(profile_dir: Path, viewer: bool, video: bool, stream: bool) -> None:
+async def _see(profile_dir: Path, viewer: bool, video: bool, stream: bool, window: bool) -> None:
     config = RuntimeConfig.load(profile_dir)
     if stream:
         await require_servers(_media_server(config))
@@ -515,7 +522,7 @@ async def _see(profile_dir: Path, viewer: bool, video: bool, stream: bool) -> No
         recorder,
         video,
         stream_video=stream,
-        show_window=True,
+        show_window=window,
         on_key=keys.put_nowait,
     )
     if stream:
@@ -568,7 +575,7 @@ def _face_vision(
         recorder=recorder,
         record_video=record_video,
         stream_video=stream_video,
-        show_window=show_window,
+        viewer=partial(DebugWindow, *_WINDOW_SIZE) if show_window else None,
         on_key=on_key,
     )
 

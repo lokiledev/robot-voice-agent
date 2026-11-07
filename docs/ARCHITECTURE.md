@@ -200,6 +200,10 @@ flowchart LR
   mesh's job. A skeleton belongs to the face track whose box holds its nose and eyes; the others,
   people turned away or too far to track, are kept apart. They run on a second thread while the
   faces are processed. They are meant for gestures: waving, a handshake, a fist bump.
+- **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
+  with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
+  a plot of how open each mouth has been. It lives in its own package behind the `FrameViewer`
+  protocol, so the camera pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
   with eyes, mouth and gaze plotted under `people/<track>`.
@@ -344,6 +348,7 @@ flowchart BT
     ASR["rva-voice-asr"]
     TTS["rva-voice-tts"]
     VIS["rva-vision-faces"]
+    VIEW["rva-vision-viewer"]
     UI["rva-ui"]
     OBS["rva-observability"]
     APP["rva-app"]
@@ -352,8 +357,8 @@ flowchart BT
     VLAC --> VLAS
     BODYC --> BODYS
     MOCK --> VLAS & BODYS
-    AGENT & LLM & AUD & ASR & TTS & VIS & UI & OBS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & UI & OBS & VLAC & BODYC
+    AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & UI & OBS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & UI & OBS & VLAC & BODYC
 ```
 
 | Package | Contents |
@@ -364,6 +369,7 @@ flowchart BT
 | `rva-llm` | The LLM client over the OpenAI API, and llama-server's launch settings |
 | `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
 | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, face database, camera stream |
+| `rva-vision-viewer` | Debug window for the camera pipeline, with Dear PyGui; vision runs without it |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |
 | `rva-vla-client`, `rva-body-client` | HTTP and WebSocket clients of the robot API |

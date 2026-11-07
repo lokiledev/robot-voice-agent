@@ -21,6 +21,7 @@ dependencies = [
   "rva-voice-audio",
   "rva-voice-tts",
   "rva-vision-faces",
+  "rva-vision-viewer",
 ]
 
 [build-system]
@@ -42,6 +43,7 @@ rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
 rva-voice-tts = {workspace = true}
 rva-vision-faces = {workspace = true}
+rva-vision-viewer = {workspace = true}
 
 [project.scripts]
 lune = "rva_app.cli:app"

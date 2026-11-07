@@ -50,6 +50,7 @@ rva-vla-client = {workspace = true}
 rva-vla-mock = {workspace = true}
 rva-vla-schemas = {workspace = true}
 rva-vision-faces = {workspace = true}
+rva-vision-viewer = {workspace = true}
 rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
 rva-voice-tts = {workspace = true}
@@ -69,6 +70,7 @@ members = [
   "vla/mock",
   "vla/schemas",
   "vision/faces",
+  "vision/viewer",
   "voice/asr",
   "voice/audio",
   "voice/tts",
