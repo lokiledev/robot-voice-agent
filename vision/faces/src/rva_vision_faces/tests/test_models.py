@@ -3,7 +3,14 @@ import pytest
 
 from rva_schemas.vision import BoundingBox
 from rva_vision_faces.body import BodyEstimator
-from rva_vision_faces.config import BodyConfig, DetectorConfig, FaceFeaturesConfig, ModelFile
+from rva_vision_faces.config import (
+    BodyConfig,
+    CameraIntrinsics,
+    DetectorConfig,
+    FaceFeaturesConfig,
+    ModelFile,
+)
+from rva_vision_faces.depth import DepthEstimator
 from rva_vision_faces.detector import Detection, YunetDetector
 from rva_vision_faces.embedder import SfaceEmbedder
 from rva_vision_faces.face_features import FaceAnalyzer
@@ -11,6 +18,8 @@ from rva_vision_faces.models import load_session
 
 YUNET = ModelFile(repo="opencv/face_detection_yunet", file="face_detection_yunet_2023mar.onnx")
 SFACE = ModelFile(repo="opencv/face_recognition_sface", file="face_recognition_sface_2021dec.onnx")
+
+DEPTH = ModelFile(repo="Heliosoph/da3metric-large-onnx", file="model_fp16.onnx")
 
 
 @pytest.mark.download
@@ -99,3 +108,18 @@ def test_body_estimator_finds_nobody_in_a_blank_frame() -> None:
     )
 
     assert estimator.estimate(np.full((720, 1280, 3), 128, np.uint8)) == []
+
+
+@pytest.mark.download
+def test_depth_keeps_the_frame_aspect_ratio_and_says_whether_it_is_calibrated() -> None:
+    session = load_session(DEPTH, "cpu", dynamic_image_size=False)
+    frame = np.random.default_rng(0).integers(0, 255, (720, 1280, 3), dtype=np.uint8)
+    intrinsics = CameraIntrinsics(width=1920, height=1080, fx=1360, fy=1360, cx=960, cy=540)
+
+    raw = DepthEstimator(session, None).estimate(frame)
+    calibrated = DepthEstimator(session, intrinsics).estimate(frame)
+
+    assert raw.metres.shape == (284, 504)
+    assert not raw.calibrated
+    assert calibrated.calibrated
+    np.testing.assert_allclose(calibrated.metres, raw.metres * (1360 * 504 / 1920 / 300), rtol=1e-3)

@@ -1,6 +1,8 @@
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
+import numpy as np
+import numpy.typing as npt
 from pydantic import Field
 
 from rva_pydantic import RVABaseModel
@@ -91,6 +93,16 @@ class KnownPerson(RVABaseModel):
     """Unique among known people."""
 
 
+class DepthMap(RVABaseModel, arbitrary_types_allowed=True):
+    """Depth of a camera frame, at a resolution of its own with the frame's aspect ratio."""
+
+    metres: npt.NDArray[np.float32]
+    """Distance along the camera's axis, height x width."""
+    calibrated: bool
+    """Whether the camera's own focal length scaled it. Otherwise the model assumed one, so
+    distances may be off by tens of percent."""
+
+
 class VisionTimings(RVABaseModel):
     """Smoothed per-frame figures of the camera pipeline, in milliseconds but for `fps`."""
 
@@ -101,6 +113,8 @@ class VisionTimings(RVABaseModel):
     faces_ms: float
     bodies_ms: float
     """Time left waiting for the skeletons once the faces are done: they run alongside."""
+    depth_ms: float
+    """Time left waiting for the depth once the skeletons are done: it runs alongside too."""
 
 
 class TrackedFace(RVABaseModel):

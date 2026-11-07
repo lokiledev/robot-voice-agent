@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from rva_schemas.record import PeopleInView, TrackedPerson
-from rva_schemas.vision import Body, FaceFeatures, Hand, Keypoint, VisionTimings
+from rva_schemas.vision import Body, DepthMap, FaceFeatures, Hand, Keypoint, VisionTimings
 
 _TITLE: Final = "lune see"
 _PANEL_WIDTH: Final = 320
@@ -17,6 +17,12 @@ _MARGIN: Final = 40
 """Room taken around the image and the panel by the window's padding."""
 _PLOT_S: Final = 10.0
 """How much of each mouth's history is plotted."""
+_DEPTH_SCALE: Final = 0.5
+"""Size of the depth image, relative to the camera's."""
+_MAX_DEPTH_M: Final = 4.0
+"""Depth at the far end of the colormap; farther is drawn the same."""
+_PROBE_RADIUS: Final = 2
+"""Half the side of the square of depth pixels whose median is shown, in pixels."""
 # RGB
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (255, 165, 0)
@@ -30,14 +36,17 @@ class DebugWindow:
     """`FrameViewer` in a Dear PyGui window.
 
     The camera image, and beside it each person in view with their eyes, mouth, gaze, expression
-    and skeleton, and a plot of how open their mouths have been. Lives in the thread that creates
-    it, which also shows the frames and closes it.
+    and skeleton, and a plot of how open their mouths have been. Right of the camera image, its depth
+    once some is given, with the distance under the mouse. Lives in the thread that creates it,
+    which also shows the frames and closes it.
     """
 
     def __init__(self, width: int, height: int) -> None:
         """Open the window, with the camera image scaled down to `width` by `height`."""
         self._size: Final = (width, height)
         self._image: Final = np.zeros((height, width, 3), np.float32)
+        self._depth_size: Final = (round(width * _DEPTH_SCALE), round(height * _DEPTH_SCALE))
+        self._depth_image: Final = np.zeros((*reversed(self._depth_size), 3), np.float32)
         self._keys: Final = deque[str]()
         self._mouths: Final[dict[int, deque[tuple[float, float]]]] = {}
         self._series: Final[dict[int, int | str]] = {}
@@ -52,11 +61,20 @@ class DebugWindow:
                 self._image,  # ty: ignore[invalid-argument-type]  # Any buffer is read; the stubs only list lists.
                 format=dpg.mvFormat_Float_rgb,
             )
+            self._depth_texture: Final = dpg.add_raw_texture(
+                *self._depth_size,
+                self._depth_image,  # ty: ignore[invalid-argument-type]  # Any buffer is read; the stubs only list lists.
+                format=dpg.mvFormat_Float_rgb,
+            )
         with dpg.handler_registry():
             for key, letter in _KEYS.items():
                 dpg.add_key_press_handler(key, callback=self._on_key, user_data=letter)
         with dpg.window() as root, dpg.group(horizontal=True):
             self._picture: Final = dpg.add_image(self._texture)
+            with dpg.group(show=False) as depth_view:
+                self._depth_view: Final = depth_view
+                self._depth_picture: Final = dpg.add_image(self._depth_texture)
+                self._probe: Final = dpg.add_text(wrap=0)
             with dpg.child_window(width=_PANEL_WIDTH):
                 self._timings: Final = dpg.add_text()
                 self._people: Final = dpg.add_group()
@@ -67,7 +85,7 @@ class DebugWindow:
                     dpg.set_axis_limits(self._mouth_axis, 0, 1)
         dpg.create_viewport(
             title=_TITLE,
-            width=width + _PANEL_WIDTH + _MARGIN,
+            width=round(width * (1 + _DEPTH_SCALE)) + _PANEL_WIDTH + 2 * _MARGIN,
             height=height + _MARGIN,
             # Drawing must not wait for the screen: it would slow the camera pipeline down.
             vsync=False,
@@ -77,21 +95,26 @@ class DebugWindow:
         dpg.set_primary_window(root, True)
 
     def show(
-        self, frame: npt.NDArray[np.uint8], people: PeopleInView, timings: VisionTimings
+        self,
+        frame: npt.NDArray[np.uint8],
+        people: PeopleInView,
+        depth: DepthMap | None,
+        timings: VisionTimings,
     ) -> str | None:
         if not dpg.is_dearpygui_running():
             return "q"
         small = cv2.resize(frame, self._size, interpolation=cv2.INTER_AREA)
         np.multiply(cv2.cvtColor(small, cv2.COLOR_BGR2RGB), np.float32(1 / 255), out=self._image)
         dpg.set_value(self._texture, self._image)
-        width, height = fit(
-            self._size,
-            (
-                dpg.get_viewport_client_width() - _PANEL_WIDTH - _MARGIN,
-                dpg.get_viewport_client_height() - _MARGIN,
-            ),
-        )
+        space_width = dpg.get_viewport_client_width() - _PANEL_WIDTH - _MARGIN
+        if depth is not None:
+            # The camera and its depth share the width, the depth at its smaller scale.
+            space_width = round((space_width - _MARGIN) / (1 + _DEPTH_SCALE))
+        width, height = fit(self._size, (space_width, dpg.get_viewport_client_height() - _MARGIN))
         dpg.configure_item(self._picture, width=width, height=height)
+        dpg.configure_item(self._depth_view, show=depth is not None)
+        if depth is not None:
+            self._show_depth(depth, (round(width * _DEPTH_SCALE), round(height * _DEPTH_SCALE)))
         dpg.set_value(self._timings, describe_timings(timings))
         self._show_people(people)
         self._plot_mouths(people)
@@ -106,6 +129,30 @@ class DebugWindow:
 
     def _on_key(self, sender: int | str, app_data: int, user_data: str) -> None:
         self._keys.append(user_data)
+
+    def _show_depth(self, depth: DepthMap, size: tuple[int, int]) -> None:
+        """Color the depth, near in blue and far in red, and give the distance under the mouse."""
+        small = cv2.resize(depth.metres, self._depth_size, interpolation=cv2.INTER_NEAREST)
+        levels = np.clip(small / _MAX_DEPTH_M * 255, 0, 255).astype(np.uint8)
+        colors = cv2.applyColorMap(levels, cv2.COLORMAP_TURBO)
+        np.multiply(
+            cv2.cvtColor(colors, cv2.COLOR_BGR2RGB), np.float32(1 / 255), out=self._depth_image
+        )
+        dpg.set_value(self._depth_texture, self._depth_image)
+        dpg.configure_item(self._depth_picture, width=size[0], height=size[1])
+        where, point = "at the center", (0.5, 0.5)
+        for picture in (self._picture, self._depth_picture):
+            if dpg.is_item_hovered(picture) is True:
+                mouse_x, mouse_y = dpg.get_mouse_pos(local=False)
+                left, top = dpg.get_item_rect_min(picture)
+                picture_width, picture_height = dpg.get_item_rect_size(picture)
+                where = "under the mouse"
+                point = ((mouse_x - left) / picture_width, (mouse_y - top) / picture_height)
+        dpg.set_value(
+            self._probe,
+            f"{describe_depth(depth, point)} {where}   colors 0 to {_MAX_DEPTH_M:.0f} m",
+        )
+        dpg.configure_item(self._probe, color=_KNOWN if depth.calibrated else _UNKNOWN)
 
     def _show_people(self, people: PeopleInView) -> None:
         dpg.delete_item(self._people, children_only=True)
@@ -171,6 +218,24 @@ def fit(image: tuple[int, int], space: tuple[int, int]) -> tuple[int, int]:
     return max(round(image[0] * scale), 1), max(round(image[1] * scale), 1)
 
 
+def depth_at(depth: npt.NDArray[np.float32], point: tuple[float, float]) -> float:
+    """Median depth in a small square around a point given as fractions of the width and height."""
+    height, width = depth.shape
+    x = min(max(round(point[0] * (width - 1)), 0), width - 1)
+    y = min(max(round(point[1] * (height - 1)), 0), height - 1)
+    patch = depth[
+        max(y - _PROBE_RADIUS, 0) : y + _PROBE_RADIUS + 1,
+        max(x - _PROBE_RADIUS, 0) : x + _PROBE_RADIUS + 1,
+    ]
+    return float(np.median(patch))
+
+
+def describe_depth(depth: DepthMap, point: tuple[float, float]) -> str:
+    """The depth at a point, and whether the camera was calibrated to measure it."""
+    calibration = "calibrated" if depth.calibrated else "UNCALIBRATED"
+    return f"depth {depth_at(depth.metres, point):.2f} m ({calibration})"
+
+
 def title(person: TrackedPerson) -> str:
     who = (
         "unknown"
@@ -201,7 +266,7 @@ def describe_timings(timings: VisionTimings) -> str:
         f"{timings.fps:.0f} fps\n"
         f"capture {timings.capture_ms:.1f} ms  detect {timings.detect_ms:.1f} ms\n"
         f"embed {timings.embed_ms:.1f} ms  faces {timings.faces_ms:.1f} ms\n"
-        f"bodies {timings.bodies_ms:.1f} ms"
+        f"bodies {timings.bodies_ms:.1f} ms  depth {timings.depth_ms:.1f} ms"
     )
 
 

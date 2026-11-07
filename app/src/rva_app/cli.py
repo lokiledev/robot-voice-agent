@@ -108,6 +108,7 @@ def everything(
     viewer: bool = False,
     show: bool = False,
     video: bool = False,
+    depth: bool = True,
 ) -> None:
     """Run everything: the servers the agent needs, then the agent with its session page.
 
@@ -121,8 +122,9 @@ def everything(
         viewer: Stream the recording to a rerun viewer.
         show: Also show the camera with the tracked faces in a window.
         video: Record the camera frames with the session, to replay them in rerun.
+        depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_up(profile, text, camera, viewer, show, video))
+    _run(_up(profile, text, camera, viewer, show, video, depth))
 
 
 @app.command
@@ -145,6 +147,7 @@ def text(
     show: bool = False,
     video: bool = False,
     ui: bool = False,
+    depth: bool = True,
 ) -> None:
     """Run the agent in the terminal: type to talk, read its replies. Needs the LLM and VLA servers.
 
@@ -155,8 +158,9 @@ def text(
         show: Also show the camera with the tracked faces in a window.
         video: Record the camera frames with the session, to replay them in rerun.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
+        depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_run_text_agent(profile, viewer, camera, show, video, ui))
+    _run(_run_text_agent(profile, viewer, camera, show, video, ui, depth))
 
 
 @app.command
@@ -190,6 +194,7 @@ def run(
     show: bool = False,
     video: bool = False,
     ui: bool = False,
+    depth: bool = True,
 ) -> None:
     """Run the voice agent. Needs the LLM and VLA servers.
 
@@ -200,8 +205,9 @@ def run(
         show: Also show the camera with the tracked faces in a window.
         video: Record the camera frames with the session, to replay them in rerun.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
+        depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_run_voice_agent(profile, viewer, camera, show, video, ui))
+    _run(_run_voice_agent(profile, viewer, camera, show, video, ui, depth))
 
 
 def _run(main: Coroutine[object, object, None]) -> None:
@@ -213,14 +219,20 @@ def _run(main: Coroutine[object, object, None]) -> None:
 
 
 async def _up(
-    profile_dir: Path, text: bool, camera: bool, viewer: bool, show: bool, video: bool
+    profile_dir: Path,
+    text: bool,
+    camera: bool,
+    viewer: bool,
+    show: bool,
+    video: bool,
+    depth: bool,
 ) -> None:
     config = RuntimeConfig.load(profile_dir)
     logs = config.observability.captures_dir.expanduser() / "servers"
     async with services_running(_services(config, camera), logs):
         write(f"Session page: http://{config.ui.host}:{config.ui.port}\n")
         run_agent = _run_text_agent if text else _run_voice_agent
-        await run_agent(profile_dir, viewer, camera, show, video, True)
+        await run_agent(profile_dir, viewer, camera, show, video, True, depth)
 
 
 def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
@@ -356,7 +368,13 @@ async def _say(profile_dir: Path, voice_name: str | None) -> None:
 
 
 async def _run_voice_agent(
-    profile_dir: Path, viewer: bool, camera: bool, show: bool, video: bool, ui: bool
+    profile_dir: Path,
+    viewer: bool,
+    camera: bool,
+    show: bool,
+    video: bool,
+    ui: bool,
+    depth: bool,
 ) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
     await require_servers(*_agent_servers(config, streamed=ui and camera))
@@ -376,6 +394,7 @@ async def _run_voice_agent(
                 video,
                 stream_video=page is not None,
                 show_window=show,
+                depth=depth,
                 on_key=None,
             )
             if camera
@@ -435,6 +454,7 @@ def see(
     video: bool = False,
     stream: bool = False,
     window: bool = True,
+    depth: bool = True,
 ) -> None:
     """Show the camera with each tracked face, who it is and what it shows, without the agent.
 
@@ -448,12 +468,19 @@ def see(
         stream: Also publish the window's image to MediaMTX, to watch on its WebRTC page.
         window: Show the debug window; without it, people are only logged, recorded and
             streamed.
+        depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_see(profile, viewer, video, stream, window))
+    _run(_see(profile, viewer, video, stream, window, depth))
 
 
 async def _run_text_agent(
-    profile_dir: Path, viewer: bool, camera: bool, show: bool, video: bool, ui: bool
+    profile_dir: Path,
+    viewer: bool,
+    camera: bool,
+    show: bool,
+    video: bool,
+    ui: bool,
+    depth: bool,
 ) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
     await require_servers(*_agent_servers(config, streamed=ui and camera))
@@ -472,6 +499,7 @@ async def _run_text_agent(
                 video,
                 stream_video=page is not None,
                 show_window=show,
+                depth=depth,
                 on_key=None,
             )
             if camera
@@ -510,7 +538,9 @@ def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
         write(f"{person.user_id}  {person.name}{role}\n")
 
 
-async def _see(profile_dir: Path, viewer: bool, video: bool, stream: bool, window: bool) -> None:
+async def _see(
+    profile_dir: Path, viewer: bool, video: bool, stream: bool, window: bool, depth: bool
+) -> None:
     config = RuntimeConfig.load(profile_dir)
     if stream:
         await require_servers(_media_server(config))
@@ -523,6 +553,7 @@ async def _see(profile_dir: Path, viewer: bool, video: bool, stream: bool, windo
         video,
         stream_video=stream,
         show_window=window,
+        depth=depth,
         on_key=keys.put_nowait,
     )
     if stream:
@@ -567,10 +598,11 @@ def _face_vision(
     *,
     stream_video: bool,
     show_window: bool,
+    depth: bool,
     on_key: Callable[[str], None] | None,
 ) -> FaceVision:
     return FaceVision(
-        config,
+        config if depth else config.model_copy(update={"depth": None}),
         _face_database(config),
         recorder=recorder,
         record_video=record_video,

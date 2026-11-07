@@ -138,7 +138,7 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |
 | `lune llm` | Chat with the LLM alone; tool calls are shown, not run |
 | `lune prompt` | Prints the system prompt built from the profile |
-| `lune see` | Shows the camera with each tracked face, who it is, their eyes, gaze, mouth, expression and skeleton; `--no-window` to only log and record |
+| `lune see` | Shows the camera with each tracked face, who it is, their eyes, gaze, mouth, expression and skeleton, and beside it the depth; `--no-window` to only log and record, `--no-depth` to leave depth out |
 | `lune people` | Lists everyone Lune knows, with admins and operators |
 | `lune text` | The whole agent, typing instead of talking |
 | `lune run` | The whole voice agent |

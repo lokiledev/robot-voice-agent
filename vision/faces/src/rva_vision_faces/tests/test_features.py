@@ -15,6 +15,8 @@ from rva_vision_faces.body import (
     pose_transform,
     to_body,
 )
+from rva_vision_faces.config import CameraIntrinsics
+from rva_vision_faces.depth import letterbox, metres_per_unit
 from rva_vision_faces.detector import Detection
 from rva_vision_faces.face_features import box_transform, gaze_from_bins, mesh_transform
 
@@ -174,3 +176,35 @@ def test_a_weak_double_of_a_hand_is_dropped_before_its_loose_points() -> None:
 
     assert body.left_hand is None
     assert body.right_hand is not None
+
+
+def test_letterbox_pads_a_landscape_frame_above_and_below() -> None:
+    frame = np.full((1080, 1920, 3), 255, np.uint8)
+
+    square, rows = letterbox(frame, 504)
+
+    assert square.shape == (504, 504, 3)
+    assert rows == slice(110, 394)
+    assert (square[rows] == 255).all()
+    assert square[0, 0].tolist() == [124, 116, 104]
+    assert square[-1, 0].tolist() == [124, 116, 104]
+
+
+def test_intrinsics_scale_with_the_resolution() -> None:
+    intrinsics = CameraIntrinsics(width=1920, height=1080, fx=1400, fy=1380, cx=950, cy=530)
+
+    scaled = intrinsics.scaled_to(1280, 720)
+
+    assert (scaled.width, scaled.height) == (1280, 720)
+    assert (scaled.fx, scaled.fy, scaled.cx, scaled.cy) == pytest.approx(
+        (1400 * 2 / 3, 920, 950 * 2 / 3, 530 * 2 / 3)
+    )
+    with pytest.raises(AssertionError):
+        intrinsics.scaled_to(640, 480)
+
+
+def test_depth_is_scaled_by_the_focal_length_at_the_network_input() -> None:
+    intrinsics = CameraIntrinsics(width=1920, height=1080, fx=1400, fy=1380, cx=960, cy=540)
+
+    # A 1390 px mean focal at 1920 wide is 364.875 px at 504 wide; the network assumes 300.
+    assert metres_per_unit(intrinsics, 504) == pytest.approx(364.875 / 300)

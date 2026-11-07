@@ -167,6 +167,7 @@ flowchart LR
     db[("Face database")] <--> gal
     trk --> feat["Face features<br/>[face mesh, blendshapes,<br/>L2CS-Net, ViT; GPU]"]
     cam --> body["Skeletons<br/>[YOLOX, RTMW; GPU]"]
+    cam --> depth["Depth<br/>[Depth Anything 3 Metric; GPU]"]
     body -- "nose and eyes<br/>in a face box" --> scene["People in view<br/>track, person, face, body, hands"]
     feat --> scene
     trk -- "appeared, left" --> loop([Agent loop])
@@ -206,9 +207,18 @@ flowchart LR
   eyes; the others, people turned away or too far to track, are kept apart. They run on a second
   thread while the faces are processed. They are meant for gestures: waving, a handshake, a fist
   bump.
+- **Depth.** Depth Anything 3 Metric-Large (Apache-2.0) estimates the distance of every pixel from
+  the camera image alone, alongside the skeletons. Its export takes a fixed 504x504 square, so the
+  frame is letterboxed into it, keeping one focal length for both axes. The network predicts depth
+  for a camera of its own focal length; the camera's calibrated intrinsics (`camera.intrinsics`)
+  scale it to this camera. Until the camera is calibrated, the depth stays as predicted and is
+  marked uncalibrated: then it was 1.2 to 1.4 times too far at desk distance with the C920. It is
+  only shown, in the debug window, and is meant to place the skeletons in 3D. `--no-depth`, or
+  `depth: null` in the profile, leaves it out.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
-  a plot of how open each mouth has been. It lives in its own package behind the `FrameViewer`
+  a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
+  mouse and whether the camera is calibrated. It lives in its own package behind the `FrameViewer`
   protocol, so the camera pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
@@ -374,7 +384,7 @@ flowchart BT
 | `rva-agent` | Agent loop, history, system prompt, tools, supervisors, permissions |
 | `rva-llm` | The LLM client over the OpenAI API, and llama-server's launch settings |
 | `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
-| `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, face database, camera stream |
+| `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face database, camera stream |
 | `rva-vision-viewer` | Debug window for the camera pipeline, with Dear PyGui; vision runs without it |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |
@@ -396,6 +406,7 @@ flowchart BT
 | Face detection and embeddings | YuNet, SFace | GPU, under 0.8 GB with the camera pipeline |
 | Face features | MediaPipe face mesh and blendshapes, L2CS-Net, ViT (FER2013) | GPU |
 | Skeletons | YOLOX-L, RTMW-L 256x192 | GPU; with the face features, 1.7 GB more |
+| Depth | Depth Anything 3 Metric-Large, fp16, 504x504 | GPU, about 22 ms and 1.4 GB alone |
 
 **Why a cascade.** Speech-to-speech models such as Kyutai's Moshi reason over audio: they have no
 text history to edit, no tool calls and no system prompt of your own, which an agent driving a

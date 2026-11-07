@@ -39,6 +39,7 @@ vision:
     width: 1920
     height: 1080
     fps: 30
+    intrinsics: null  # Not calibrated yet.
   detector:
     model:
       repo: opencv/face_detection_yunet
@@ -82,6 +83,10 @@ vision:
       repo: bukuroo/RTMW-ONNX
       file: rtmw-l-256.onnx
     keypoint_threshold: 0.3
+  depth:
+    model:
+      repo: Heliosoph/da3metric-large-onnx
+      file: model_fp16.onnx
   database: ~/.local/share/robot-voice-agent/faces.sqlite3
   max_embeddings_per_person: 10
   # Used with --video: camera frames recorded with the session, to replay in rerun.

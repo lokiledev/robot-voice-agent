@@ -7,7 +7,14 @@ import numpy as np
 import numpy.typing as npt
 
 from rva_schemas.record import PeopleInView
-from rva_schemas.vision import FaceEvent, KnownPerson, Remembered, TrackedFace, VisionTimings
+from rva_schemas.vision import (
+    DepthMap,
+    FaceEvent,
+    KnownPerson,
+    Remembered,
+    TrackedFace,
+    VisionTimings,
+)
 
 
 class Vision(Protocol):
@@ -69,13 +76,18 @@ class FrameViewer(Protocol):
     """Shows the camera pipeline's frames, for debugging. Lives in the thread that creates it."""
 
     def show(
-        self, frame: npt.NDArray[np.uint8], people: PeopleInView, timings: VisionTimings
+        self,
+        frame: npt.NDArray[np.uint8],
+        people: PeopleInView,
+        depth: DepthMap | None,
+        timings: VisionTimings,
     ) -> str | None:
         """Display a frame, already drawn on, with what was seen in it.
 
         Args:
             frame: BGR image, height x width x 3.
             people: The people in view, in the frame's pixels.
+            depth: The frame's depth; `None` when depth is not estimated.
             timings: How long the last frames took.
 
         Returns:

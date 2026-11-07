@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -13,12 +14,41 @@ class ModelFile(RVABaseModel):
     file: str
 
 
+class CameraIntrinsics(RVABaseModel):
+    """Pinhole model of a camera at one resolution, in pixels."""
+
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    fx: float = Field(gt=0)
+    fy: float = Field(gt=0)
+    cx: float
+    cy: float
+
+    def scaled_to(self, width: int, height: int) -> "CameraIntrinsics":
+        """The same camera at another resolution of the same aspect ratio."""
+        scale = width / self.width
+        assert math.isclose(height / self.height, scale, rel_tol=0.01), (
+            f"{width}x{height} is not {self.width}x{self.height} scaled"
+        )
+        return CameraIntrinsics(
+            width=width,
+            height=height,
+            fx=self.fx * scale,
+            fy=self.fy * scale,
+            cx=self.cx * scale,
+            cy=self.cy * scale,
+        )
+
+
 class CameraConfig(RVABaseModel):
     device: Path
     """V4L2 device, e.g. `/dev/video0`."""
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     fps: int = Field(gt=0)
+    intrinsics: CameraIntrinsics | None
+    """From a calibration, at any resolution of the frame's aspect ratio; `None` until the camera
+    is calibrated."""
 
 
 class DetectorConfig(RVABaseModel):
@@ -78,6 +108,13 @@ class BodyConfig(RVABaseModel):
     """Keypoints scoring lower are left out."""
 
 
+class DepthConfig(RVABaseModel):
+    """Model estimating metric depth from the camera image alone."""
+
+    model: ModelFile
+    """Depth Anything 3 Metric, exported with a fixed square input."""
+
+
 class VideoRecordingConfig(RVABaseModel):
     """How camera frames are recorded, when recording video is asked for."""
 
@@ -107,6 +144,8 @@ class FaceVisionConfig(RVABaseModel):
     """`None` to only detect, track and recognize faces."""
     body: BodyConfig | None
     """`None` to leave out skeletons."""
+    depth: DepthConfig | None
+    """`None` to leave out depth."""
     database: Path
     """SQLite file of known people and their face embeddings; `~` is expanded."""
     max_embeddings_per_person: int = Field(gt=0)

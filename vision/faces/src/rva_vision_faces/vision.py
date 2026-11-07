@@ -16,6 +16,7 @@ from rva_schemas.abc.vision import FrameViewer
 from rva_schemas.record import CameraFrame
 from rva_schemas.vision import (
     Body,
+    DepthMap,
     FaceEvent,
     KnownPerson,
     NotRecognizedError,
@@ -28,6 +29,7 @@ from rva_vision_faces.body import BodyEstimator, attach
 from rva_vision_faces.camera import Camera
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
+from rva_vision_faces.depth import DepthEstimator
 from rva_vision_faces.detector import Detection, Image, YunetDetector
 from rva_vision_faces.embedder import Embedding, SfaceEmbedder
 from rva_vision_faces.face_features import FaceAnalyzer
@@ -73,8 +75,8 @@ class _Models:
             )
         )
         body = config.body
-        self.pool: Final = ThreadPoolExecutor(1, thread_name_prefix="vision-bodies")
-        """Runs the skeletons alongside the faces: ONNX Runtime lets go of the GIL."""
+        self.pool: Final = ThreadPoolExecutor(2, thread_name_prefix="vision-alongside")
+        """Runs the skeletons and the depth alongside the faces: ONNX Runtime lets go of the GIL."""
         self.bodies: Final = (
             None
             if body is None
@@ -82,6 +84,14 @@ class _Models:
                 load_session(body.detector, device, dynamic_image_size=False),
                 load_session(body.pose, device, dynamic_image_size=False),
                 body,
+            )
+        )
+        self.depth: Final = (
+            None
+            if config.depth is None
+            else DepthEstimator(
+                load_session(config.depth.model, device, dynamic_image_size=False),
+                config.camera.intrinsics,
             )
         )
 
@@ -233,12 +243,18 @@ class FaceVision:
         )
         logger.info("Watching {} on {}", config.camera.device, config.device)
         timings = VisionTimings(
-            fps=0.0, capture_ms=0.0, detect_ms=0.0, embed_ms=0.0, faces_ms=0.0, bodies_ms=0.0
+            fps=0.0,
+            capture_ms=0.0,
+            detect_ms=0.0,
+            embed_ms=0.0,
+            faces_ms=0.0,
+            bodies_ms=0.0,
+            depth_ms=0.0,
         )
         previous = last_logged = time.perf_counter()
         try:
             while not stop.is_set():
-                frame, scene, frame_timings = self._step(camera, models, loop)
+                frame, scene, depth, frame_timings = self._step(camera, models, loop)
                 now = time.perf_counter()
                 timings = _smooth(
                     timings, frame_timings.model_copy(update={"fps": 1 / (now - previous)})
@@ -259,7 +275,7 @@ class FaceVision:
                 people = people_in_view(
                     self._tracker.tracks, scene, 1.0, width, height, self._current_caption()
                 )
-                key = window.show(frame, people, timings)
+                key = window.show(frame, people, depth, timings)
                 if key == "q":
                     return
                 if key is not None and self._on_key is not None:
@@ -274,8 +290,8 @@ class FaceVision:
 
     def _step(
         self, camera: Camera, models: _Models, loop: asyncio.AbstractEventLoop
-    ) -> tuple[Image, Scene, VisionTimings]:
-        """Process one frame; returns it with what was seen and how long each stage took."""
+    ) -> tuple[Image, Scene, DepthMap | None, VisionTimings]:
+        """Process one frame; returns it with what was seen, its depth and the stages' times."""
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
             frame = camera.read()
@@ -283,6 +299,9 @@ class FaceVision:
         # Skeletons need no face: they are estimated meanwhile, on the other thread.
         found = (
             None if models.bodies is None else models.pool.submit(_estimate, models.bodies, frame)
+        )
+        measured = (
+            None if models.depth is None else models.pool.submit(_measure, models.depth, frame)
         )
         with _tracer.start_as_current_span("vision:detect"):
             min_height = self._config.tracker.min_face_height * frame.shape[0]
@@ -316,10 +335,13 @@ class FaceVision:
         if found is not None:
             bodies, unmatched = attach(found.result(), [(id_, d.box) for id_, d in visible])
         posed = time.perf_counter()
+        depth = None if measured is None else measured.result()
+        sounded = time.perf_counter()
         scene = Scene(faces=faces, bodies=bodies, unmatched_bodies=tuple(unmatched))
         return (
             frame,
             scene,
+            depth,
             VisionTimings(
                 fps=0.0,
                 capture_ms=(captured - start) * 1e3,
@@ -327,6 +349,7 @@ class FaceVision:
                 embed_ms=embedding_time * 1e3,
                 faces_ms=(analyzed - tracked) * 1e3,
                 bodies_ms=(posed - analyzed) * 1e3,
+                depth_ms=(sounded - posed) * 1e3,
             ),
         )
 
@@ -371,6 +394,11 @@ class FaceVision:
 
 def _estimate(estimator: BodyEstimator, frame: Image) -> list[Body]:
     with _tracer.start_as_current_span("vision:bodies"):
+        return estimator.estimate(frame)
+
+
+def _measure(estimator: DepthEstimator, frame: Image) -> DepthMap:
+    with _tracer.start_as_current_span("vision:depth"):
         return estimator.estimate(frame)
 
 

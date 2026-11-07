@@ -1,8 +1,10 @@
 from uuid import UUID
 
+import numpy as np
+
 from rva_schemas.record import TrackedPerson
-from rva_schemas.vision import Body, BoundingBox, Hand, Keypoint, KnownPerson
-from rva_vision_viewer.window import describe_body, fit, title
+from rva_schemas.vision import Body, BoundingBox, DepthMap, Hand, Keypoint, KnownPerson
+from rva_vision_viewer.window import depth_at, describe_body, describe_depth, fit, title
 
 
 def test_fit_keeps_the_aspect_ratio_within_the_space() -> None:
@@ -38,3 +40,26 @@ def test_describe_body_counts_the_keypoints_found() -> None:
     )
 
     assert describe_body(body) == "skeleton 2/3, hands left 1/2 right -"
+
+
+def test_depth_at_takes_the_median_around_a_point() -> None:
+    depth = np.full((10, 20), 2.0, np.float32)
+    depth[0, 0] = 9.0
+    depth[9, 19] = 0.5
+
+    assert depth_at(depth, (0.5, 0.5)) == 2.0
+    assert depth_at(depth, (0.0, 0.0)) == 2.0
+    assert depth_at(depth, (1.5, -1.0)) == 2.0
+
+
+def test_describe_depth_says_whether_it_is_calibrated() -> None:
+    depth = np.full((10, 20), 1.234, np.float32)
+
+    assert (
+        describe_depth(DepthMap(metres=depth, calibrated=True), (0.5, 0.5))
+        == "depth 1.23 m (calibrated)"
+    )
+    assert (
+        describe_depth(DepthMap(metres=depth, calibrated=False), (0.5, 0.5))
+        == "depth 1.23 m (UNCALIBRATED)"
+    )
