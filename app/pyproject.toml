@@ -10,6 +10,7 @@ dependencies = [
   "loguru>=0.7",
   "numpy>=2.0",
   "rva-agent",
+  "rva-attention",
   "rva-body-client",
   "rva-llm",
   "rva-multimodal",
@@ -33,6 +34,7 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 rva-agent = {workspace = true}
+rva-attention = {workspace = true}
 rva-body-client = {workspace = true}
 rva-llm = {workspace = true}
 rva-multimodal = {workspace = true}

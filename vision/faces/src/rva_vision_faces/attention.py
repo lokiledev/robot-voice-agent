@@ -4,7 +4,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from rva_schemas.vision import ActiveSpeaker, BoundingBox, FaceFeatures, Gaze, MainUser
+from rva_schemas.vision import ActiveSpeaker, BoundingBox, FaceFeatures, MainUser
 from rva_vision_faces.config import EyeContactConfig, LipMotionConfig
 
 _STICKINESS: Final = 1.25
@@ -65,7 +65,7 @@ class Attention:
         if track_id is None:
             return None
         features = faces[track_id][1]
-        angle = statistics.median(self._angles.add(now, off_camera(features.gaze)))
+        angle = statistics.median(self._angles.add(now, features.gaze.off_camera()))
         eye_contact = self._eye_contact_config
         self._eye_contact = angle < (
             eye_contact.leave_deg if self._eye_contact else eye_contact.enter_deg
@@ -121,12 +121,6 @@ def prominence(box: BoundingBox, width: int, height: int) -> float:
     """
     offset = abs(box.x + box.width / 2 - width / 2) / (width / 2)
     return box.height / height * max(1 - offset, 0.0)
-
-
-def off_camera(gaze: Gaze) -> float:
-    """Angle between the gaze and the line to the camera, in degrees."""
-    yaw, pitch = math.radians(gaze.yaw), math.radians(gaze.pitch)
-    return math.degrees(math.acos(min(math.cos(yaw) * math.cos(pitch), 1.0)))
 
 
 def lip_aperture(landmarks: Sequence[tuple[float, float]]) -> float:

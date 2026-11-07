@@ -90,6 +90,11 @@ class Gaze(RVABaseModel):
     pitch: float
     """Positive upwards."""
 
+    def off_camera(self) -> float:
+        """Angle between the gaze and the line to the camera, in degrees."""
+        yaw, pitch = math.radians(self.yaw), math.radians(self.pitch)
+        return math.degrees(math.acos(min(math.cos(yaw) * math.cos(pitch), 1.0)))
+
 
 class GazeRay(RVABaseModel):
     """Where the eyes point, in the camera's frame."""

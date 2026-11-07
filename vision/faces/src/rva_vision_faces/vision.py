@@ -15,7 +15,8 @@ from rva_pydantic import load_yaml
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.abc.vision import FrameViewer
-from rva_schemas.record import CameraFrame, DepthFrame
+from rva_schemas.observation import VisualObservation
+from rva_schemas.record import CameraFrame, DepthFrame, PeopleInView
 from rva_schemas.vision import (
     Body,
     CameraIntrinsics,
@@ -168,6 +169,7 @@ class FaceVision:
         # Guards the tracker, which the frame thread changes and the event loop reads.
         self._lock: Final = threading.Lock()
         self._subscribers: Final[set[asyncio.Queue[FaceEvent]]] = set()
+        self._observers: Final[set[asyncio.Queue[VisualObservation]]] = set()
 
     async def run(self) -> None:
         """Process frames until cancelled, or until the viewer is closed or `q` is pressed."""
@@ -189,6 +191,20 @@ class FaceVision:
             yield _drain(queue)
         finally:
             self._subscribers.discard(queue)
+
+    @asynccontextmanager
+    async def observations(self) -> AsyncGenerator[AsyncIterator[VisualObservation]]:
+        """Subscribe to what is seen in each frame, for the visual attention.
+
+        A subscriber that falls behind gets the latest frame, not every one: attention is about
+        now.
+        """
+        queue = asyncio.Queue[VisualObservation](maxsize=1)
+        self._observers.add(queue)
+        try:
+            yield _drain(queue)
+        finally:
+            self._observers.discard(queue)
 
     def faces(self) -> tuple[TrackedFace, ...]:
         with self._lock:
@@ -288,7 +304,7 @@ class FaceVision:
         previous = last_logged = time.perf_counter()
         try:
             while not stop.is_set():
-                frame, scene, depth, main_user, frame_timings = self._step(
+                frame, scene, depth, main_user, captured_at, frame_timings = self._step(
                     camera, models, attention, loop
                 )
                 now = time.perf_counter()
@@ -299,7 +315,14 @@ class FaceVision:
                 if now - last_logged >= _LOG_EVERY_S:
                     logger.debug("Vision timings: {}", timings)
                     last_logged = now
-                self._record(frame, scene, depth, models.intrinsics)
+                people = self._record(frame, scene, depth, models.intrinsics)
+                if self._observers:
+                    observation = VisualObservation(
+                        time=captured_at,
+                        people=people,
+                        main_user=None if main_user is None else main_user.track_id,
+                    )
+                    loop.call_soon_threadsafe(self._observe, observation)
                 if window is None and publisher is None:
                     continue
                 draw(frame, self._tracker.tracks, scene, timings, self._current_caption())
@@ -336,10 +359,11 @@ class FaceVision:
         models: _Models,
         attention: Attention | None,
         loop: asyncio.AbstractEventLoop,
-    ) -> tuple[Image, Scene, DepthMap | None, MainUser | None, VisionTimings]:
+    ) -> tuple[Image, Scene, DepthMap | None, MainUser | None, float, VisionTimings]:
         """Process one frame.
 
-        Returns the image, what was seen, its depth, the main user and the stages' times.
+        Returns the image, what was seen, its depth, the main user, when the frame was taken on
+        the monotonic clock, and the stages' times.
         """
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
@@ -420,6 +444,7 @@ class FaceVision:
             scene,
             depth,
             main_user,
+            captured_at,
             VisionTimings(
                 fps=0.0,
                 capture_ms=(captured - start) * 1e3,
@@ -449,8 +474,12 @@ class FaceVision:
         scene: Scene,
         depth: DepthMap | None,
         intrinsics: CameraIntrinsics | None,
-    ) -> None:
-        """Record what was seen, and with `record_video` the frame and its depth."""
+    ) -> PeopleInView:
+        """Record what was seen, and with `record_video` the frame and its depth.
+
+        Returns the people recorded, in the recorded video's pixels when there is one; their
+        points in 3D are in metres either way.
+        """
         height, width = frame.shape[:2]
         scale = 1.0
         if self._record_video:
@@ -470,17 +499,17 @@ class FaceVision:
                 self._recorder.record(
                     DepthFrame(depth=depth, intrinsics=intrinsics.scaled_to(columns, rows))
                 )
-        self._recorder.record(
-            people_in_view(
-                self._tracker.tracks,
-                scene,
-                scale,
-                round(width * scale),
-                round(height * scale),
-                intrinsics,
-                self._current_caption(),
-            )
+        people = people_in_view(
+            self._tracker.tracks,
+            scene,
+            scale,
+            round(width * scale),
+            round(height * scale),
+            intrinsics,
+            self._current_caption(),
         )
+        self._recorder.record(people)
+        return people
 
     def _current_caption(self) -> tuple[int, str] | None:
         """The track and sentence to show, while still fresh."""
@@ -493,6 +522,13 @@ class FaceVision:
         for queue in self._subscribers:
             for event in events:
                 queue.put_nowait(event)
+
+    def _observe(self, observation: VisualObservation) -> None:
+        """Hand the frame's observation to each observer, replacing one they have not taken."""
+        for queue in self._observers:
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(observation)
 
 
 def _estimate(estimator: BodyEstimator, frame: Image) -> list[Body]:
@@ -517,6 +553,6 @@ def _smooth(timings: VisionTimings, frame: VisionTimings) -> VisionTimings:
     )
 
 
-async def _drain(queue: asyncio.Queue[FaceEvent]) -> AsyncIterator[FaceEvent]:
+async def _drain[T](queue: asyncio.Queue[T]) -> AsyncIterator[T]:
     while True:
         yield await queue.get()

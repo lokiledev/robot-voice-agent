@@ -8,6 +8,7 @@ import rerun as rr
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
 from rva_body_schemas.motion import describe
+from rva_schemas.attention import AttentionEntity, AttentionState, FaceEntity, HandEntity
 from rva_schemas.record import (
     AgentStarted,
     CameraFrame,
@@ -48,6 +49,9 @@ _PEOPLE: Final = f"{_CAMERA}/people"
 _SPACE: Final = "space"
 """The people in 3D, in the camera's frame, which is the 3D view's."""
 _PEOPLE_3D: Final = f"{_SPACE}/people"
+_ATTENTION: Final = f"{_SPACE}/attention"
+"""The point attended to, in the 3D view, with the score of each candidate as a series."""
+_ATTENTION_COLOR: Final = (255, 0, 255)
 _DEPTH: Final = "depth"
 """The depth's pinhole, at its own resolution, with the depth under it as a point cloud."""
 _DEPTH_STRIDE: Final = 2
@@ -106,6 +110,7 @@ class RerunRecorder:
             )
         # Entities of the last frame's people, cleared once they are not seen.
         self._people_entities: set[str] = set()
+        self._attending = False
 
     def record(self, entry: Record) -> None:
         self._recording.set_time(_TIMELINE, timestamp=datetime.now(UTC))
@@ -153,6 +158,8 @@ class RerunRecorder:
                     f"{_CAMERA}/image",
                     rr.EncodedImage(contents=entry.jpeg, media_type="image/jpeg"),
                 )
+            case AttentionState():
+                self._attention(entry)
             case DepthFrame():
                 # Every other pixel, in millimetres on 16 bits: an eighth of the size, about
                 # 2 MB/s, and still enough points to see the people against the room.
@@ -217,6 +224,28 @@ class RerunRecorder:
         for path in self._people_entities - entities.keys():
             self._recording.log(path, rr.Clear(recursive=False))
         self._people_entities = set(entities)
+
+    def _attention(self, entry: AttentionState) -> None:
+        for candidate in entry.candidates:
+            self._recording.log(
+                f"attention/{_entity_name(candidate.entity)}/score", rr.Scalars(candidate.score)
+            )
+        if entry.target is None:
+            if self._attending:
+                self._recording.log(_ATTENTION, rr.Clear(recursive=False))
+            self._attending = False
+            return
+        self._recording.log(
+            _ATTENTION,
+            rr.Points3D(
+                [_xyz(entry.target.point)],
+                colors=_ATTENTION_COLOR,
+                radii=0.03,
+                labels=[_entity_name(entry.target.entity)],
+                show_labels=True,
+            ),
+        )
+        self._attending = True
 
     def _face_series(self, track_id: int, face: FaceFeatures) -> None:
         """Plot what changes fast, e.g. the mouth moving while someone speaks."""
@@ -411,3 +440,13 @@ class RerunSpanProcessor(SpanProcessor):
         for event in span.events:
             elapsed_ms = (event.timestamp - span.start_time) * 1e-6
             self._recording.log(f"latency/{name}/{event.name}", rr.Scalars(elapsed_ms))
+
+
+def _entity_name(entity: AttentionEntity) -> str:
+    match entity:
+        case FaceEntity():
+            return f"face_{entity.track_id}"
+        case HandEntity():
+            return f"{entity.side}_hand_{entity.track_id}"
+        case _:
+            assert_never(entity)

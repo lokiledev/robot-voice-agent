@@ -1,7 +1,7 @@
 import pytest
 
 from rva_schemas.vision import ActiveSpeaker, BoundingBox, FaceFeatures, Gaze
-from rva_vision_faces.attention import Attention, lip_aperture, off_camera, prominence
+from rva_vision_faces.attention import Attention, lip_aperture, prominence
 from rva_vision_faces.config import EyeContactConfig, LipMotionConfig
 
 EYE_CONTACT = EyeContactConfig(window_s=0.4, enter_deg=12.0, leave_deg=18.0)
@@ -30,9 +30,9 @@ def face(gaze: Gaze, aperture: float = 0.0) -> FaceFeatures:
 
 
 def test_off_camera_is_the_angle_from_looking_straight_at_it() -> None:
-    assert off_camera(Gaze(yaw=0.0, pitch=0.0)) == 0.0
-    assert off_camera(Gaze(yaw=-15.0, pitch=0.0)) == pytest.approx(15.0)
-    assert off_camera(Gaze(yaw=0.0, pitch=20.0)) == pytest.approx(20.0)
+    assert Gaze(yaw=0.0, pitch=0.0).off_camera() == 0.0
+    assert Gaze(yaw=-15.0, pitch=0.0).off_camera() == pytest.approx(15.0)
+    assert Gaze(yaw=0.0, pitch=20.0).off_camera() == pytest.approx(20.0)
 
 
 def test_lip_aperture_is_the_gap_between_the_lips_over_the_mouths_width() -> None:

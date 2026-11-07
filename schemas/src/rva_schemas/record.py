@@ -4,6 +4,7 @@ from pydantic import Field
 
 from rva_body_schemas.motion import Motion
 from rva_pydantic import RVABaseModel
+from rva_schemas.attention import AttentionState
 from rva_schemas.dialogue import ToolSpec
 from rva_schemas.vision import (
     ActiveSpeaker,
@@ -161,6 +162,7 @@ type Record = Annotated[
     | FaceUpdate
     | PeopleInView
     | CameraFrame
-    | DepthFrame,
+    | DepthFrame
+    | AttentionState,
     Field(discriminator="kind"),
 ]

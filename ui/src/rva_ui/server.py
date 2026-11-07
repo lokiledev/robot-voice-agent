@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import StringConstraints
 
 from rva_pydantic import RVABaseModel
+from rva_schemas.attention import AttentionState
 from rva_schemas.dialogue import UserUtterance
 from rva_schemas.record import (
     AgentStarted,
@@ -87,7 +88,7 @@ class UiServer:
 
     def record(self, entry: Record) -> None:
         match entry:
-            case PeopleInView() | CameraFrame() | DepthFrame():
+            case PeopleInView() | CameraFrame() | DepthFrame() | AttentionState():
                 # The boxes are drawn into the video stream instead.
                 return
             case Measurement():

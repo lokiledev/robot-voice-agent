@@ -44,6 +44,7 @@ override-dependencies = [
 # so the packages that use it skip the pip CUDA extras on aarch64.
 onnxruntime-gpu = {url = "https://pypi.jetson-ai-lab.io/sbsa/cu130/+f/012/c10bef23a39f0/onnxruntime_gpu-1.24.0-cp312-cp312-linux_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64' and python_version == '3.12'"}
 rva-agent = {workspace = true}
+rva-attention = {workspace = true}
 rva-app = {workspace = true}
 rva-body-client = {workspace = true}
 rva-body-schemas = {workspace = true}
@@ -72,6 +73,7 @@ explicit = true
 [tool.uv.workspace]
 members = [
   "agent",
+  "attention",
   "app",
   "body/client",
   "body/schemas",

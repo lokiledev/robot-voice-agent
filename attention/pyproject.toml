@@ -1,0 +1,22 @@
+[project]
+name = "rva-attention"
+version = "0.1.0"
+description = "Visual attention: which face or hand in view the robot attends to, as a 3D point"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "loguru>=0.7",
+  "pydantic>=2.11",
+  "rva-pydantic",
+  "rva-schemas",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-schemas = {workspace = true}

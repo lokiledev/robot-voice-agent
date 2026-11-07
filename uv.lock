@@ -19,6 +19,7 @@ members = [
     "robot-voice-agent",
     "rva-agent",
     "rva-app",
+    "rva-attention",
     "rva-body-client",
     "rva-body-schemas",
     "rva-llm",
@@ -1963,6 +1964,7 @@ dependencies = [
     { name = "loguru" },
     { name = "numpy" },
     { name = "rva-agent" },
+    { name = "rva-attention" },
     { name = "rva-body-client" },
     { name = "rva-llm" },
     { name = "rva-multimodal" },
@@ -1985,6 +1987,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "rva-agent", editable = "agent" },
+    { name = "rva-attention", editable = "attention" },
     { name = "rva-body-client", editable = "body/client" },
     { name = "rva-llm", editable = "llm" },
     { name = "rva-multimodal", editable = "multimodal" },
@@ -1998,6 +2001,25 @@ requires-dist = [
     { name = "rva-voice-asr", editable = "voice/asr" },
     { name = "rva-voice-audio", editable = "voice/audio" },
     { name = "rva-voice-tts", editable = "voice/tts" },
+]
+
+[[package]]
+name = "rva-attention"
+version = "0.1.0"
+source = { editable = "attention" }
+dependencies = [
+    { name = "loguru" },
+    { name = "pydantic" },
+    { name = "rva-pydantic" },
+    { name = "rva-schemas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru", specifier = ">=0.7" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-pydantic", editable = "common/pydantic" },
+    { name = "rva-schemas", editable = "schemas" },
 ]
 
 [[package]]

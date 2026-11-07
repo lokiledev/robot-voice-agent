@@ -25,6 +25,9 @@ from rva_app.servers import Server, ServersUnavailableError, require_servers
 from rva_app.services import Service, ServiceFailedError, services_running
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
 from rva_app.voice import open_voice_input, open_voice_output, robot_speech
+from rva_attention.attention import VisualAttention
+from rva_attention.config import VisualAttentionConfig
+from rva_attention.follow import follow
 from rva_body_client.client import HttpBodyClient
 from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
@@ -449,7 +452,7 @@ async def _run_agent(
         config=config.agent,
     )
     logger.info("{} is up", profile.character.name)
-    await _with_vision(agent.run(), vision)
+    await _with_vision(agent.run(), vision, config.attention, recorder)
 
 
 async def _one(text: str) -> AsyncGenerator[str]:
@@ -607,7 +610,10 @@ async def _see(
         logger.info("Streaming the window to {}", config.ui.video_page)
     async with contextlib.AsyncExitStack() as stack:
         group = await stack.enter_async_context(asyncio.TaskGroup())
-        tasks = [group.create_task(_name_nearest_face(vision, keys))]
+        tasks = [
+            group.create_task(_name_nearest_face(vision, keys)),
+            group.create_task(_attend(vision, config.attention, recorder)),
+        ]
         if speaker is not None:
             microphone = await stack.enter_async_context(
                 Microphone(config.audio.input_device, speaker.hear)
@@ -617,6 +623,12 @@ async def _see(
         await vision.run()
         for task in tasks:
             task.cancel()
+
+
+async def _attend(vision: FaceVision, config: VisualAttentionConfig, recorder: Recorder) -> None:
+    """Attend to what the camera sees, until cancelled: nothing takes the target yet."""
+    async with vision.observations() as observations:
+        await _drain(follow(observations, VisualAttention(config), recorder))
 
 
 async def _speaker(config: ActiveSpeakerConfig | None) -> SpeakerDetector | None:
@@ -700,8 +712,13 @@ def _face_database(config: FaceVisionConfig) -> FaceDatabase:
     return FaceDatabase(config.database.expanduser(), config.max_embeddings_per_person)
 
 
-async def _with_vision(main: Coroutine[None, None, None], vision: FaceVision | None) -> None:
-    """Run `main` while the camera is watched.
+async def _with_vision(
+    main: Coroutine[None, None, None],
+    vision: FaceVision | None,
+    attention: VisualAttentionConfig,
+    recorder: Recorder,
+) -> None:
+    """Run `main` while the camera is watched and what it sees attended to.
 
     A camera failure stops `main`; closing the window stops only the camera.
     """
@@ -710,8 +727,10 @@ async def _with_vision(main: Coroutine[None, None, None], vision: FaceVision | N
         return
     async with asyncio.TaskGroup() as group:
         seeing = group.create_task(vision.run())
+        attending = group.create_task(_attend(vision, attention, recorder))
         await main
         seeing.cancel()
+        attending.cancel()
 
 
 async def _chat_with_llm(profile_dir: Path, system_prompt: bool) -> None:

@@ -95,6 +95,7 @@ flowchart LR
         vin["Voice input<br/>voice activity, end of turn, ASR"]
         vision["Vision<br/>detect, track, recognize faces"]
         asd["Active speaker<br/>lips and sound together"]
+        att["Visual attention<br/>which face or hand, as a 3D point"]
         ui["Session page server"]
         loop["Agent loop<br/>inbox, history, LLM turns"]
         tools["Tools<br/>body, tasks, people, permissions"]
@@ -106,6 +107,7 @@ flowchart LR
     vision -- "faces" --> asd
     asd -- "who speaks" --> vision
     vision -- "people coming and going" --> loop
+    vision -- "what each frame shows" --> att
     ui -- "typed lines" --> loop
     loop -- "sentences" --> vout
     loop -- "tool calls" --> tools
@@ -118,7 +120,7 @@ flowchart LR
     rec -. "rerun file" .-> disk([Recordings])
 
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
-    class vin,vision,asd,loop,tools,vout,ui,rec component
+    class vin,vision,asd,att,loop,tools,vout,ui,rec component
 ```
 
 The agent loop depends only on interfaces (`typing.Protocol`s): where utterances come from, where
@@ -322,6 +324,40 @@ flowchart LR
   show in that view too. With `--video`, the depth is recorded under `depth`, as a point cloud
   around the people, every other pixel in millimetres.
 
+### Visual attention
+
+Which face or hand in view the robot attends to, as a point in the camera's frame, for the gaze
+and, later, the head and body through IK. It is a package of its own, `rva-attention`, fed by the
+vision loop and never importing it: one observation per frame, the people in view with the
+frame's time and the main user's track, over a queue that keeps only the latest frame. Every
+dynamic runs on the frames' times, so a recorded sequence gives the same states back, and the
+core does no I/O.
+
+- **Candidates** are the confirmed faces placed in 3D, at the point between the irises so the
+  gaze meets the eyes, and the main user's hands at the centre of the palm; only theirs are
+  placed in 3D. Skeletons without a face have neither a track nor a point, so they are left out.
+- **Score.** Six features from 0 to 1: closeness, centrality (the angle off the camera's axis),
+  speaking (the active speaker), eye contact (the gaze's angle off the camera), moving (the speed
+  along the path over the last 0.3 s, so a hand waving in place counts) and known. A hand has
+  only its motion. The weighted sum is multiplied by the entity's habituation, which decays
+  towards a floor while attended and recovers while not, and a novelty bonus that decays from the
+  entity's first frame is added: a newcomer is worth a glance, a wave draws the eye, and a hand's
+  habituation is ten times faster than a face's so the wave yields to its owner's face within a
+  couple of seconds. Everything is in the profile's `attention` section.
+- **Selection** with hysteresis: the best candidate takes over only once the current target was
+  attended for the minimum dwell and scores better by the margin. Below the minimum score nothing
+  is attended: a still person far at the edge, once no longer new, is as good as nobody. The
+  target must be in the frame: a face the mesh or the depth misses for a frame is held at its
+  last pose for 0.3 s, longer than that it is dropped at once. Idle gazing around, when
+  there is nothing, is not the attention's: something above will drive it.
+- **Memory.** Entities outlive their last sighting by two seconds, with their poses, novelty and
+  habituation, so a face lost for a few frames comes back as the same entity, without the bonus
+  again; a known person back on a new track gets their old entity. Scenarios can later swap the
+  scoring function; the dialogue and, with a microphone array, the sound will join the features.
+- **Recorded** every frame: the target as a point under `space/attention`, and each candidate's
+  score under `attention/<entity>/score`, e.g. `face_3` or `right_hand_3`. Nothing takes the target yet: the body API is to be
+  redone around it.
+
 ### Agent loop and tools
 
 ```mermaid
@@ -462,6 +498,7 @@ flowchart BT
     ASR["rva-voice-asr"]
     TTS["rva-voice-tts"]
     VIS["rva-vision-faces"]
+    ATT["rva-attention"]
     VIEW["rva-vision-viewer"]
     MM["rva-multimodal"]
     UI["rva-ui"]
@@ -472,8 +509,8 @@ flowchart BT
     VLAC --> VLAS
     BODYC --> BODYS
     MOCK --> VLAS & BODYS
-    AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & MM & UI & OBS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & VIEW & MM & UI & OBS & VLAC & BODYC
+    AGENT & LLM & AUD & ASR & TTS & VIS & ATT & VIEW & MM & UI & OBS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & ATT & VIEW & MM & UI & OBS & VLAC & BODYC
 ```
 
 | Package | Contents |
@@ -485,6 +522,7 @@ flowchart BT
 | `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
 | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face database, camera stream |
 | `rva-vision-viewer` | Debug window for the camera pipeline, with Dear PyGui; vision runs without it |
+| `rva-attention` | Visual attention: which face or hand in view to attend to, as a 3D point |
 | `rva-multimodal` | Where camera and microphone meet: which face speaks, with Light-ASD |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |

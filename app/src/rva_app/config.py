@@ -3,6 +3,7 @@ from pathlib import Path
 from loguru import logger
 
 from rva_agent.config import AgentConfig
+from rva_attention.config import VisualAttentionConfig
 from rva_body_client.client import HttpBodyClientConfig
 from rva_llm.client import OpenAiLanguageModelConfig
 from rva_llm.server import LlamaServerConfig
@@ -31,6 +32,8 @@ class RuntimeConfig(RVABaseModel):
     asr: ParakeetConfig
     tts: KokoroConfig
     vision: FaceVisionConfig
+    attention: VisualAttentionConfig
+    """Which face or hand in view to attend to, from what the camera sees."""
     active_speaker: ActiveSpeakerConfig | None
     """Which face speaks, from the camera and the microphone; `None` to leave it out."""
     admins: Path
