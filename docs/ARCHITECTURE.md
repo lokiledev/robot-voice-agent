@@ -200,10 +200,12 @@ flowchart LR
   feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
   is the mesh's job. With a hand held up close and no arm in view, RTMW can find both hands on it;
   the weaker, often mirrored, is dropped. Body points that no chain of found bones links to the
-  head, shoulders or hips, such as a wrist whose elbow is out of frame, are dropped too. A skeleton
-  belongs to the face track whose box holds its nose and eyes; the others, people turned away or too
-  far to track, are kept apart. They run on a second thread while the faces are processed. They are
-  meant for gestures: waving, a handshake, a fist bump.
+  head, shoulders or hips, such as a wrist whose elbow is out of frame, are dropped too, and so are
+  hand points not linked to their wrist. Each finger is drawn in its own color, warm for the right
+  hand and cool for the left. A skeleton belongs to the face track whose box holds its nose and
+  eyes; the others, people turned away or too far to track, are kept apart. They run on a second
+  thread while the faces are processed. They are meant for gestures: waving, a handshake, a fist
+  bump.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. It lives in its own package behind the `FrameViewer`

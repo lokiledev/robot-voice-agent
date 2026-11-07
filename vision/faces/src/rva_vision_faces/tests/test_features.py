@@ -10,8 +10,10 @@ from rva_vision_faces.body import (
     decode_simcc,
     decode_yolox,
     linked_to_torso,
+    linked_to_wrist,
     one_hand_each,
     pose_transform,
+    to_body,
 )
 from rva_vision_faces.detector import Detection
 from rva_vision_faces.face_features import box_transform, gaze_from_bins, mesh_transform
@@ -135,3 +137,40 @@ def test_linked_to_torso_drops_a_wrist_whose_elbow_was_not_found() -> None:
     assert linked_to_torso(found(0, 1, 2, 5, 6, 8, 10, 9)) == found(0, 1, 2, 5, 6, 8, 10)
     # Without the head and shoulders, the hips anchor the torso; the arms hang off nothing.
     assert linked_to_torso(found(11, 12, 7, 9)) == found(11, 12)
+
+
+def test_linked_to_wrist_drops_finger_segments_floating_on_their_own() -> None:
+    def found(*indices: int) -> tuple[Keypoint | None, ...]:
+        return tuple(
+            Keypoint(x=float(i), y=0.0, score=0.5) if i in indices else None for i in range(21)
+        )
+
+    # Thumb and index whole; the ring finger's tip end without its base (13).
+    assert linked_to_wrist(found(0, 1, 2, 3, 4, 5, 6, 7, 8, 15, 16)) == found(
+        0, 1, 2, 3, 4, 5, 6, 7, 8
+    )
+    # No wrist: nothing holds the fingers to a hand.
+    assert linked_to_wrist(found(1, 2, 3, 4)) == found()
+
+
+def test_a_weak_double_of_a_hand_is_dropped_before_its_loose_points() -> None:
+    points = np.zeros((133, 3), np.float32)
+    # Right hand (112 to 132): 21 points spread over 100 by 100 pixels, all confident.
+    points[112:133, 0] = 100 + 5 * np.arange(21)
+    points[112:133, 1] = 5 * np.arange(21)
+    points[112:133, 2] = 0.9
+    # Left hand (91 to 111): the same places, weaker, without its wrist; filtered first, it
+    # would shrink to nothing and no longer overlap.
+    points[91:112] = points[112:133]
+    points[91:112, 2] = 0.4
+    points[91, 2] = 0.0
+
+    body = to_body(
+        BoundingBox(x=0, y=0, width=300, height=300),
+        points,
+        np.array([[1.0, 0, 0], [0, 1.0, 0]]),
+        threshold=0.3,
+    )
+
+    assert body.left_hand is None
+    assert body.right_hand is not None

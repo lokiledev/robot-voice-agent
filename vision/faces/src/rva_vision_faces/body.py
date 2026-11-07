@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from itertools import pairwise
 from typing import Final
 
 import cv2
@@ -6,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime
 
-from rva_schemas.vision import BODY_CONNECTIONS, Body, BoundingBox, Hand, Keypoint
+from rva_schemas.vision import BODY_CONNECTIONS, FINGERS, Body, BoundingBox, Hand, Keypoint
 from rva_vision_faces.config import BodyConfig
 from rva_vision_faces.detector import Image
 from rva_vision_faces.tracker import iou
@@ -33,6 +34,9 @@ _SAME_HAND_IOU: Final = 0.5
 """Overlap of a skeleton's two hands above which they are one hand, found as both."""
 _TORSO: Final = (0, 1, 2, 3, 4, 5, 6, 11, 12)
 """Head, shoulders and hips: the body keypoints the others must be linked to."""
+_WRIST: Final = 0
+"""The hand keypoint the others must be linked to."""
+_HAND_BONES: Final = tuple(bone for finger in FINGERS for bone in pairwise(finger))
 _HEAD: Final = (0, 1, 2)
 """Nose and eyes: the keypoints that tie a skeleton to a face."""
 
@@ -61,7 +65,7 @@ class BodyEstimator:
         simcc_x, simcc_y = self._pose.run(None, {self._pose.get_inputs()[0].name: blob})
         keypoints = decode_simcc(np.asarray(simcc_x, np.float32), np.asarray(simcc_y, np.float32))
         return [
-            _body(box, keypoints[index], transform, self._config.keypoint_threshold)
+            to_body(box, keypoints[index], transform, self._config.keypoint_threshold)
             for index, (box, transform) in enumerate(zip(boxes, transforms, strict=True))
         ]
 
@@ -193,12 +197,24 @@ def _head_points_in(body: Body, box: BoundingBox) -> int:
     )
 
 
-def _body(
+def to_body(
     box: BoundingBox,
     points: npt.NDArray[np.float32],
     transform: npt.NDArray[np.float64],
     threshold: float,
 ) -> Body:
+    """The skeleton of one person from RTMW's keypoints in its crop.
+
+    Args:
+        box: The person's box in the frame.
+        points: The 133 keypoints, `x, y, score`, in the crop.
+        transform: Affine map from the frame to the crop.
+        threshold: Keypoints scoring lower are left out.
+
+    Returns:
+        The upper body and the hands, in frame pixels, each point linked to the torso or to its
+        hand's wrist, and a hand found as both a left and a right kept once.
+    """
     in_frame = cv2.transform(points[None, :, :2], cv2.invertAffineTransform(transform))[0]
 
     def keypoints(part: slice) -> tuple[Keypoint | None, ...]:
@@ -207,9 +223,13 @@ def _body(
             for (x, y), score in zip(in_frame[part], points[part, 2], strict=True)
         )
 
+    # The double of a hand is told by how much it overlaps the other, before any of it is dropped.
     left, right = one_hand_each(_hand(keypoints(_LEFT_HAND)), _hand(keypoints(_RIGHT_HAND)))
     return Body(
-        box=box, keypoints=linked_to_torso(keypoints(_BODY)), left_hand=left, right_hand=right
+        box=box,
+        keypoints=linked_to_torso(keypoints(_BODY)),
+        left_hand=_linked_hand(left),
+        right_hand=_linked_hand(right),
     )
 
 
@@ -219,11 +239,29 @@ def linked_to_torso(keypoints: tuple[Keypoint | None, ...]) -> tuple[Keypoint | 
     RTMW can place a joint that is out of frame or hidden, such as a wrist whose elbow it did not
     find; with the joints between it and the body missing, it floats free.
     """
-    linked = {index for index in _TORSO if keypoints[index] is not None}
+    return _linked(keypoints, BODY_CONNECTIONS, _TORSO)
+
+
+def linked_to_wrist(keypoints: tuple[Keypoint | None, ...]) -> tuple[Keypoint | None, ...]:
+    """Drop the hand keypoints that no chain of found bones links to the wrist.
+
+    A finger segment whose base was not found floats free, as does a whole hand without its
+    wrist.
+    """
+    return _linked(keypoints, _HAND_BONES, (_WRIST,))
+
+
+def _linked(
+    keypoints: tuple[Keypoint | None, ...],
+    bones: tuple[tuple[int, int], ...],
+    roots: tuple[int, ...],
+) -> tuple[Keypoint | None, ...]:
+    """Keep the keypoints that found bones link to a found root; the others become `None`."""
+    linked = {index for index in roots if keypoints[index] is not None}
     frontier = list(linked)
     while frontier:
         joint = frontier.pop()
-        for bone in BODY_CONNECTIONS:
+        for bone in bones:
             if joint in bone:
                 other = bone[1] if bone[0] == joint else bone[0]
                 if other not in linked and keypoints[other] is not None:
@@ -245,6 +283,10 @@ def one_hand_each(left: Hand | None, right: Hand | None) -> tuple[Hand | None, H
 
 def _hand(keypoints: tuple[Keypoint | None, ...]) -> Hand | None:
     return Hand(keypoints=keypoints) if any(point is not None for point in keypoints) else None
+
+
+def _linked_hand(hand: Hand | None) -> Hand | None:
+    return None if hand is None else _hand(linked_to_wrist(hand.keypoints))
 
 
 def _found(hand: Hand) -> list[Keypoint]:

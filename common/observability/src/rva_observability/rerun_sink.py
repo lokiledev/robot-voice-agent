@@ -36,14 +36,22 @@ _BODY_CLASS: Final = 1
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (255, 165, 0)
 _UNCONFIRMED: Final = (160, 160, 160)
-_FINGER_COLORS: Final = (
-    (255, 0, 255),
-    (255, 255, 0),
-    (0, 255, 255),
-    (255, 128, 0),
-    (128, 0, 255),
+# Thumb, index, middle, ring and little finger, as in the debug window: cool for the person's
+# left hand, warm for their right.
+_LEFT_FINGER_COLORS: Final = (
+    (30, 60, 255),
+    (0, 170, 255),
+    (0, 255, 230),
+    (150, 80, 255),
+    (210, 190, 255),
 )
-"""Thumb, index, middle, ring and little finger, as in the debug window."""
+_RIGHT_FINGER_COLORS: Final = (
+    (255, 40, 40),
+    (255, 140, 0),
+    (255, 230, 0),
+    (255, 105, 180),
+    (220, 0, 220),
+)
 _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
 
@@ -171,20 +179,23 @@ def _face(path: str, face: FaceFeatures, color: tuple[int, int, int]) -> dict[st
 
 def _body(path: str, body: Body, color: tuple[int, int, int]) -> dict[str, rr.AsComponents]:
     entities: dict[str, rr.AsComponents] = {path: _skeleton(body.keypoints, _BODY_CLASS, color)}
-    for name, hand in (("left_hand", body.left_hand), ("right_hand", body.right_hand)):
+    for name, hand, colors in (
+        ("left_hand", body.left_hand, _LEFT_FINGER_COLORS),
+        ("right_hand", body.right_hand, _RIGHT_FINGER_COLORS),
+    ):
         if hand is not None:
-            entities[f"{path}/{name}"] = _hand(hand)
+            entities[f"{path}/{name}"] = _hand(hand, colors)
     return entities
 
 
-def _hand(hand: Hand) -> rr.LineStrips2D:
+def _hand(hand: Hand, finger_colors: tuple[tuple[int, int, int], ...]) -> rr.LineStrips2D:
     """Each finger as a strip from the wrist to its tip, in its own color.
 
     A strip breaks where a point was not found.
     """
     strips: list[list[tuple[float, float]]] = []
     colors: list[tuple[int, int, int]] = []
-    for finger, color in zip(FINGERS, _FINGER_COLORS, strict=True):
+    for finger, color in zip(FINGERS, finger_colors, strict=True):
         strip: list[tuple[float, float]] = []
         for point in (*(hand.keypoints[index] for index in finger), None):
             if point is not None:

@@ -30,15 +30,23 @@ _FACE_CONTOURS: Final = (
     (61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185),
     (78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191),
 )  # fmt: skip
-_FINGER_COLORS: Final = (
-    (255, 0, 255),
-    (0, 255, 255),
-    (255, 255, 0),
-    (0, 128, 255),
-    (255, 0, 128),
+# BGR colors of the thumb, index, middle, ring and little finger: cool for the person's left hand
+# (blue, sky blue, aqua, violet, lavender), warm for their right (red, orange, yellow, pink,
+# magenta).
+_LEFT_FINGER_COLORS: Final = (
+    (255, 60, 30),
+    (255, 170, 0),
+    (230, 255, 0),
+    (255, 80, 150),
+    (255, 190, 210),
 )
-"""BGR colors of the thumb (magenta), index (yellow), middle (cyan), ring (orange) and little
-finger (purple)."""
+_RIGHT_FINGER_COLORS: Final = (
+    (40, 40, 255),
+    (0, 140, 255),
+    (0, 230, 255),
+    (180, 105, 255),
+    (220, 0, 220),
+)
 _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
 
@@ -163,10 +171,13 @@ def _draw_speech(
 def _draw_body(frame: Image, body: Body, color: tuple[int, int, int], thickness: int) -> None:
     """Draw the body in the track's color, and each finger of the hands in a color of its own."""
     _draw_bones(frame, body.keypoints, BODY_CONNECTIONS, color, thickness)
-    for hand in (body.left_hand, body.right_hand):
+    for hand, colors in (
+        (body.left_hand, _LEFT_FINGER_COLORS),
+        (body.right_hand, _RIGHT_FINGER_COLORS),
+    ):
         if hand is None:
             continue
-        for finger, finger_color in zip(FINGERS, _FINGER_COLORS, strict=True):
+        for finger, finger_color in zip(FINGERS, colors, strict=True):
             _draw_bones(frame, hand.keypoints, tuple(pairwise(finger)), finger_color, thickness)
 
 
