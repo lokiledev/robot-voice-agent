@@ -121,3 +121,30 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
     assert _xyz(face_3d.landmarks[0]) == pytest.approx((-1.92, -1.08, 2.0), abs=1e-6)
     assert _xyz(face_3d.gaze.origin) == pytest.approx((0.0, 0.0, 2.0), abs=1e-6)
     assert _xyz(face_3d.gaze.direction) == pytest.approx((0.0, 0.0, -1.0), abs=1e-6)
+
+
+def test_a_fingertip_seen_against_the_wall_stays_near_its_palm() -> None:
+    depth = _depth(3.0)
+    # The palm, 0.5 m away, covers the left of the frame; the fingertip is over the wall.
+    depth.metres[:, :240] = 0.5
+    palm = Keypoint(x=500, y=540, score=0.9, position=None)
+    tip = Keypoint(x=1460, y=540, score=0.9, position=None)
+    hand = Hand(keypoints=(palm, None, None, None, tip))
+    body = Body(
+        box=BoundingBox(x=0, y=0, width=1920, height=1080),
+        keypoints=(),
+        left_hand=hand,
+        right_hand=None,
+    )
+
+    lifted = lift(
+        Scene(faces={}, bodies={1: body}, unmatched_bodies=(), speakers={}), depth, INTRINSICS
+    )
+
+    left_hand = lifted.bodies[1].left_hand
+    assert left_hand is not None
+    wrist, tip_3d = left_hand.keypoints[0], left_hand.keypoints[4]
+    assert wrist is not None and wrist.position is not None
+    assert tip_3d is not None and tip_3d.position is not None
+    assert wrist.position.z == pytest.approx(0.5)
+    assert _xyz(tip_3d.position) == pytest.approx((0.3, 0.0, 0.6), abs=1e-6)

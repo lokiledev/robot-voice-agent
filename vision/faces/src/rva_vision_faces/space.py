@@ -13,7 +13,6 @@ from rva_schemas.vision import (
     Gaze,
     GazeRay,
     Hand,
-    Keypoint,
     Point3D,
 )
 from rva_vision_faces.scene import Scene
@@ -25,6 +24,11 @@ _NEAR_PERCENTILE: Final = 25
 them: the nearer depths are the person's."""
 _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
+_PALM: Final = (0, 1, 5, 9, 13, 17)
+"""`Hand.keypoints` on the palm: the wrist and the base of each finger."""
+_HAND_REACH_M: Final = 0.1
+"""How far a point of a hand may be from its palm's depth. Fingers are too thin for the depth
+model, which sees the room through them: without a bound, their tips land metres behind."""
 
 
 def lift(scene: Scene, depth: DepthMap, intrinsics: CameraIntrinsics) -> Scene:
@@ -61,7 +65,14 @@ def back_project(x: float, y: float, depth: DepthMap, intrinsics: CameraIntrinsi
 def _back_project_all(
     pixels: npt.NDArray[np.float64], depth: DepthMap, intrinsics: CameraIntrinsics
 ) -> npt.NDArray[np.float64]:
-    """`back_project` for N pixels at once, N x 2 in, N x 3 out; patches stop at the border."""
+    """`back_project` for N pixels at once, N x 2 in, N x 3 out."""
+    return _unproject(pixels, _depths(pixels, depth, intrinsics), intrinsics)
+
+
+def _depths(
+    pixels: npt.NDArray[np.float64], depth: DepthMap, intrinsics: CameraIntrinsics
+) -> npt.NDArray[np.float64]:
+    """The depth around each of N pixels; patches stop at the border."""
     rows, columns = depth.metres.shape
     offsets = np.arange(-_PATCH_RADIUS, _PATCH_RADIUS + 1)
     row = np.rint(pixels[:, 1] * rows / intrinsics.height).astype(np.intp)
@@ -69,7 +80,13 @@ def _back_project_all(
     patch_rows = np.clip(row[:, None, None] + offsets[None, :, None], 0, rows - 1)
     patch_columns = np.clip(column[:, None, None] + offsets[None, None, :], 0, columns - 1)
     patches = depth.metres[patch_rows, patch_columns].reshape(len(pixels), -1)
-    z = np.percentile(patches, _NEAR_PERCENTILE, axis=1).astype(np.float64)
+    return np.percentile(patches, _NEAR_PERCENTILE, axis=1).astype(np.float64)
+
+
+def _unproject(
+    pixels: npt.NDArray[np.float64], z: npt.NDArray[np.float64], intrinsics: CameraIntrinsics
+) -> npt.NDArray[np.float64]:
+    """N pixels at depths `z`, in the camera's frame."""
     return np.column_stack(
         [
             (pixels[:, 0] - intrinsics.cx) / intrinsics.fx * z,
@@ -112,21 +129,41 @@ def _lift_face(face: FaceFeatures, depth: DepthMap, intrinsics: CameraIntrinsics
 
 
 def _lift_body(body: Body, depth: DepthMap, intrinsics: CameraIntrinsics) -> Body:
-    def points(keypoints: tuple[Keypoint | None, ...]) -> tuple[Keypoint | None, ...]:
-        return tuple(
-            None
-            if k is None
-            else k.model_copy(update={"position": back_project(k.x, k.y, depth, intrinsics)})
-            for k in keypoints
-        )
-
     def hand(found: Hand | None) -> Hand | None:
-        return None if found is None else Hand(keypoints=points(found.keypoints))
+        return None if found is None else _lift_hand(found, depth, intrinsics)
 
     return body.model_copy(
         update={
-            "keypoints": points(body.keypoints),
+            "keypoints": tuple(
+                None
+                if k is None
+                else k.model_copy(update={"position": back_project(k.x, k.y, depth, intrinsics)})
+                for k in body.keypoints
+            ),
             "left_hand": hand(body.left_hand),
             "right_hand": hand(body.right_hand),
         }
+    )
+
+
+def _lift_hand(hand: Hand, depth: DepthMap, intrinsics: CameraIntrinsics) -> Hand:
+    """The hand's points, each kept within `_HAND_REACH_M` of its palm's median depth."""
+    found = [(index, k) for index, k in enumerate(hand.keypoints) if k is not None]
+    if not found:
+        return hand
+    pixels = np.array([(k.x, k.y) for _, k in found])
+    z = _depths(pixels, depth, intrinsics)
+    on_palm = [index in _PALM for index, _ in found]
+    # A hand seen without its palm, e.g. only fingertips, is anchored on all its points.
+    palm = float(np.median(z[on_palm] if any(on_palm) else z))
+    placed = _unproject(pixels, np.clip(z, palm - _HAND_REACH_M, palm + _HAND_REACH_M), intrinsics)
+    positions = {
+        index: Point3D(x=px, y=py, z=pz)
+        for (index, _), (px, py, pz) in zip(found, placed.tolist(), strict=True)
+    }
+    return Hand(
+        keypoints=tuple(
+            None if k is None else k.model_copy(update={"position": positions[index]})
+            for index, k in enumerate(hand.keypoints)
+        )
     )
