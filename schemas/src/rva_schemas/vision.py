@@ -39,9 +39,10 @@ class Body(RVABaseModel):
     """23 points in COCO-WholeBody order: the 17 of COCO (nose, eyes, ears, shoulders, elbows,
     wrists, hips, knees, ankles, each pair left first), then the big toe, small toe and heel of the
     left foot and of the right; `None` where the model is not confident."""
-    left_hand: Hand
-    """The person's own left."""
-    right_hand: Hand
+    left_hand: Hand | None
+    """The person's own left; `None` when not found, or when it is the hand the right one is on."""
+    right_hand: Hand | None
+    """`None` when not found, or when it is the hand the left one is on."""
 
 
 BODY_CONNECTIONS: Final = (

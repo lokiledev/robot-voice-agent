@@ -75,9 +75,12 @@ def _scale_body(body: Body, scale: float) -> Body:
             for k in keypoints
         )
 
+    def hand(found: Hand | None) -> Hand | None:
+        return None if found is None else Hand(keypoints=points(found.keypoints))
+
     return Body(
         box=_scale_box(body.box, scale),
         keypoints=points(body.keypoints),
-        left_hand=Hand(keypoints=points(body.left_hand.keypoints)),
-        right_hand=Hand(keypoints=points(body.right_hand.keypoints)),
+        left_hand=hand(body.left_hand),
+        right_hand=hand(body.right_hand),
     )

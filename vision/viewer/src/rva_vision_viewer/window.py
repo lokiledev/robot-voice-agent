@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from rva_schemas.record import PeopleInView, TrackedPerson
-from rva_schemas.vision import Body, FaceFeatures, Keypoint, VisionTimings
+from rva_schemas.vision import Body, FaceFeatures, Hand, Keypoint, VisionTimings
 
 _TITLE: Final = "lune see"
 _PANEL_WIDTH: Final = 320
@@ -182,14 +182,17 @@ def title(person: TrackedPerson) -> str:
 
 
 def describe_body(body: Body) -> str:
-    """How many keypoints of the body and of each hand were found."""
+    """How many keypoints of the body and of each hand were found; `-` for a hand not found."""
 
     def found(keypoints: tuple[Keypoint | None, ...]) -> str:
         return f"{sum(point is not None for point in keypoints)}/{len(keypoints)}"
 
+    def hand(found_hand: Hand | None) -> str:
+        return "-" if found_hand is None else found(found_hand.keypoints)
+
     return (
-        f"skeleton {found(body.keypoints)}, hands {found(body.left_hand.keypoints)} "
-        f"{found(body.right_hand.keypoints)}"
+        f"skeleton {found(body.keypoints)}, hands left {hand(body.left_hand)} "
+        f"right {hand(body.right_hand)}"
     )
 
 

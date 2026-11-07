@@ -123,7 +123,7 @@ class Tracker:
     def _match_by_overlap(self, detections: Sequence[Detection]) -> dict[int, Track]:
         pairs = sorted(
             (
-                (_iou(track.box, detection.box), index, track)
+                (iou(track.box, detection.box), index, track)
                 for track in self._tracks
                 for index, detection in enumerate(detections)
             ),
@@ -131,8 +131,8 @@ class Tracker:
             reverse=True,
         )
         matched: dict[int, Track] = {}
-        for iou, index, track in pairs:
-            if iou < self._config.iou_threshold:
+        for overlap, index, track in pairs:
+            if overlap < self._config.iou_threshold:
                 break
             if index not in matched and track not in matched.values():
                 matched[index] = track
@@ -206,7 +206,8 @@ def _tracked_face(track: Track, *, nearest: bool) -> TrackedFace:
     )
 
 
-def _iou(a: BoundingBox, b: BoundingBox) -> float:
+def iou(a: BoundingBox, b: BoundingBox) -> float:
+    """Intersection over union of two boxes, 0 when both are empty."""
     width = min(a.x + a.width, b.x + b.width) - max(a.x, b.x)
     height = min(a.y + a.height, b.y + b.height) - max(a.y, b.y)
     intersection = max(width, 0.0) * max(height, 0.0)

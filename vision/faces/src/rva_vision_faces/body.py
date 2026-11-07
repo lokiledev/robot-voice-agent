@@ -9,6 +9,7 @@ import onnxruntime
 from rva_schemas.vision import Body, BoundingBox, Hand, Keypoint
 from rva_vision_faces.config import BodyConfig
 from rva_vision_faces.detector import Image
+from rva_vision_faces.tracker import iou
 
 _DETECTOR_SIZE: Final = 640
 _DETECTOR_STRIDES: Final = (8, 16, 32)
@@ -27,6 +28,8 @@ _POSE_STD: Final = np.array([58.395, 57.12, 57.375], np.float32)
 _BODY: Final = slice(0, 23)
 _LEFT_HAND: Final = slice(91, 112)
 _RIGHT_HAND: Final = slice(112, 133)
+_SAME_HAND_IOU: Final = 0.5
+"""Overlap of a skeleton's two hands above which they are one hand, found as both."""
 _HEAD: Final = (0, 1, 2)
 """Nose and eyes: the keypoints that tie a skeleton to a face."""
 
@@ -201,9 +204,33 @@ def _body(
             for (x, y), score in zip(in_frame[part], points[part, 2], strict=True)
         )
 
-    return Body(
-        box=box,
-        keypoints=keypoints(_BODY),
-        left_hand=Hand(keypoints=keypoints(_LEFT_HAND)),
-        right_hand=Hand(keypoints=keypoints(_RIGHT_HAND)),
-    )
+    left, right = one_hand_each(_hand(keypoints(_LEFT_HAND)), _hand(keypoints(_RIGHT_HAND)))
+    return Body(box=box, keypoints=keypoints(_BODY), left_hand=left, right_hand=right)
+
+
+def one_hand_each(left: Hand | None, right: Hand | None) -> tuple[Hand | None, Hand | None]:
+    """Keep the better of a skeleton's two hands when they cover the same hand.
+
+    Without the arms in view, as when a hand is held up close, RTMW can put both of a person's
+    hands on the one it sees. The weaker of the two, often mirrored, is dropped.
+    """
+    if left is None or right is None or iou(_extent(left), _extent(right)) < _SAME_HAND_IOU:
+        return left, right
+    return (left, None) if _mean_score(left) >= _mean_score(right) else (None, right)
+
+
+def _hand(keypoints: tuple[Keypoint | None, ...]) -> Hand | None:
+    return Hand(keypoints=keypoints) if any(point is not None for point in keypoints) else None
+
+
+def _found(hand: Hand) -> list[Keypoint]:
+    return [point for point in hand.keypoints if point is not None]
+
+
+def _extent(hand: Hand) -> BoundingBox:
+    xs, ys = [point.x for point in _found(hand)], [point.y for point in _found(hand)]
+    return BoundingBox(x=min(xs), y=min(ys), width=max(xs) - min(xs), height=max(ys) - min(ys))
+
+
+def _mean_score(hand: Hand) -> float:
+    return sum(point.score for point in _found(hand)) / len(_found(hand))

@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from rva_schemas.vision import Body, BoundingBox, Gaze, Hand, Keypoint
-from rva_vision_faces.body import attach, decode_simcc, decode_yolox, pose_transform
+from rva_vision_faces.body import attach, decode_simcc, decode_yolox, one_hand_each, pose_transform
 from rva_vision_faces.detector import Detection
 from rva_vision_faces.face_features import box_transform, gaze_from_bins, mesh_transform
 
@@ -15,8 +15,8 @@ def _body(nose: tuple[float, float] | None) -> Body:
     return Body(
         box=BoundingBox(x=0, y=0, width=100, height=300),
         keypoints=(head, head, head, *[None] * 20),
-        left_hand=Hand(keypoints=(None,) * 21),
-        right_hand=Hand(keypoints=(None,) * 21),
+        left_hand=None,
+        right_hand=None,
     )
 
 
@@ -95,3 +95,24 @@ def test_box_transform_maps_the_box_onto_the_crop() -> None:
 
     corners = cv2.transform(np.array([[[10, 20], [110, 70]]], np.float32), transform)[0]
     assert corners == pytest.approx(np.array([[0, 0], [200, 200]]), abs=1e-4)
+
+
+def _hand_at(x: float, score: float) -> Hand:
+    """A hand spread over 100 by 100 pixels from `x`, its points all scoring `score`."""
+    return Hand(
+        keypoints=tuple(Keypoint(x=x + 5 * (i % 21), y=5.0 * i, score=score) for i in range(21))
+    )
+
+
+def test_one_hand_each_keeps_the_better_of_two_hands_on_the_same_hand() -> None:
+    weak_left, strong_right = _hand_at(100, 0.4), _hand_at(105, 0.8)
+
+    assert one_hand_each(weak_left, strong_right) == (None, strong_right)
+    assert one_hand_each(_hand_at(100, 0.9), strong_right) == (_hand_at(100, 0.9), None)
+
+
+def test_one_hand_each_keeps_both_hands_when_they_are_apart() -> None:
+    left, right = _hand_at(100, 0.4), _hand_at(400, 0.8)
+
+    assert one_hand_each(left, right) == (left, right)
+    assert one_hand_each(None, right) == (None, right)

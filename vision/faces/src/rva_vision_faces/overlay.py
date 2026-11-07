@@ -161,9 +161,11 @@ def _draw_speech(
 
 
 def _draw_body(frame: Image, body: Body, color: tuple[int, int, int], thickness: int) -> None:
-    """Draw the body in the track's color, and each finger of both hands in a color of its own."""
+    """Draw the body in the track's color, and each finger of the hands in a color of its own."""
     _draw_bones(frame, body.keypoints, BODY_CONNECTIONS, color, thickness)
     for hand in (body.left_hand, body.right_hand):
+        if hand is None:
+            continue
         for finger, finger_color in zip(FINGERS, _FINGER_COLORS, strict=True):
             _draw_bones(frame, hand.keypoints, tuple(pairwise(finger)), finger_color, thickness)
 

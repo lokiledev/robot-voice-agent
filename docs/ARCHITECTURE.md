@@ -197,7 +197,8 @@ flowchart LR
   the agent.
 - **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the
   body (17 points and the feet) and both hands (21 points each) are kept, the face being the
-  mesh's job. A skeleton belongs to the face track whose box holds its nose and eyes; the others,
+  mesh's job. With a hand held up close and no arm in view, RTMW can find both hands on it;
+  the weaker, often mirrored, is dropped. A skeleton belongs to the face track whose box holds its nose and eyes; the others,
   people turned away or too far to track, are kept apart. They run on a second thread while the
   faces are processed. They are meant for gestures: waving, a handshake, a fist bump.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera

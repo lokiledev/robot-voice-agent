@@ -170,11 +170,11 @@ def _face(path: str, face: FaceFeatures, color: tuple[int, int, int]) -> dict[st
 
 
 def _body(path: str, body: Body, color: tuple[int, int, int]) -> dict[str, rr.AsComponents]:
-    return {
-        path: _skeleton(body.keypoints, _BODY_CLASS, color),
-        f"{path}/left_hand": _hand(body.left_hand),
-        f"{path}/right_hand": _hand(body.right_hand),
-    }
+    entities: dict[str, rr.AsComponents] = {path: _skeleton(body.keypoints, _BODY_CLASS, color)}
+    for name, hand in (("left_hand", body.left_hand), ("right_hand", body.right_hand)):
+        if hand is not None:
+            entities[f"{path}/{name}"] = _hand(hand)
+    return entities
 
 
 def _hand(hand: Hand) -> rr.LineStrips2D:

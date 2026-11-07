@@ -34,7 +34,7 @@ def test_describe_body_counts_the_keypoints_found() -> None:
         box=BoundingBox(x=0, y=0, width=10, height=10),
         keypoints=(point, None, point),
         left_hand=Hand(keypoints=(point, None)),
-        right_hand=Hand(keypoints=(None, None)),
+        right_hand=None,
     )
 
-    assert describe_body(body) == "skeleton 2/3, hands 1/2 0/2"
+    assert describe_body(body) == "skeleton 2/3, hands left 1/2 right -"
