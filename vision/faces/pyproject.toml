@@ -15,6 +15,7 @@ dependencies = [
   "opentelemetry-api>=1.36",
   "rva-pydantic",
   "rva-schemas",
+  "scipy>=1.14",
   # onnxruntime-gpu's TensorRT provider is built against TensorRT 10.
   "tensorrt-cu13-libs>=10.16,<11",
 ]

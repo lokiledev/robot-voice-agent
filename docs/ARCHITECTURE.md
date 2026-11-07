@@ -279,15 +279,22 @@ flowchart LR
   behind, and the person is the nearer side. The gaze angles are measured from the line from the
   eyes to the camera, so the ray turns that line by the yaw towards the image's right and the
   pitch upwards. An occluded keypoint, a wrist behind the body, takes the occluder's depth.
-  Fingers are too thin for the depth model, which sees the room through them, so hands are solved
-  with the bone lengths of an average adult hand instead: the wrist is placed at its depth, no
-  farther than the palm's size in the image allows (a bone seen turned away looks shorter, never
-  longer), and each other point on its pixel's ray, one bone's length from its parent. Of the two
-  points there, a finger's base takes the one nearer its depth, which holds on the palm, and its
-  other joints the one that bends the finger least. A point whose joints up the hand were not found
-  is reached from the nearest one that was, with the bones' summed length. The hand is scaled with
-  the person's shoulders, the median of their width over the last 3 s, within 20% either way. Joint
-  limits are not enforced, and a finger bent towards the camera may come out bent away.
+  Fingers are too thin for the depth model, which sees the room through them, so hands are not read
+  from the depth: a kinematic hand is fitted to their 21 keypoints in the image (`hand_model.py`).
+  It is a rigid palm, the wrist and the base of each finger, with four joints per finger: the base
+  bends and spreads, the two others only bend, each within a finger's range, so a finger cannot bend
+  backwards. Its proportions are RTMW's: its palm measures about 1.45 times longer against the
+  fingers than an anatomical one, on three hands of two people. The depth gives one number per hand,
+  how far the wrist is: the depth of the arm's wrist, which the forearm holds, so that the two
+  skeletons meet, or the palm's without it. With the wrist held there, the hand's turn, its size and
+  its 20 angles are fitted by least squares to the keypoints, with a robust loss for a misplaced
+  one, starting from the last frame's fit and staying near it, or from a flat and a curled hand for
+  a new one. The size is held firmly near the median of the track's last 3 s, so it adapts over
+  seconds but does not pulse: left free, the fit traded size for bends where keypoints are hard to
+  explain, as a fist's, and swung it from 0.7 to 1.2 between frames. None is stored per person, as
+  the depth and an uncalibrated camera measure it less well than adult hands differ, about 6%. A fit
+  takes about 3 to 5 ms per hand, 11 for a hand's first frame. A single image leaves some bends
+  open, a finger curled towards the camera or away: the joint limits and the last frame decide.
 - **TensorRT.** With `device: {kind: tensorrt}`, every vision model but YuNet runs as an fp16
   TensorRT engine, built on first use (about 7 minutes in all, depth the longest) and cached.
   Together they take 2.8 GB where ONNX Runtime's CUDA provider took 3.5 GB, and run two to three
