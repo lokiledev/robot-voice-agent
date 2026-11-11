@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncGenerator, Sequence
 
 from rva_agent.agent import Agent
 from rva_agent.config import AgentConfig
@@ -14,13 +15,18 @@ from rva_agent.tests.fakes import (
     idle_body,
     person,
 )
+from rva_schemas.abc.llm import LanguageModel
 from rva_schemas.dialogue import (
     AssistantMessage,
+    LlmOutput,
+    Message,
     NobodySeenSpeaking,
     RobotEventMessage,
     SeenSpeaking,
     TextDelta,
+    TextEnd,
     ToolCall,
+    ToolSpec,
     UserMessage,
 )
 from rva_schemas.interaction import Disengaged, Engaged
@@ -52,7 +58,7 @@ START_PICK_CUP = ToolCall(
 
 
 def _agent(
-    llm: ScriptedLanguageModel,
+    llm: LanguageModel,
     vla: TaskRunner,
     user: QueueUserInput,
     speech: RecordingSpeech,
@@ -607,3 +613,61 @@ async def test_a_call_that_failed_is_not_run_again_in_the_same_turn() -> None:
     ]
     # The turn ended there: the LLM was not asked a fourth time.
     assert len(llm.requests) == 3
+
+
+async def test_what_is_said_does_not_wait_for_the_tool_calls_that_follow_it() -> None:
+    speech = RecordingSpeech(interrupt_after=None)
+    heard = asyncio.Event()
+    speech.after_sentence = lambda sentence: heard.set()
+
+    class SlowToWriteCalls:
+        async def stream(
+            self, messages: Sequence[Message], tools: Sequence[ToolSpec]
+        ) -> AsyncGenerator[LlmOutput]:
+            yield TextDelta(text="Picking up the red cup.")
+            yield TextEnd()
+            # The call is only written once the sentence is heard.
+            await heard.wait()
+            yield START_PICK_CUP
+
+    user, recorder = QueueUserInput(), ListRecorder()
+    user.say("Grab the red cup please.")
+    user.leave()
+
+    await asyncio.wait_for(
+        _agent(
+            SlowToWriteCalls(),
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            None,
+            None,
+        ).run(),
+        timeout=5,
+    )
+
+    assert speech.said == ["Picking up the red cup."]
+    assert RobotLine(text="Picking up the red cup.", interrupted=False) in recorder.entries
+    assert [e.name for e in recorder.entries if isinstance(e, ToolInvocation)] == ["start_task"]
+
+
+async def test_warming_up_has_the_llm_read_the_prompt_and_says_nothing() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Hello."), TextDelta(text=" I am Lune.")]])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    agent = _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
+        None,
+    )
+
+    await agent.warm_up()
+
+    (request,) = llm.requests
+    assert [message.role for message in request] == ["system", "user"]
+    assert speech.said == []
+    assert recorder.entries == []

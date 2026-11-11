@@ -11,5 +11,7 @@ class LanguageModel(Protocol):
         """Generate the next assistant turn.
 
         Yields text as it is generated, and each tool call once its arguments are complete.
+        Before tool calls that follow text, it tells that the text has ended, so that the text
+        need not wait for them.
         """
         ...

@@ -17,6 +17,7 @@ from rva_schemas.dialogue import (
     RobotEventMessage,
     SystemMessage,
     TextDelta,
+    TextEnd,
     ToolCall,
     ToolResultMessage,
     ToolSpec,
@@ -72,6 +73,9 @@ class OpenAiLanguageModel:
                 if delta.content is not None and delta.content != "":
                     yield TextDelta(text=delta.content)
                 for fragment in delta.tool_calls or ():
+                    if not calls:
+                        # The calls take a while to write: what was said before need not wait.
+                        yield TextEnd()
                     call_id, name, arguments = calls.setdefault(fragment.index, ("", "", []))
                     if fragment.function is not None:
                         name = fragment.function.name or name

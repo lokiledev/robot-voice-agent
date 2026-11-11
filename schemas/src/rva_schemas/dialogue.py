@@ -84,7 +84,13 @@ class TextDelta(RVABaseModel):
     text: str
 
 
-type LlmOutput = Annotated[TextDelta | ToolCall, Field(discriminator="kind")]
+class TextEnd(RVABaseModel):
+    """No more text follows in this turn: only tool calls, still being written."""
+
+    kind: Literal["text_end"] = "text_end"
+
+
+type LlmOutput = Annotated[TextDelta | TextEnd | ToolCall, Field(discriminator="kind")]
 
 
 class SystemMessage(RVABaseModel):

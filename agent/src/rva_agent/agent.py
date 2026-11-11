@@ -32,6 +32,7 @@ from rva_schemas.dialogue import (
     SeenSpeaking,
     Spoken,
     TextDelta,
+    TextEnd,
     ToolCall,
     ToolResultMessage,
     UserMessage,
@@ -131,6 +132,18 @@ class Agent:
         self._cut_short_for: int | None = None
         # Who they are, if known: out of view and back, they are on a new track.
         self._cut_short_person: UUID | None = None
+
+    async def warm_up(self) -> None:
+        """Have the LLM read the system prompt and the tools ahead of the first turn.
+
+        A server that reads them for the first time takes seconds to start its reply: the greeting
+        of whoever comes first.
+        """
+        # Chat templates such as Qwen's want a user message; what is read ahead is all before it.
+        messages = (*self._history.messages, UserMessage(content="Hello."))
+        # The prompt is read by the first output; the rest of the reply is not needed.
+        async for _ in self._llm.stream(messages, self._tool_specs):
+            break
 
     async def run(self) -> None:
         """Converse until the user input ends, then finish the turns already queued."""
@@ -460,6 +473,9 @@ class Agent:
                         span.add_event("first_text")
                     text.append(output.text)
                     yield output.text
+                case TextEnd():
+                    # Ends the last sentence, which is said while the tool calls are written.
+                    yield "\n"
                 case ToolCall():
                     tool_calls.append(output)
                 case _:

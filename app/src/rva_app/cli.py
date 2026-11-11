@@ -47,6 +47,7 @@ from rva_schemas.dialogue import (
     SpeechSpan,
     SystemMessage,
     TextDelta,
+    TextEnd,
     ToolCall,
     ToolResultMessage,
     UserMessage,
@@ -565,6 +566,7 @@ async def _run_agent(
         admins=load_admins(config.admins),
         config=config.agent,
     )
+    await agent.warm_up()
     logger.info("{} is up", profile.character.name)
     await _with_vision(agent.run(), vision, monitor, config.attention, interaction, recorder)
 
@@ -952,6 +954,8 @@ async def _chat_with_llm(profile_dir: Path, system_prompt: bool) -> None:
                 case TextDelta():
                     write(output.text)
                     text.append(output.text)
+                case TextEnd():
+                    pass
                 case ToolCall():
                     write(f"\n[tool call] {output.name}({output.arguments})")
                     calls.append(output)
