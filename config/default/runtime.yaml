@@ -221,11 +221,9 @@ observability:
   captures_dir: ~/Captures/robot-voice-agent
 
 audio:
-  # The reSpeaker XVF3800 cancels the echo on its chip, against what it plays from its own jack,
-  # so both go through it. Without it: rva_ec_source and rva_ec_sink, the echo-cancelled nodes from
-  # config/pipewire/60-rva-echo-cancel.conf, or null for the system defaults.
-  input_device: alsa_input.usb-Seeed_Studio_reSpeaker_XVF3800
-  output_device: alsa_output.usb-Seeed_Studio_reSpeaker_XVF3800
+  # Echo-cancelled nodes from config/pipewire/60-rva-echo-cancel.conf; null for the system defaults.
+  input_device: rva_ec_source
+  output_device: rva_ec_sink
   echo_window_ms: 2000
   endpoint:
     speech_threshold: 0.5

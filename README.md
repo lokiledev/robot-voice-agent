@@ -91,17 +91,16 @@ the simulated robot's description download themselves on first use. The TensorRT
 vision models, the first time `lune see` or `lune` starts.
 
 With speakers rather than headphones, Lune needs echo cancellation, or it hears itself and
-keeps interrupting its own speech. The default profile listens and speaks through a reSpeaker
-XVF3800 array, with a powered speaker on its jack: the array cancels the echo on its chip,
-against what it plays.
-
-With another microphone, PipeWire's WebRTC echo canceller does it. Set `audio.input_device` to
-`rva_ec_source` and `audio.output_device` to `rva_ec_sink` in `runtime.yaml`, then:
+keeps interrupting its own speech. PipeWire's WebRTC echo canceller does it:
 
 ```bash
 mkdir -p ~/.config/pipewire/pipewire.conf.d && cp config/pipewire/60-rva-echo-cancel.conf ~/.config/pipewire/pipewire.conf.d/
 systemctl --user restart pipewire pipewire-pulse wireplumber
 ```
+
+The conf listens to a reSpeaker XVF3800 array, pinned by its node name, and plays to the default
+output; put the speaker on another jack than the array's, which only runs at 16 kHz. With another
+microphone, change or remove `target.object` in it; the comment there says how.
 
 With headphones, set `audio.input_device` and `audio.output_device` to `null` in `runtime.yaml`
 to use the system's default devices instead.
