@@ -1,5 +1,6 @@
 import math
 import textwrap
+from collections.abc import Mapping
 from itertools import pairwise
 from typing import Final
 
@@ -8,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from rva_schemas.attention import AttentionTarget
+from rva_schemas.interaction import PersonEngagement
 from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import (
     BODY_CONNECTIONS,
@@ -62,13 +64,15 @@ def draw(
     people: PeopleInView,
     timings: VisionTimings,
     attention: AttentionTarget | None,
+    engagement: Mapping[int, PersonEngagement],
 ) -> None:
     """Draw the people and what was seen of them, the timings, and the user's last sentence.
 
     `people` is in the frame's pixels. Each person gets their box, label, face features and
     skeleton, and what they said hangs under their box. Skeletons without a face are drawn in
     gray. `attention` is the point attended to, marked where the camera's intrinsics put it in
-    the frame, if they are known.
+    the frame, if they are known. `engagement` is how much each person pays attention to the
+    robot, by track id: its score is on their label, and an engaged person's box is doubled.
     """
     scale = frame.shape[0] / 540
     thickness = max(1, round(2 * scale))
@@ -83,6 +87,15 @@ def draw(
             _draw_body(frame, person.body, color, thickness)
         cv2.rectangle(frame, (x, y), (right, bottom), color, thickness)
         lines = [label(person)]
+        engaging = engagement.get(person.track_id)
+        if engaging is not None:
+            lines.append(describe_engagement(engaging))
+            if engaging.engaged:
+                gap = 3 * thickness
+                # Inside the box, clear of the label above it.
+                cv2.rectangle(
+                    frame, (x + gap, y + gap), (right - gap, bottom - gap), color, thickness
+                )
         if person.face is not None:
             _draw_face(frame, person.face, box.width, color, thickness)
             lines.append(describe(person.face))
@@ -171,6 +184,11 @@ def describe(face: FaceFeatures) -> str:
         f"gaze {face.gaze.yaw:+.0f} {face.gaze.pitch:+.0f}  "
         f"{face.expression} {face.expression_score:.2f}"
     )
+
+
+def describe_engagement(engagement: PersonEngagement) -> str:
+    """Whether a person is engaged, with their score."""
+    return f"{'engaged' if engagement.engaged else 'not engaged'} {engagement.score:.2f}"
 
 
 def label(person: TrackedPerson) -> str:

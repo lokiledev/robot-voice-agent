@@ -102,6 +102,21 @@ def test_the_main_user_is_described_and_their_signals_are_off_while_nobody_is_in
         "main user #4: eye contact, gaze 6 deg off; lips still, motion 0.041; no microphone"
     )
     assert describe_main_user(None) == "nobody in view"
-    assert signals(user) == {"eye contact": True, "lips moving": True, "speaking": True}
-    assert signals(unheard) == {"eye contact": True, "lips moving": False, "speaking": False}
-    assert signals(None) == {"eye contact": False, "lips moving": False, "speaking": False}
+    assert signals(user, engaged=True) == {
+        "eye contact": True,
+        "lips moving": True,
+        "speaking": True,
+        "engaged": True,
+    }
+    assert signals(unheard, engaged=False) == {
+        "eye contact": True,
+        "lips moving": False,
+        "speaking": False,
+        "engaged": False,
+    }
+    assert signals(None, engaged=True) == {
+        "eye contact": False,
+        "lips moving": False,
+        "speaking": False,
+        "engaged": False,
+    }

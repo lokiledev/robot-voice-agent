@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Final
 
 from rva_schemas.attention import AttentionState, AttentionTarget
+from rva_schemas.interaction import EngagementState, PersonEngagement
 from rva_schemas.record import LiveFrame, Record
 from rva_vision_viewer.overlay import draw
 from rva_vision_viewer.stream import RtspPublisher, VideoStreamConfig
@@ -11,8 +12,8 @@ from rva_vision_viewer.window import DebugWindow
 class CameraMonitor:
     """`Recorder` that shows the camera as it is processed, in a debug window, over RTSP, or both.
 
-    Each live frame is drawn over with the people seen in it and the point attended to, from the
-    last attention recorded, then shown. It consumes records like any other recorder: nothing of
+    Each live frame is drawn over with the people seen in it, the point attended to and who is
+    engaged, from the last attention and engagement recorded, then shown. It consumes records like any other recorder: nothing of
     what it shows is routed back to the camera pipeline. Live frames come in the thread that
     records them, the camera's, which the window lives in; the attention may come from any
     thread.
@@ -39,6 +40,8 @@ class CameraMonitor:
         self._window: DebugWindow | None = None
         self._publisher: RtspPublisher | None = None
         self._attention: AttentionTarget | None = None
+        self._engagement: dict[int, PersonEngagement] = {}
+        """By track id; empty until an engagement is recorded, from any thread."""
 
     def record(self, entry: Record) -> None:
         match entry:
@@ -46,11 +49,14 @@ class CameraMonitor:
                 self._show(entry)
             case AttentionState():
                 self._attention = entry.target
+            case EngagementState():
+                self._engagement = {person.track_id: person for person in entry.people}
             case _:
                 return
 
     def _show(self, live: LiveFrame) -> None:
-        draw(live.frame, live.people, live.timings, self._attention)
+        engagement = self._engagement
+        draw(live.frame, live.people, live.timings, self._attention, engagement)
         if self._stream is not None and self._publisher is None:
             height, width = live.frame.shape[:2]
             self._publisher = RtspPublisher(self._stream, width, height)
@@ -60,7 +66,15 @@ class CameraMonitor:
             return
         if self._window is None:
             self._window = DebugWindow(*self._window_size)
-        key = self._window.show(live.frame, live.people, live.depth, live.main_user, live.timings)
+        main_user = live.main_user
+        engaged = (
+            main_user is not None
+            and main_user.track_id in engagement
+            and engagement[main_user.track_id].engaged
+        )
+        key = self._window.show(
+            live.frame, live.people, live.depth, main_user, live.timings, engaged=engaged
+        )
         if key == "q":
             # Closed by the user: it stays closed while the camera goes on.
             self._window.close()

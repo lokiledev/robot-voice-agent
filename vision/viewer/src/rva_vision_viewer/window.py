@@ -115,6 +115,8 @@ class DebugWindow:
         depth: DepthMap | None,
         main_user: MainUser | None,
         timings: VisionTimings,
+        *,
+        engaged: bool,
     ) -> str | None:
         if not dpg.is_dearpygui_running():
             return "q"
@@ -139,7 +141,7 @@ class DebugWindow:
             self._main_user,
             color=_KNOWN if main_user is not None and main_user.eye_contact else _UNCONFIRMED,
         )
-        self._plot_signals(signals(main_user))
+        self._plot_signals(signals(main_user, engaged=engaged))
         dpg.render_dearpygui_frame()
         dpg.run_callbacks(dpg.get_callback_queue())
         if not dpg.is_dearpygui_running():
@@ -258,14 +260,18 @@ class DebugWindow:
         dpg.set_axis_limits(self._timeline_axis, now - _TIMELINE_S, now)
 
 
-def signals(main_user: MainUser | None) -> dict[str, bool]:
-    """The main user's signals shown on the timeline, each off while nobody is in view."""
+def signals(main_user: MainUser | None, *, engaged: bool) -> dict[str, bool]:
+    """The main user's signals shown on the timeline, each off while nobody is in view.
+
+    `engaged` is whether the main user pays attention to the robot.
+    """
     return {
         "eye contact": main_user is not None and main_user.eye_contact,
         "lips moving": main_user is not None and main_user.lips_moving,
         "speaking": main_user is not None
         and main_user.active_speaker is not None
         and main_user.active_speaker.speaking,
+        "engaged": main_user is not None and engaged,
     }
 
 

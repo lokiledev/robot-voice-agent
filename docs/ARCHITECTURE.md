@@ -329,7 +329,7 @@ flowchart LR
   with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
   a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
   mouse and whether the camera is calibrated. Underneath, a timeline of the main user's signals,
-  one lane each, the last 30 s: eye contact, lips moving and speaking. It lives in the viewer package, which the camera pipeline
+  one lane each, the last 30 s: eye contact, lips moving, speaking and engaged. It lives in the viewer package, which the camera pipeline
   never imports, so the pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
@@ -417,7 +417,9 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
 - **Permissions are not the speaker's yet**: tools still check that the face in front is an
   operator, whoever spoke.
 - **Recorded** every frame: each person's score under `engagement/track_<n>/score`, and the
-  events. `lune see` and `lune sense` log people engaging and disengaging; `lune listen --camera`
+  events. The camera monitor writes each person's score on their label and doubles the box of
+  an engaged one, in the window and the stream; the window's timeline has a lane for whether
+  the main user is engaged. `lune see` and `lune sense` log people engaging and disengaging; `lune listen --camera`
   prints each turn with who said it and whether to the robot.
 
 ### Agent loop and tools
