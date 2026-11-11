@@ -175,6 +175,7 @@ interaction:
   # An utterance is said to the robot when its speaker looked at it for this share of it: hardly
   # any for someone engaged, trusted unless they face someone else throughout; most of it for
   # anyone else, who is engaged from then on.
+  # Someone engaged with no other face in view is trusted wherever they look.
   engaged_min_gaze: 0.1
   bystander_min_gaze: 0.5
   # Whose speech stops the robot's: `engaged`, only an engaged person seen speaking (anyone while

@@ -55,7 +55,8 @@ class InteractionConfig(RVABaseModel):
     of someone else speaking, a word thrown in, stays in the piece around it."""
     engaged_min_gaze: float = Field(ge=0, le=1)
     """Share of an utterance an engaged speaker must look at the robot for it to be said to the
-    robot. Low: they are trusted unless they face someone else throughout."""
+    robot, when another face is in view. Low: they are trusted unless they face someone else
+    throughout. Alone in view, they are trusted wherever they look."""
     bystander_min_gaze: float = Field(ge=0, le=1)
     """The same for a speaker who is not engaged, who must look at the robot for most of it."""
     barge_in: Literal["anyone", "engaged"]

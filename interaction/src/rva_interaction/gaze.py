@@ -20,7 +20,8 @@ class GazeHistory:
         faces = {
             person.track_id: person.face.gaze.off_camera() <= self._eye_contact_deg
             for person in observation.people.people
-            if person.face is not None
+            # Only a confirmed face is somebody: a detection of a frame or two is not.
+            if person.face is not None and person.confirmed
         }
         self._frames.append(_Frame(observation.time, faces))
         while self._frames[0].time < observation.time - self._history_s:
@@ -37,6 +38,14 @@ class GazeHistory:
             if speech.start <= frame.time <= speech.end and track_id in frame.looking
         ]
         return sum(looked) / len(looked) if looked else None
+
+    def alone(self, track_id: int, speech: SpeechSpan) -> bool:
+        """Whether no face but the one on `track_id` was seen over `speech`."""
+        return not any(
+            frame.looking.keys() - {track_id}
+            for frame in self._frames
+            if speech.start <= frame.time <= speech.end
+        )
 
 
 class _Frame(NamedTuple):

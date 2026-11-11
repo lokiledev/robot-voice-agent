@@ -422,7 +422,9 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
   speech that follows is the next turn.
 - **Whether to the robot.** By the share of the utterance its speaker looked at the robot:
   someone engaged is trusted unless they faced someone else throughout (under 0.1); anyone else
-  must look at it for most of it (0.5), and is engaged from then on. What is not said to the
+  must look at it for most of it (0.5), and is engaged from then on. Someone engaged with no
+  other face in view has nobody else to talk to, and is trusted wherever they look: they may
+  well read the robot's screen. What is not said to the
   robot, or said by nobody in view, is dropped before the LLM, with a log line. A stop word while
   the body is busy is obeyed whoever says it.
 - **Judged as it arrives**, by a `UserInput` wrapped around the voice input, so the agent only

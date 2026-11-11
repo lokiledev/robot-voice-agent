@@ -118,9 +118,14 @@ class Interaction:
                 needed = (
                     self._config.engaged_min_gaze if engaged else self._config.bystander_min_gaze
                 )
-                # A speaker whose face was not seen cannot be told to look elsewhere: trusted if
-                # engaged, not otherwise.
-                to_robot = engaged if gaze is None else gaze >= needed
+                if engaged and self._gaze.alone(speaker.track_id, utterance.speech):
+                    # With nobody else in view to talk to, where they look tells nothing: they
+                    # may well read the robot's screen.
+                    to_robot = True
+                else:
+                    # A speaker whose face was not seen cannot be told to look elsewhere: trusted
+                    # if engaged, not otherwise.
+                    to_robot = engaged if gaze is None else gaze >= needed
                 logger.debug(
                     "Track {} looked at the robot for {} of it, engaged: {}",
                     speaker.track_id,

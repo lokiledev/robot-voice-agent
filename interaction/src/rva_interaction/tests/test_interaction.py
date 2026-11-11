@@ -55,16 +55,20 @@ def spoken(start: float, end: float) -> UserUtterance:
     )
 
 
-def talk(heard: Interaction, start: float, seconds: float, gaze: Gaze) -> None:
-    """Track 1 speaks at 1.5 m, looking along `gaze`, ten frames a second from `start`."""
+def talk(heard: Interaction, start: float, seconds: float, gaze: Gaze, *, beside: bool) -> None:
+    """Track 1 speaks at 1.5 m, looking along `gaze`, ten frames a second from `start`.
+
+    With `beside`, track 2 stands silent next to them, looking at them.
+    """
+    other = (seen(2, face(AWAY, at(0.8, 1.5)), speaking=False),) if beside else ()
     for i in range(round(seconds * 10)):
-        heard.observe(frame(start + i / 10, seen(1, face(gaze, HERE), speaking=True)))
+        heard.observe(frame(start + i / 10, seen(1, face(gaze, HERE), speaking=True), *other))
 
 
 def test_a_bystander_who_looks_at_the_robot_while_speaking_talks_to_it_and_is_engaged() -> None:
     heard = interaction()
     # Looking elsewhere at first, so not engaged, then at the robot for the sentence.
-    talk(heard, 0.0, 1.0, AWAY)
+    talk(heard, 0.0, 1.0, AWAY, beside=False)
     for i in range(3):
         heard.observe(frame(1.0 + i / 10, seen(1, face(AT_ROBOT, HERE), speaking=True)))
     assert heard.engaged() == frozenset()
@@ -80,7 +84,7 @@ def test_a_bystander_who_looks_at_the_robot_while_speaking_talks_to_it_and_is_en
 
 def test_a_bystander_who_speaks_looking_elsewhere_does_not_talk_to_the_robot() -> None:
     heard = interaction()
-    talk(heard, 0.0, 1.0, AWAY)
+    talk(heard, 0.0, 1.0, AWAY, beside=False)
 
     assert heard.hear(spoken(0.0, 0.9)).speaker == SeenSpeaking(
         track_id=1, person=None, to_robot=False
@@ -88,12 +92,22 @@ def test_a_bystander_who_speaks_looking_elsewhere_does_not_talk_to_the_robot() -
     assert heard.engaged() == frozenset()
 
 
-def test_someone_engaged_talks_to_the_robot_even_glancing_at_it_only() -> None:
+def test_someone_engaged_with_nobody_else_in_view_talks_to_the_robot_wherever_they_look() -> None:
     heard = interaction()
-    talk(heard, 0.0, 3.0, AT_ROBOT)
+    talk(heard, 0.0, 3.0, AT_ROBOT, beside=False)
+    talk(heard, 3.0, 2.0, AWAY, beside=False)
+
+    assert heard.hear(spoken(3.0, 4.9)).speaker == SeenSpeaking(
+        track_id=1, person=None, to_robot=True
+    )
+
+
+def test_someone_engaged_beside_someone_else_talks_to_the_robot_even_glancing_at_it_only() -> None:
+    heard = interaction()
+    talk(heard, 0.0, 3.0, AT_ROBOT, beside=True)
     # A two-second sentence, looking at the robot for the first 0.4 s of it only.
-    talk(heard, 3.0, 0.4, AT_ROBOT)
-    talk(heard, 3.4, 1.6, AWAY)
+    talk(heard, 3.0, 0.4, AT_ROBOT, beside=True)
+    talk(heard, 3.4, 1.6, AWAY, beside=True)
 
     assert heard.hear(spoken(3.0, 4.9)).speaker == SeenSpeaking(
         track_id=1, person=None, to_robot=True
@@ -102,8 +116,8 @@ def test_someone_engaged_talks_to_the_robot_even_glancing_at_it_only() -> None:
 
 def test_someone_engaged_who_faces_someone_else_throughout_does_not_talk_to_the_robot() -> None:
     heard = interaction()
-    talk(heard, 0.0, 3.0, AT_ROBOT)
-    talk(heard, 3.0, 2.0, AWAY)
+    talk(heard, 0.0, 3.0, AT_ROBOT, beside=True)
+    talk(heard, 3.0, 2.0, AWAY, beside=True)
 
     assert heard.hear(spoken(3.0, 4.9)).speaker == SeenSpeaking(
         track_id=1, person=None, to_robot=False
