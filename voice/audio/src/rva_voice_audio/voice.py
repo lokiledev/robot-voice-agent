@@ -14,7 +14,7 @@ from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speech import SpeechRecognizer, SpeechSynthesizer
 from rva_schemas.audio import AudioClip
 from rva_schemas.dialogue import SpeechEnd, SpeechSpan, Spoken, UserUtterance
-from rva_schemas.record import Measurement, RobotSentence
+from rva_schemas.record import Measurement, RobotSentence, Sound
 from rva_voice_audio.devices import Speaker
 from rva_voice_audio.echo import RobotSpeech
 from rva_voice_audio.endpoint import Endpointer, SpeechStarted, TurnEnded
@@ -46,7 +46,7 @@ class VoiceInput:
             vad: Speech probability of each frame.
             endpointer: Decides when turns start and end.
             recognizer: Transcribes each turn.
-            recorder: Receives the speech probability of each frame.
+            recorder: Receives each frame and its speech probability.
             robot_speech: What the robot is saying, to require clearer speech to interrupt it and
                 to drop transcripts of its own voice.
             on_speech_start: Called as soon as the user starts talking, e.g. to stop the robot's
@@ -74,6 +74,9 @@ class VoiceInput:
         async for frame in self._frames:
             probability = self._vad.probability(frame)
             self._recorder.record(Measurement(name="vad", value=probability))
+            self._recorder.record(
+                Sound(source="microphone", clip=AudioClip(samples=frame, sample_rate=SAMPLE_RATE))
+            )
             match self._endpointer.push(frame, probability, self._robot_speech.speaking):
                 case None:
                     if held_back and self._may_interrupt():
@@ -127,7 +130,7 @@ class VoiceOutput:
         robot_speech: RobotSpeech,
         recorder: Recorder,
     ) -> None:
-        """Speak through `speaker`, recording each sentence as it starts playing."""
+        """Speak through `speaker`; each sentence is recorded as it starts, each clip once played."""
         self._speaker: Final = speaker
         self._synthesizer: Final = synthesizer
         self._robot_speech: Final = robot_speech
@@ -164,7 +167,13 @@ class VoiceOutput:
                         self._recorder.record(RobotSentence(text=sentence))
                         starting = False
                     self._robot_speech.starts(sentence)
-                    if not await self._speaker.play(clip):
+                    played = await self._speaker.play(clip)
+                    if played:
+                        heard_part = AudioClip(
+                            samples=clip.samples[:played], sample_rate=clip.sample_rate
+                        )
+                        self._recorder.record(Sound(source="robot", clip=heard_part))
+                    if played < len(clip.samples):
                         end = "talked_over"
                         break
         finally:

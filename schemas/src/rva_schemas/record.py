@@ -7,6 +7,7 @@ from pydantic import Field
 from rva_body_schemas.motion import Motion
 from rva_pydantic import RVABaseModel
 from rva_schemas.attention import AttentionState
+from rva_schemas.audio import AudioClip
 from rva_schemas.dialogue import ToolSpec
 from rva_schemas.interaction import EngagementState
 from rva_schemas.vision import (
@@ -100,6 +101,18 @@ class Measurement(RVABaseModel):
     value: float
 
 
+class Sound(RVABaseModel):
+    """A stretch of sound that has just ended.
+
+    What the microphone heard, frame after frame, or a clip of the robot's voice, as far as it
+    was played.
+    """
+
+    kind: Literal["sound"] = "sound"
+    source: Literal["microphone", "robot"]
+    clip: AudioClip
+
+
 class FaceUpdate(RVABaseModel):
     kind: Literal["face"] = "face"
     event: FaceEvent
@@ -183,6 +196,7 @@ type Record = Annotated[
     | GazeUpdate
     | MuteUpdate
     | Measurement
+    | Sound
     | FaceUpdate
     | PeopleInView
     | CameraFrame

@@ -1,0 +1,59 @@
+# Roadmap
+
+What is known to be missing or weak, and what was decided about it. See `ARCHITECTURE.md` for
+what exists and why.
+
+## Decided, not built
+
+- **A task started for an operator runs to its end.** An operator starts a plan; they need not
+  stay in view while it runs. Today each step is allowed only while an operator is the person in
+  front, so a plan of several steps stops with "Nobody is in front of you" once they walk away.
+  The steps the robot starts on its own, in reply to the end of the previous one, should inherit
+  the permission of whoever asked for the plan.
+
+## Interaction
+
+- **Whether an utterance is said to the robot** is the weakest judgement. With several people
+  it rests on how much of the utterance its speaker looked at the robot, and a glance is enough
+  for someone engaged: on recorded group conversations the verdict flips. Either tune the rule
+  on recordings (weigh the end of the utterance, ask for more than a glance), or label a few
+  minutes and fit a small model.
+- **A learned model for engagement and the addressee.** The scores are recorded each frame to
+  learn from later. Labels can come from what happened next (who went on to talk to the robot),
+  or from public data: Ego4D has "looking at me" and "talking to me" labels, UE-HRI has
+  engagement with a robot; their licences and formats are not checked yet.
+- **Tuning with several people on the real robot**: the share of an utterance a face must be
+  seen speaking, the shortest piece a turn is cut into, the gaze thresholds, and barge-in by
+  engaged people only while the robot itself speaks. Nothing was tuned beyond one person and
+  two videos.
+- **Turns cut in the middle of a sentence**, where someone throws in a second of speech, or at
+  the 20 s cap. A margin between the surest speaker and the next was considered.
+- **Engagement flaps** in a seated group that glances at the camera now and then.
+- **Speaking keeps someone engaged whoever they speak to.** It should only when nobody else is
+  in view, like the rule that trusts a lone speaker.
+- **A reply stops at the end of its sentence** when its listener leaves, which is long for a
+  long sentence. It could stop at once when they have left the view, and still finish the
+  sentence when they only look away. Left as it is for now.
+- **Someone unknown who leaves the view and comes back** is a newcomer: a reply cut short for
+  them is not picked up, and they are greeted again.
+- **The head does not favour the person the robot talks with**: the attention scores them like
+  anyone else.
+- **Permissions look at the face in front**, not at the face seen saying the request.
+- **Voices out of view are ignored.** A microphone array that tells where a sound comes from
+  (ReSpeaker) is planned, to place speakers the camera does not see.
+
+## Sound
+
+- **The last second of the microphone** is missing from a recording: the frames are joined into
+  clips of a second, and the one still filling when the session ends is not written.
+- **A live waveform instead of the level.** The debug window and rerun show how loud the
+  sound was, a point per 32 ms, on a scale from 0 to 1 that leaves quiet speech low. What is
+  wanted is the waveform itself, scrolling live.
+
+## Tools
+
+- **Turns that are dropped** as not said to the robot are only logged: they are neither on the
+  session page nor in the recording with their scores.
+- **The session page does not follow a replayed video**; only the debug window does.
+- **`lune rerun` opens the latest session only.**
+- **The debug window's checkboxes all start ticked.**

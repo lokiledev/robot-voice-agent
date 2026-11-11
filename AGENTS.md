@@ -1,6 +1,6 @@
 # robot-voice-agent
 
-Local voice agent for a humanoid robot. See `docs/ARCHITECTURE.md` for the design and the reasons behind it.
+Local voice agent for a humanoid robot. See `docs/ARCHITECTURE.md` for the design and the reasons behind it. `docs/ROADMAP.md` lists what is missing or weak, and what was decided about it.
 
 ## Commands
 

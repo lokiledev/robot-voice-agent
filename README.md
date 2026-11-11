@@ -142,7 +142,7 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune prompt` | Prints the system prompt built from the profile |
 | `lune see` | Shows the camera with each tracked face, who it is, their gaze, expression and skeleton, beside it the depth, and for each person a timeline of whether they look at the robot, speak and are engaged, with how open their eyes and mouth are; checkboxes choose what is drawn over the camera; with `--viewer`, rerun shows the face or hand attended to and each candidate's score; `--no-window` to only log and record, `--no-depth` to leave depth out |
 | `lune sense` | `lune see` with the microphone too: which face speaks, from its lips and the sound (Light-ASD, converted to ONNX on first use) |
-| `lune rerun` | Opens the latest session's recording in the rerun viewer |
+| `lune rerun` | Opens the latest session's recording in the rerun viewer, with the sound of the microphone and of the robot's voice |
 | `lune people` | Lists everyone Lune knows, with admins and operators |
 | `lune text` | The whole agent, typing instead of talking |
 | `lune run` | The whole voice agent |

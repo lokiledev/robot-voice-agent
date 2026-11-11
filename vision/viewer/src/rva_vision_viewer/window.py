@@ -1,7 +1,7 @@
 import string
 import time
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Final, assert_never
 
 import cv2
@@ -25,8 +25,10 @@ _MAX_DEPTH_M: Final = 4.0
 """Depth at the far end of the colormap; farther is drawn the same."""
 _PROBE_RADIUS: Final = 2
 """Half the side of the square of depth pixels whose median is shown, in pixels."""
-_HISTORY_S: Final = 30.0
-"""How much of each person's signals and openness is plotted."""
+HISTORY_S: Final = 30.0
+"""How much of each person's signals and openness, and of the sound, is plotted."""
+_SOUND_HEIGHT: Final = 110
+"""Height of the sound's plot, between the camera and the people's rows."""
 _ROW_HEIGHT: Final = 130
 """Height of a person's row of plots, under the camera."""
 _ROWS_SHOWN: Final = 3
@@ -111,12 +113,13 @@ class DebugWindow:
                     )
                     self._main_user: Final = dpg.add_text(wrap=_PANEL_WIDTH)
                     self._unmatched: Final = dpg.add_text(color=_UNCONFIRMED)
+            self._sound: Final = _SoundPlot()
             with dpg.child_window(height=_ROW_HEIGHT, border=False) as people:
                 self._people: Final = people
         dpg.create_viewport(
             title=_TITLE,
             width=round(width * (1 + _DEPTH_SCALE)) + _PANEL_WIDTH + 2 * _MARGIN,
-            height=height + _ROWS_SHOWN * _ROW_HEIGHT + _MARGIN,
+            height=height + _SOUND_HEIGHT + _ROWS_SHOWN * _ROW_HEIGHT + _MARGIN,
             # Drawing must not wait for the screen: it would slow the camera pipeline down.
             vsync=False,
         )
@@ -142,11 +145,14 @@ class DebugWindow:
         timings: VisionTimings,
         engagement: Mapping[int, PersonEngagement],
         attention: AttentionState | None,
+        sound: Mapping[str, tuple[Sequence[float], Sequence[float]]],
     ) -> str | None:
         """Show a frame, drawn over already, and what was seen in it.
 
         `engagement` is how much each person pays attention to the robot, by track id, and
-        `attention` what could be attended to in the frame; `None` until some is known.
+        `attention` what could be attended to in the frame; `None` until some is known. `sound`
+        is the times, from `time.monotonic`, and the values, from 0 to 1, of each series to plot
+        of the sound lately, by name: nothing is plotted while they are all empty.
 
         Returns:
             A key pressed since the last frame, `q` once the window is closed, else `None`.
@@ -163,7 +169,9 @@ class DebugWindow:
         # The people's rows take what they need under the camera, up to a few; more scroll.
         rows_height = min(max(len(people.people), 1), _ROWS_SHOWN) * _ROW_HEIGHT
         dpg.configure_item(self._people, height=rows_height)
-        space_height = dpg.get_viewport_client_height() - rows_height - _MARGIN
+        now = time.monotonic() - self._start
+        sound_height = _SOUND_HEIGHT if self._sound.update(now, sound, self._start) else 0
+        space_height = dpg.get_viewport_client_height() - rows_height - sound_height - _MARGIN
         width, height = fit(self._size, (space_width, space_height))
         dpg.configure_item(self._picture, width=width, height=height)
         dpg.configure_item(self._depth_view, show=depth is not None)
@@ -172,7 +180,6 @@ class DebugWindow:
             self._show_depth(depth, (side_width, depth_height))
         # The attention takes what the depth leaves of the camera's height.
         taken = 0 if depth is None else depth_height + _PROBE_HEIGHT
-        now = time.monotonic() - self._start
         self._attention.update(
             now, attention, (side_width, max(height - taken, _MIN_ATTENTION_HEIGHT))
         )
@@ -267,8 +274,41 @@ class _AttentionPlot:
                 self._lines[name] = dpg.add_line_series(*data, parent=self._axis)
             dpg.set_value(self._lines[name], data)
             dpg.configure_item(self._lines[name], label=f"> {name}" if name == attended else name)
-        dpg.set_axis_limits(self._time, now - _HISTORY_S, now)
+        dpg.set_axis_limits(self._time, now - HISTORY_S, now)
         dpg.fit_axis_data(self._axis)
+
+
+class _SoundPlot:
+    """How loud the microphone and the robot's voice were, and how likely speech was heard."""
+
+    def __init__(self) -> None:
+        self._lines: Final[dict[str, int | str]] = {}
+        with dpg.plot(height=_SOUND_HEIGHT - 8, width=-1, show=False) as plot:
+            self._plot: Final = plot
+            dpg.add_plot_legend(outside=True, location=dpg.mvPlot_Location_East)
+            self._time: Final = dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True)
+            self._axis: Final = dpg.add_plot_axis(dpg.mvYAxis)
+            dpg.set_axis_limits(self._axis, 0, 1)
+
+    def update(
+        self,
+        now: float,
+        sound: Mapping[str, tuple[Sequence[float], Sequence[float]]],
+        start: float,
+    ) -> bool:
+        """Plot each series, whose times are `start` later than the window's `now`.
+
+        Returns:
+            Whether the plot shows: once there is sound, e.g. not with the camera alone.
+        """
+        for name, (times, values) in sound.items():
+            if name not in self._lines:
+                self._lines[name] = dpg.add_line_series([0.0], [0.0], label=name, parent=self._axis)
+            dpg.set_value(self._lines[name], [[time - start for time in times], list(values)])
+        dpg.set_axis_limits(self._time, now - HISTORY_S, now)
+        shown = any(times for times, _ in sound.values())
+        dpg.configure_item(self._plot, show=shown)
+        return shown
 
 
 class _PersonPanel:
@@ -340,14 +380,14 @@ class _PersonPanel:
         for index, line in enumerate(self._openness_lines):
             dpg.set_value(line, [times, [values[index] for _, values in self._openness]])
         for axis in (self._signals_time, self._openness_time):
-            dpg.set_axis_limits(axis, now - _HISTORY_S, now)
+            dpg.set_axis_limits(axis, now - HISTORY_S, now)
 
     def delete(self) -> None:
         dpg.delete_item(self._group)
 
 
 def _trim[T](history: deque[tuple[float, T]], now: float) -> None:
-    while history and history[0][0] < now - _HISTORY_S:
+    while history and history[0][0] < now - HISTORY_S:
         history.popleft()
 
 

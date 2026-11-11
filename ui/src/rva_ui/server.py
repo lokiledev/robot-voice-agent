@@ -29,6 +29,7 @@ from rva_schemas.record import (
     Record,
     RobotLine,
     RobotSentence,
+    Sound,
     TaskUpdate,
     ToolInvocation,
     UserLine,
@@ -97,8 +98,9 @@ class UiServer:
                 | LiveFrame()
                 | AttentionState()
                 | EngagementState()
+                | Sound()
             ):
-                # The boxes are drawn into the video stream instead.
+                # The boxes are drawn into the video stream instead, and the sound is not played.
                 return
             case Measurement():
                 replayed = False

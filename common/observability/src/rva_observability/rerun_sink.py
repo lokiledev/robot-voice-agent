@@ -1,14 +1,19 @@
+import io
 import math
+import threading
+import wave
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Final, assert_never, override
 
 import numpy as np
+import numpy.typing as npt
 import rerun as rr
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
 from rva_body_schemas.motion import describe
 from rva_schemas.attention import AttentionEntity, AttentionState, FaceEntity, HandEntity
+from rva_schemas.audio import AudioClip
 from rva_schemas.interaction import EngagementState
 from rva_schemas.record import (
     AgentStarted,
@@ -24,6 +29,7 @@ from rva_schemas.record import (
     Record,
     RobotLine,
     RobotSentence,
+    Sound,
     Speaker,
     TaskUpdate,
     ToolInvocation,
@@ -43,6 +49,10 @@ from rva_schemas.vision import (
 )
 
 _TIMELINE: Final = "wall"
+_LEVEL_HOP_S: Final = 0.032
+"""How long each point of a sound's level covers: a frame of the microphone."""
+_MICROPHONE_CLIP_S: Final = 1.0
+"""How long the clips are that the microphone's frames are joined into."""
 _CAMERA: Final = "camera"
 """Image and people share this entity, so rerun draws them in one 2D view; with the camera's
 intrinsics, it is also the camera's pinhole in the 3D view."""
@@ -116,10 +126,15 @@ class RerunRecorder:
         self._people_entities: set[str] = set()
         self._attending = False
         self._intrinsics: CameraIntrinsics | None = None
-        self._intrinsics: CameraIntrinsics | None = None
+        # The microphone's frames not logged yet, and when the first of them started. Sounds come
+        # from the event loop's thread, but nothing says they always will.
+        self._heard: list[npt.NDArray[np.float32]] = []
+        self._heard_since = datetime.now(UTC)
+        self._sound_lock: Final = threading.Lock()
 
     def record(self, entry: Record) -> None:
-        self._recording.set_time(_TIMELINE, timestamp=datetime.now(UTC))
+        now = datetime.now(UTC)
+        self._recording.set_time(_TIMELINE, timestamp=now)
         match entry:
             case AgentStarted():
                 tools = ", ".join(tool.name for tool in entry.tools)
@@ -155,6 +170,9 @@ class RerunRecorder:
                 self._recording.log("agent/muted", rr.TextLog("muted" if entry.muted else "talks"))
             case Measurement():
                 self._recording.log(f"measurements/{entry.name}", rr.Scalars(entry.value))
+            case Sound():
+                with self._sound_lock:
+                    self._sound(entry, now - timedelta(seconds=entry.clip.duration))
             case FaceUpdate():
                 self._recording.log("vision/faces", rr.TextLog(entry.event.model_dump_json()))
             case PeopleInView():
@@ -199,6 +217,40 @@ class RerunRecorder:
                 )
             case _:
                 assert_never(entry)
+
+    def _sound(self, entry: Sound, start: datetime) -> None:
+        """Log a sound's level over time and the sound itself, from when it started.
+
+        The robot's clips are logged one by one. The microphone's frames are logged joined into
+        clips of a second: the last one, still filling as the session ends, is lost.
+        """
+        clip = entry.clip
+        hop = round(_LEVEL_HOP_S * clip.sample_rate)
+        for offset in range(0, len(clip.samples), hop):
+            at = start + timedelta(seconds=offset / clip.sample_rate)
+            self._recording.set_time(_TIMELINE, timestamp=at)
+            level = float(np.abs(clip.samples[offset : offset + hop]).max())
+            self._recording.log(f"audio/{entry.source}/level", rr.Scalars(level))
+        match entry.source:
+            case "robot":
+                self._log_audio("audio/robot", clip, start)
+            case "microphone":
+                if not self._heard:
+                    self._heard_since = start
+                self._heard.append(clip.samples)
+                samples = sum(len(frame) for frame in self._heard)
+                if samples >= _MICROPHONE_CLIP_S * clip.sample_rate:
+                    joined = AudioClip(
+                        samples=np.concatenate(self._heard), sample_rate=clip.sample_rate
+                    )
+                    self._log_audio("audio/microphone", joined, self._heard_since)
+                    self._heard.clear()
+            case _:
+                assert_never(entry.source)
+
+    def _log_audio(self, path: str, clip: AudioClip, start: datetime) -> None:
+        self._recording.set_time(_TIMELINE, timestamp=start)
+        self._recording.log(path, rr.AssetAudio(contents=_wav(clip), media_type="audio/wav"))
 
     def _people(self, entry: PeopleInView) -> None:
         self._intrinsics = entry.intrinsics
@@ -283,6 +335,17 @@ class RerunRecorder:
             ("gaze/pitch", face.gaze.pitch),
         ):
             self._recording.log(f"{path}/{name}", rr.Scalars(value))
+
+
+def _wav(clip: AudioClip) -> bytes:
+    """`clip` as a 16-bit WAV file."""
+    contents = io.BytesIO()
+    with wave.open(contents, "wb") as file:
+        file.setnchannels(1)
+        file.setsampwidth(2)
+        file.setframerate(clip.sample_rate)
+        file.writeframes((np.clip(clip.samples, -1, 1) * 32767).astype(np.int16).tobytes())
+    return contents.getvalue()
 
 
 def _face(path: str, face: FaceFeatures, color: tuple[int, int, int]) -> dict[str, rr.AsComponents]:

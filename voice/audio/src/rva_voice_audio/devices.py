@@ -83,7 +83,7 @@ class Speaker:
         self._lock: Final = threading.Lock()
         self._clip: npt.NDArray[np.float32] | None = None
         self._position = 0
-        self._done: asyncio.Future[bool] | None = None
+        self._done: asyncio.Future[int] | None = None
         self._interrupted = False
         self._stream: Final = sounddevice.OutputStream(
             samplerate=sample_rate,
@@ -116,11 +116,16 @@ class Speaker:
         with self._lock:
             self._clip = None
             done, self._done = self._done, None
+            played = self._position
         if done is not None and not done.done():
-            done.set_result(False)
+            done.set_result(played)
 
-    async def play(self, clip: AudioClip) -> bool:
-        """Play a clip to the end. Returns False if it was interrupted or refused.
+    async def play(self, clip: AudioClip) -> int:
+        """Play a clip to the end.
+
+        Returns:
+            How many of its samples were played: all of them, unless it was interrupted, or
+            refused, when none were.
 
         Raises:
             ValueError: If the clip's sample rate is not the speaker's.
@@ -128,12 +133,11 @@ class Speaker:
         if clip.sample_rate != self._sample_rate:
             raise ValueError(f"Speaker plays {self._sample_rate} Hz, got {clip.sample_rate} Hz")
         if self._interrupted:
-            return False
-        done = asyncio.Future[bool](loop=self._loop)
+            return 0
+        done = asyncio.Future[int](loop=self._loop)
         with self._lock:
             self._clip, self._position, self._done = clip.samples, 0, done
-        played = await done
-        return played
+        return await done
 
     def _on_output(
         self,
@@ -153,10 +157,11 @@ class Speaker:
                 return
             self._clip = None
             done, self._done = self._done, None
+            played = self._position
         if done is not None:
-            self._loop.call_soon_threadsafe(_finish, done)
+            self._loop.call_soon_threadsafe(_finish, done, played)
 
 
-def _finish(done: asyncio.Future[bool]) -> None:
+def _finish(done: asyncio.Future[int], played: int) -> None:
     if not done.done():
-        done.set_result(True)
+        done.set_result(played)

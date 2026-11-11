@@ -7,10 +7,12 @@ import rerun as rr
 from rerun.chunk import RrdReader
 
 from rva_observability.rerun_sink import RerunRecorder
+from rva_schemas.audio import AudioClip
 from rva_schemas.record import (
     CameraFrame,
     DepthFrame,
     PeopleInView,
+    Sound,
     Speaker,
     TrackedPerson,
     UserLine,
@@ -134,3 +136,34 @@ def test_people_are_drawn_on_the_image_and_in_3d(tmp_path: Path) -> None:
         "/people/1/speaking",
         "/dialogue/user",
     } <= entities
+
+
+def test_sound_is_logged_as_clips_and_as_its_level_over_time(tmp_path: Path) -> None:
+    path = tmp_path / "session.rrd"
+    recording = rr.RecordingStream("test")
+    recording.save(path)
+    recorder = RerunRecorder(recording)
+    frame = AudioClip(samples=np.full(512, 0.5, np.float32), sample_rate=16000)
+
+    # A second and a half of the microphone, in frames of 32 ms: one clip of a second.
+    for _ in range(47):
+        recorder.record(Sound(source="microphone", clip=frame))
+    # Half a second of the robot's voice: one clip.
+    recorder.record(
+        Sound(
+            source="robot", clip=AudioClip(samples=np.zeros(12000, np.float32), sample_rate=24000)
+        )
+    )
+    recording.flush()
+    recording.disconnect()
+
+    rows: dict[str, int] = {}
+    for chunk in RrdReader(path).stream():
+        rows[chunk.entity_path] = rows.get(chunk.entity_path, 0) + chunk.num_rows
+    assert {name: count for name, count in rows.items() if name.startswith("/audio")} == {
+        "/audio/microphone": 1,
+        "/audio/microphone/level": 47,
+        "/audio/robot": 1,
+        # 0.5 s in steps of 32 ms.
+        "/audio/robot/level": 16,
+    }

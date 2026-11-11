@@ -331,7 +331,9 @@ flowchart LR
   hand that could be attended to over the last 30 s, a curve each, the one attended to marked
   in the legend. Then the timings and checkboxes for what is drawn over the camera:
   skeletons, hands, faces (the outline of the eyes and lips, the irises and the gaze) and
-  engagement; they hold for the stream too. Underneath, across the window, a row per person in
+  engagement; they hold for the stream too. Under the camera, once there is sound, how loud
+  the microphone and the robot's voice were over the last 30 s, with the speech probability.
+  Underneath, across the window, a row per person in
   view, for as long as their track lasts: their gaze, expression, skeleton and engagement in
   words, a timeline of the last 30 s with a lane each for looking at the robot, speaking and
   engaged and their engagement score as a line, and a plot of how open their eyes and mouth
@@ -658,7 +660,9 @@ Thinking is off: the turns are short and latency matters more.
 Each session gets a directory under `~/Captures/robot-voice-agent/`, with a rerun recording and
 the log. The recording holds the dialogue, every tool call, the actions as they start and end,
 people coming and going, and every tracked person with their face features and skeleton, with
-`--video` the camera frames under them. Durations are OpenTelemetry spans, drawn as plots in the same recording: each turn,
+`--video` the camera frames under them. It also holds the sound: what the microphone heard, in
+clips of a second, and each clip of the robot's voice as far as it was played, under `audio/`,
+with their level over time; rerun plays them as time plays. Durations are OpenTelemetry spans, drawn as plots in the same recording: each turn,
 the LLM call with its time to the first text, the speech with its time to the first audio, ASR,
 each tool, and the vision steps.
 
