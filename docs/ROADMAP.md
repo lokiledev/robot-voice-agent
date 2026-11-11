@@ -45,6 +45,13 @@ what exists and why.
   nothing anticipates: the target's velocity in the base frame, over the last frames, would let
   the controller aim where it will be. Raw targets, sent each frame, also jitter with the face
   mesh; a filter would go with the prediction.
+- **The head's own motion looks like the people's.** The attention measures `moving` and
+  `centrality` in the camera's frame. Centering a face is meant to favour it until it habituates,
+  but a head turn also makes every face in view seem to move, by up to 0.2 of score for a turn of
+  40°. With two still people in the simulation, the face just switched to jumps from about 0.26
+  to 0.42 and decays over two or three seconds. The minimum dwell keeps this from flapping, but
+  measuring motion in the base frame, from the head's pose at the frame's time as the controller
+  does, would leave only the people's own.
 - **A frame's time is taken once it is read**, not when it was taken: the pipeline reads the
   latest frame, up to a frame period old, so a moving head places its targets a little off. The
   robot stamps its frames; `FrameSource.read` could pass the stamp on.

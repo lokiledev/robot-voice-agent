@@ -17,10 +17,11 @@ people:
   - avatar: Adults/Female_Adult_01
     position: [1.1, 0.0]
     turned_deg: 0
-  # More people, e.g. further away on its right, looking aside:
-  # - avatar: Adults/Male_Adult_04
-  #   position: [1.9, -0.8]
-  #   turned_deg: 50
+  # On its right, 40 degrees off its axis and a little closer, facing it too: the nearest face,
+  # the one `lune see` names with n while Female_Adult_01 is already known.
+  - avatar: Adults/Male_Adult_04
+    position: [0.8, -0.65]
+    turned_deg: 0
 physics_dt: 0.005
 state_rate: 100
 camera_fps: 30
