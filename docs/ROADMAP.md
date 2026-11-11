@@ -41,8 +41,10 @@ what exists and why.
 
 - **Visual servoing.** A controller that keeps a point in space, the attention's target, in the
   middle of the head camera, from its position and velocity, knowing nothing of the attention.
-  It needs Reachy Mini's head kinematics: a head pose to the six Stewart motors' angles
-  (Pollen's `reachy-mini-rust-kinematics` does it analytically, without their SDK).
+  `rva-robot-kinematics` gives the motors' angles for a head pose; the head's pose from the
+  joints' (forward kinematics, for the camera's pose) is still missing. In the simulation, the
+  head's yaw strays by a few degrees when the platform turns it near Pollen's 65° from the body:
+  the motors' small errors weigh more there.
 - **The camera's pose is not published**: the controller will need where the camera is in the
   robot's base frame. The simulation knows it (the MJCF's mount), and could publish the head pose
   as ground truth too. Its intrinsics are in the profile, computed from the MJCF's field of view.
@@ -56,8 +58,6 @@ what exists and why.
   simulation's own, and a way to make an avatar known, or an admin, without the camera ritual.
 - **Reachy's gestures and gaze go to the mock's body API**, not to the simulated head: the head
   controller and a body client over kickmsg are to replace it.
-- **`lune --profile config/reachy_mini_sim` with the LLM** was not run end to end yet: the
-  simulation, its camera through the perception and the profile's prompt were each checked.
 - **A restarted simulation** replaces its topics: clients of the old one stop hearing from it and
   raise once silent too long, rather than reopening the new ones. Restart them with it.
 - **The real Reachy Mini** needs a bridge from Pollen's daemon to the same topics, so that the

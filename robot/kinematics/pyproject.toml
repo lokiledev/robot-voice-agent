@@ -1,0 +1,30 @@
+[project]
+name = "rva-robot-kinematics"
+version = "0.1.0"
+description = "Reachy Mini's head kinematics: the motor angles that put the head in a pose"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "numpy>=2.0",
+  "pydantic>=2.11",
+  "rva-pydantic",
+  "rva-robot-schemas",
+]
+
+[dependency-groups]
+dev = [
+  "genesis-world>=1.4.6",
+  "httpx>=0.28",
+  "rva-robot-sim",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-robot-schemas = {workspace = true}
+rva-robot-sim = {workspace = true}

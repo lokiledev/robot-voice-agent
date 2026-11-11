@@ -142,6 +142,14 @@ class ReachyMiniScene:
             ),
         )
 
+    def link_pose(self, name: str) -> npt.NDArray[np.float64]:
+        """The 4×4 pose of the robot's body `name` in the world, whose origin is under the robot."""
+        link = self._robot.get_link(name)
+        pose = np.eye(4)
+        pose[:3, :3] = quat_to_R(link.get_quat().numpy())
+        pose[:3, 3] = link.get_pos().numpy()
+        return pose
+
     def render(self, timestamp: float) -> CameraFrame:
         """What the head camera sees now."""
         rgb = tensor_to_array(self._camera.read().rgb)

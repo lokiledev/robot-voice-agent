@@ -1,0 +1,72 @@
+<!--
+  The kinematic tree of Reachy Mini's MJCF, by Pollen Robotics under Apache-2.0, from the
+  reachy-mini 1.14.0 wheel the simulation downloads: its bodies, the joints of the body's yaw and
+  of the Stewart platform, and the sites closing the platform's loops. Meshes, inertia, collisions,
+  the camera and the antennas are left out.
+-->
+<mujoco model="reachy_mini">
+  <worldbody>
+    <body name="body_foot_3dprint" pos="0 0 0" quat="1 0 0 0">
+      <body name="body_down_3dprint" pos="-2.45997e-07 6.93889e-18 0.0348" quat="0.707107 5.13478e-16 8.88178e-16 -0.707107">
+        <joint axis="0 0 1" name="yaw_body" type="hinge" range="-2.792526803190975 2.792526803190879" />
+        <body name="dc15_a01_horn_dummy" pos="-0.0328112 0.0304906 0.0418333" quat="0.612372 0.612372 0.353553 0.353553">
+          <joint axis="0 0 1" name="stewart_1" type="hinge" range="-0.8377580409572196 1.3962634015955222" />
+          <body name="stewart_link_rod" pos="0.04 -1.6545e-10 0.007" quat="0.497033 0.00414178 -0.0814283 0.863893">
+            <joint axis="0 0 1" name="passive_1" type="ball" />
+            <site name="closing_1_1" pos="0.085 -1.38778e-17 0" quat="1 -6.66292e-18 5.55112e-17 1.31391e-16" />
+          </body>
+        </body>
+        <body name="dc15_a01_horn_dummy_2" pos="-0.0428112 0.01317 0.0418333" quat="0.353553 -0.353553 0.612372 -0.612372">
+          <joint axis="0 0 1" name="stewart_2" type="hinge" range="-1.396263401595614 1.2217304763958803" />
+          <body name="stewart_link_rod_2" pos="0.04 1.249e-16 0.007" quat="6.10896e-15 6.31057e-15 1 -1.23174e-14">
+            <joint axis="0 0 1" name="passive_2" type="ball" />
+            <site name="closing_2_1" pos="0.043 -0.0729378 -0.00748861" quat="0.0195742 -0.496665 -0.866005 -0.0545625" />
+          </body>
+        </body>
+        <body name="dc15_a01_horn_dummy_3" pos="-0.01 -0.0436606 0.0418333" quat="3.19818e-14 -5.957e-15 0.707107 0.707107">
+          <joint axis="0 0 1" name="stewart_3" type="hinge" range="-0.8377580409572173 1.3962634015955244" />
+          <body name="stewart_link_rod_3" pos="0.04 8.32667e-17 0.007" quat="0.848296 0.182577 -0.0544081 -0.494063">
+            <joint axis="0 0 1" name="passive_3" type="ball" />
+            <site name="closing_3_1" pos="-0.085 -1.38778e-17 0" quat="1 0 2.22045e-16 5.35987e-17" />
+          </body>
+        </body>
+        <body name="dc15_a01_horn_dummy_4" pos="0.01 -0.0436606 0.0418333" quat="0.707107 -0.707107 -3.64153e-14 -1.2529e-14">
+          <joint axis="0 0 1" name="stewart_4" type="hinge" range="-1.3962634015953894 0.8377580409573525" />
+          <body name="stewart_link_rod_4" pos="0.04 2.77556e-17 0.007" quat="0.865702 -0.0591779 0.0169265 0.496762">
+            <joint axis="0 0 1" name="passive_4" type="ball" />
+            <site name="closing_4_1" pos="-0.085 2.77556e-17 0" quat="1 0 5.55112e-17 -1.17998e-16" />
+          </body>
+        </body>
+        <body name="dc15_a01_horn_dummy_5" pos="0.0428112 0.01317 0.0418333" quat="0.612372 0.612372 -0.353553 -0.353553">
+          <joint axis="0 0 1" name="stewart_5" type="hinge" range="-1.2217304763962082 1.396263401595286" />
+          <body name="stewart_link_rod_5" pos="0.04 5.55112e-17 0.007" quat="0.864425 0.0755679 0.00751236 -0.496993">
+            <joint axis="0 0 1" name="passive_5" type="ball" />
+            <site name="closing_5_1" pos="-0.085 -1.38778e-17 0" quat="1 0 1.11022e-16 2.31852e-16" />
+          </body>
+        </body>
+        <body name="dc15_a01_horn_dummy_6" pos="0.0328112 0.0304906 0.0418333" quat="0.353553 -0.353553 -0.612372 0.612372">
+          <joint axis="0 0 1" name="stewart_6" type="hinge" range="-1.3962634015954123 0.8377580409573296" />
+          <body name="stewart_link_rod_6" pos="0.04 9.71445e-17 0.007" quat="0.0566689 0.865869 0.496711 -0.018366">
+            <joint axis="0 0 1" name="passive_6" type="ball" />
+            <body name="xl_330" pos="-0.085 0 0" quat="0 1 0 0">
+              <joint axis="0 0 1" name="passive_7" type="ball" />
+              <site name="closing_1_2" pos="0.00768882 -0.0217774 0.0368953" quat="0.297432 -0.759048 0.40183 0.417029" />
+              <site name="closing_2_2" pos="0.00307947 -0.0167102 0.049105" quat="0.297432 -0.759048 0.40183 0.417029" />
+              <site name="closing_3_2" pos="-0.0189403 0.0208215 0.050171" quat="0.199279 0.740682 -0.458499 0.44884" />
+              <site name="closing_4_2" pos="-0.0214133 0.0278259 0.0383042" quat="0.199279 0.740682 -0.458499 0.44884" />
+              <site name="closing_5_2" pos="-0.00708235 0.0120716 0.000342873" quat="0.0270842 -0.96349 -0.261035 -0.0530577" />
+              <site name="head" pos="-0.00611127 0.00370522 0.0291364" quat="0.465151 0.724371 -0.182968 -0.474809" />
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <equality>
+    <connect site1="closing_1_1" site2="closing_1_2" />
+    <connect site1="closing_2_1" site2="closing_2_2" />
+    <connect site1="closing_3_1" site2="closing_3_2" />
+    <connect site1="closing_4_1" site2="closing_4_2" />
+    <connect site1="closing_5_1" site2="closing_5_2" />
+  </equality>
+</mujoco>

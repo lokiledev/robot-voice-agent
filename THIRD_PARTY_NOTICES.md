@@ -50,6 +50,9 @@ granted, free of charge, to use, copy, modify and distribute them, provided this
 they come without warranty of any kind. The baked GLBs stay in the cache of the machine that made
 them.
 
+`robot/kinematics/src/rva_robot_kinematics/tests/reachy_mini_head.xml` is a cut-down copy of Reachy
+Mini's MJCF, its kinematic tree without meshes, for the kinematics' tests.
+
 ## Python packages
 
 Packages the agent runs with, by license (`uv export --no-dev` lists them with their versions):

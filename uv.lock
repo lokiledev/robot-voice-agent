@@ -28,6 +28,7 @@ members = [
     "rva-observability",
     "rva-pydantic",
     "rva-robot-client",
+    "rva-robot-kinematics",
     "rva-robot-schemas",
     "rva-robot-sim",
     "rva-schemas",
@@ -3323,6 +3324,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "rva-app" },
+    { name = "rva-robot-kinematics" },
     { name = "rva-robot-sim" },
     { name = "rva-vla-mock" },
 ]
@@ -3347,6 +3349,7 @@ export = [
 [package.metadata]
 requires-dist = [
     { name = "rva-app", editable = "app" },
+    { name = "rva-robot-kinematics", editable = "robot/kinematics" },
     { name = "rva-robot-sim", editable = "robot/sim" },
     { name = "rva-vla-mock", editable = "vla/mock" },
 ]
@@ -3734,6 +3737,40 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "rva-robot-sim", editable = "robot/sim" }]
+
+[[package]]
+name = "rva-robot-kinematics"
+version = "0.1.0"
+source = { editable = "robot/kinematics" }
+dependencies = [
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'aarch64'" },
+    { name = "pydantic" },
+    { name = "rva-pydantic" },
+    { name = "rva-robot-schemas" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "genesis-world" },
+    { name = "httpx" },
+    { name = "rva-robot-sim" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-pydantic", editable = "common/pydantic" },
+    { name = "rva-robot-schemas", editable = "robot/schemas" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "genesis-world", specifier = ">=1.4.6" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "rva-robot-sim", editable = "robot/sim" },
+]
 
 [[package]]
 name = "rva-robot-schemas"

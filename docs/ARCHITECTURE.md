@@ -565,7 +565,8 @@ targets.
   follows; the URDF can only describe them as an open tree. Pollen ships both in their
   `reachy-mini` package, and no official Hugging Face repository holds them, so the simulation
   downloads that wheel from PyPI on first use, checks it against PyPI's digest and keeps only the
-  MJCF and its meshes: nothing of the robot is committed, and Pollen's SDK is not installed.
+  MJCF and its meshes: nothing of the robot is committed but the kinematic tree the kinematics'
+  tests read, and Pollen's SDK is not installed.
 - **The joints are the motors.** The nine actuated joints are exposed as they are: the body's yaw,
   the six Stewart motors and the two antennas. Turning a head pose into motor angles is the
   controller's job, not the simulation's.
@@ -596,6 +597,24 @@ targets.
   and frames are published when due on simulated time, stamped with `time.monotonic()`, the clock
   the camera pipeline uses too. Genesis' viewer, with `--viewer`, does not pace the steps itself:
   two pacings would fall behind real time.
+
+`rva-robot-kinematics` turns a head pose into the angles of the body's yaw and the six motors.
+A pose is that of the MJCF's `head` site in the robot's base frame (the MJCF's root, on the table
+top: x forward, z up), with roll, pitch and yaw as Pollen's SDK composes them; with every joint at
+zero, the head is upright 0.1496 m above the table, and Pollen holds it at 0.177 m.
+
+- **Closed form, our own.** For each motor, the rod's anchor on the head, brought into the motor's
+  frame, gives the arm angle that puts the arm's tip at rod length from it: an `acos`, with one of
+  its two signs, the way the robot is assembled. Pollen's `reachy-mini-rust-kinematics` does the
+  same; ours gives its angles to 1e-5 rad, in numpy, without a compiled dependency.
+- **The geometry is the MJCF's.** Motors, arms, rods and anchors are read from the description
+  the simulation runs, so the two cannot disagree; they match Pollen's `kinematics_data.json` to
+  a micrometer.
+- **The body follows the head.** The platform turns the head only so far from the body; given the
+  body's current yaw, the body turns only as much as keeps the head within that, and stays still
+  while the head looks around in front of it.
+- **Out of reach is refused**, rather than clamped: a rod its arm cannot reach, or a motor or the
+  body beyond its range, raises.
 
 `lune robot` drives the joints with sliders and shows the head camera, to check the simulation by
 hand.
@@ -665,6 +684,7 @@ flowchart BT
     ROBS["rva-robot-schemas"]
     ROBC["rva-robot-client"]
     SIM["rva-robot-sim"]
+    KIN["rva-robot-kinematics"]
     AGENT["rva-agent"]
     LLM["rva-llm"]
     AUD["rva-voice-audio"]
@@ -684,7 +704,7 @@ flowchart BT
     BODYC --> BODYS
     MOCK --> VLAS & BODYS
     ROBS --> PYD
-    ROBC & SIM --> ROBS
+    ROBC & SIM & KIN --> ROBS
     AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS --> SCH
     APP --> AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS & VLAC & BODYC & ROBC
 ```
@@ -708,6 +728,7 @@ flowchart BT
 | `rva-robot-schemas` | The joints' and camera's data types, their wire format and the kickmsg topics |
 | `rva-robot-client` | kickmsg client of the joints and the head camera |
 | `rva-robot-sim` | Reachy Mini simulated in Genesis, serving the robot's topics |
+| `rva-robot-kinematics` | Reachy Mini's head kinematics: the body's yaw and the Stewart motors' angles for a head pose |
 | `rva-app` | Command line, runtime configuration, wiring |
 
 [AGENTS.md](../AGENTS.md) lists the conventions the code follows.
