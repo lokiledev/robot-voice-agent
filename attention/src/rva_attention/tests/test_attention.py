@@ -3,12 +3,7 @@ from uuid import UUID
 import pytest
 
 from rva_attention.attention import VisualAttention
-from rva_attention.config import (
-    FeatureWeights,
-    HabituationConfig,
-    NoveltyConfig,
-    VisualAttentionConfig,
-)
+from rva_attention.config import FeatureWeights, HabituationConfig, VisualAttentionConfig
 from rva_schemas.attention import AttentionState, FaceEntity, HandEntity
 from rva_schemas.observation import VisualObservation
 from rva_schemas.record import PeopleInView, TrackedPerson
@@ -28,20 +23,27 @@ from rva_schemas.vision import (
 
 CONFIG = VisualAttentionConfig(
     weights=FeatureWeights(
-        closeness=1.0, centrality=1.0, speaking=1.0, eye_contact=1.0, moving=2.0, known=0.5
+        closeness=1.0,
+        centrality=1.0,
+        speaking=1.0,
+        eye_contact=1.0,
+        moving=2.0,
+        known=0.5,
+        novelty=1.0,
     ),
     far_m=4.0,
     edge_deg=45.0,
     eye_contact_deg=20.0,
     moving_window_s=0.3,
     speed_m_s=0.5,
-    novelty=NoveltyConfig(amplitude=1.0, decay_s=1.0),
+    novelty_decay_s=1.0,
     face=HabituationConfig(floor=0.3, decay_s=10.0, recovery_s=5.0),
     hand=HabituationConfig(floor=0.1, decay_s=1.0, recovery_s=3.0),
-    margin=0.3,
+    # The weights add up to 7.5, which the score is over.
+    margin=0.3 / 7.5,
     min_dwell_s=1.0,
     hold_s=0.3,
-    min_score=0.2,
+    min_score=0.2 / 7.5,
     lifetime_s=2.0,
 )
 ALICE = KnownPerson(user_id=UUID("00000000-0000-0000-0000-000000000001"), name="Alice")
@@ -140,10 +142,11 @@ def test_the_one_face_in_view_is_attended_between_its_irises() -> None:
         "eye_contact": 1.0,
         "moving": 0.0,
         "known": 0.0,
+        "novelty": 1.0,
     }
-    assert candidate.novelty == 1.0
     assert candidate.habituation == 1.0
-    assert candidate.score == pytest.approx(3.5)
+    # Closeness 0.5, centrality 1, eye contact 1 and novelty 1, of 7.5.
+    assert candidate.score == pytest.approx(3.5 / 7.5)
 
 
 def test_nothing_is_attended_without_a_point_in_3d_or_before_a_track_is_confirmed() -> None:
@@ -230,7 +233,7 @@ def test_a_face_that_leaves_is_dropped_at_once_and_comes_back_habituated() -> No
     assert gone.target is None and gone.candidates == ()
     assert back.target is not None and back.target.entity == FaceEntity(track_id=1, person=None)
     [candidate] = back.candidates
-    assert candidate.novelty == pytest.approx(0.082, abs=0.001)
+    assert candidate.features.novelty == pytest.approx(0.082, abs=0.001)
     assert candidate.habituation == pytest.approx(0.86, abs=0.005)
 
 
@@ -245,7 +248,7 @@ def test_a_known_person_back_on_a_new_track_is_not_new_again() -> None:
     assert back.target is not None
     assert back.target.entity == FaceEntity(track_id=2, person=ALICE)
     [candidate] = back.candidates
-    assert candidate.novelty < 0.1
+    assert candidate.features.novelty < 0.1
     assert candidate.habituation < 0.9
     assert candidate.features.known == 1.0
 
@@ -256,7 +259,7 @@ def test_a_forgotten_face_is_new_again() -> None:
 
     back = attention.observe(observe(2.5, person(1, IN_FRONT)))
 
-    assert back.candidates[0].novelty == 1.0
+    assert back.candidates[0].features.novelty == 1.0
 
 
 def test_a_still_face_far_at_the_edge_looking_away_is_as_good_as_nobody() -> None:
@@ -270,12 +273,15 @@ def test_a_still_face_far_at_the_edge_looking_away_is_as_good_as_nobody() -> Non
 
     assert states[0].target is not None, "new, it is worth a glance"
     assert states[-1].target is None
-    assert changes(states) == [(0.0, FaceEntity(track_id=1, person=None)), (1.7, None)]
+    # Its novelty alone, fading as it is attended: under 0.2 of the 7.5 after 1.6 s.
+    assert changes(states) == [(0.0, FaceEntity(track_id=1, person=None)), (1.6, None)]
     [candidate] = states[-1].candidates
     assert candidate.features.closeness == 0.0
     assert candidate.features.centrality == 0.0
     assert candidate.features.eye_contact == 0.0
-    assert candidate.score == pytest.approx(0.05, abs=0.001)
+    # A novelty of 0.05 after 3 s, of 7.5, a little habituated still.
+    assert candidate.features.novelty == pytest.approx(0.05, abs=0.001)
+    assert candidate.score == pytest.approx(0.0061, abs=0.0002)
 
 
 def test_speaking_and_moving_count() -> None:

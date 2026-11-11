@@ -113,6 +113,7 @@ class VisualAttention:
         entity = self._entities[key]
         point = entity.point
         moving = min(entity.speed(now - config.moving_window_s) / config.speed_m_s, 1.0)
+        novelty = math.exp(-(now - entity.first_seen) / config.novelty_decay_s)
         match key:
             case ("face", track_id):
                 person = people[track_id]
@@ -124,6 +125,7 @@ class VisualAttention:
                     eye_contact=_fade(person.face.gaze.off_camera(), config.eye_contact_deg),
                     moving=moving,
                     known=float(person.person is not None),
+                    novelty=novelty,
                 )
                 attended: AttentionEntity = FaceEntity(track_id=track_id, person=person.person)
             case ("hand", track_id, side):
@@ -134,25 +136,23 @@ class VisualAttention:
                     eye_contact=0.0,
                     moving=moving,
                     known=0.0,
+                    novelty=novelty,
                 )
                 attended = HandEntity(track_id=track_id, side=side)
             case _:
                 assert_never(key)
         weights = config.weights
+        # Over the weights' sum, so the score is from 0 to 1 whatever the weights.
         weighted = sum(
             getattr(weights, name) * getattr(features, name)
             for name in AttentionFeatures.model_fields
-        )
-        novelty = config.novelty.amplitude * math.exp(
-            -(now - entity.first_seen) / config.novelty.decay_s
-        )
+        ) / sum(getattr(weights, name) for name in AttentionFeatures.model_fields)
         return AttentionCandidate(
             entity=attended,
             point=point,
             features=features,
-            novelty=novelty,
             habituation=entity.habituation,
-            score=weighted * entity.habituation + novelty,
+            score=weighted * entity.habituation,
         )
 
     def _select(self, candidates: list[AttentionCandidate], now: float) -> AttentionTarget | None:

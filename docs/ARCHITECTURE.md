@@ -358,14 +358,15 @@ core does no I/O.
 - **Candidates** are the confirmed faces placed in 3D, at the point between the irises so the
   gaze meets the eyes, and the main user's hands at the centre of the palm; only theirs are
   placed in 3D. Skeletons without a face have neither a track nor a point, so they are left out.
-- **Score.** Six features from 0 to 1: closeness, centrality (the angle off the camera's axis),
+- **Score.** Seven features from 0 to 1: closeness, centrality (the angle off the camera's axis),
   speaking (the active speaker), eye contact (the gaze's angle off the camera), moving (the speed
-  along the path over the last 0.3 s, so a hand waving in place counts) and known. A hand has
-  only its motion. The weighted sum is multiplied by the entity's habituation, which decays
-  towards a floor while attended and recovers while not, and a novelty bonus that decays from the
-  entity's first frame is added: a newcomer is worth a glance, a wave draws the eye, and a hand's
-  habituation is ten times faster than a face's so the wave yields to its owner's face within a
-  couple of seconds. Everything is in the profile's `attention` section.
+  along the path over the last 0.3 s, so a hand waving in place counts), known, and novelty,
+  which is 1 as an entity appears and decays over a second or two. A hand has only its motion
+  and its novelty. The score is their weighted mean, so from 0 to 1 whatever the weights, times
+  the entity's habituation, which decays towards a floor while attended and recovers while not.
+  So a newcomer is worth a glance, a wave draws the eye, and a hand's habituation is ten times
+  faster than a face's so the wave yields to its owner's face within a couple of seconds.
+  Everything is in the profile's `attention` section.
 - **Selection** with hysteresis: the best candidate takes over only once the current target was
   attended for the minimum dwell and scores better by the margin. Below the minimum score nothing
   is attended: a still person far at the edge, once no longer new, is as good as nobody. The

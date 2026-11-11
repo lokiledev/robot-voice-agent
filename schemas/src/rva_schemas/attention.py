@@ -28,7 +28,10 @@ type AttentionEntity = Annotated[FaceEntity | HandEntity, Field(discriminator="k
 
 
 class AttentionFeatures(RVABaseModel):
-    """What draws attention to an entity, each from 0 to 1. A hand has only `moving`."""
+    """What draws attention to an entity, each from 0 to 1.
+
+    A hand has only `moving` and `novelty`.
+    """
 
     closeness: float
     """1 at the camera, 0 from the configured distance on."""
@@ -42,6 +45,8 @@ class AttentionFeatures(RVABaseModel):
     """The speed over the last window, 1 from the configured speed on."""
     known: float
     """1 for someone the robot knows by name."""
+    novelty: float
+    """1 as the entity appears, decaying since: a newcomer is worth a glance."""
 
 
 class AttentionCandidate(RVABaseModel):
@@ -50,12 +55,10 @@ class AttentionCandidate(RVABaseModel):
     entity: AttentionEntity
     point: Point3D
     features: AttentionFeatures
-    novelty: float
-    """The bonus for having just appeared, decaying since."""
     habituation: float
     """From 1, fresh, down to the configured floor as it is attended; it recovers while not."""
     score: float
-    """The weighted features times the habituation, plus the novelty."""
+    """The weighted mean of the features times the habituation: from 0 to 1."""
 
 
 class AttentionTarget(RVABaseModel):

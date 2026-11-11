@@ -4,7 +4,10 @@ from rva_pydantic import RVABaseModel
 
 
 class FeatureWeights(RVABaseModel):
-    """How much each feature, from 0 to 1, counts in an entity's score."""
+    """How much each feature, from 0 to 1, counts in an entity's score, relative to the others.
+
+    The score is their weighted mean, so only the weights' proportions matter.
+    """
 
     closeness: float = Field(ge=0)
     centrality: float = Field(ge=0)
@@ -12,15 +15,13 @@ class FeatureWeights(RVABaseModel):
     eye_contact: float = Field(ge=0)
     moving: float = Field(ge=0)
     known: float = Field(ge=0)
+    novelty: float = Field(ge=0)
 
-
-class NoveltyConfig(RVABaseModel):
-    """The bonus an entity gets for having just appeared."""
-
-    amplitude: float = Field(ge=0)
-    """The bonus at the first frame, in the score's units."""
-    decay_s: float = Field(gt=0)
-    """Time for the bonus to fall to a third."""
+    @model_validator(mode="after")
+    def _some_weight(self) -> "FeatureWeights":
+        if not any(self.model_dump().values()):
+            raise ValueError("every weight is 0: nothing would be attended")
+        return self
 
 
 class HabituationConfig(RVABaseModel):
@@ -37,8 +38,8 @@ class HabituationConfig(RVABaseModel):
 class VisualAttentionConfig(RVABaseModel):
     """Scores every face and hand in view and in 3D, and picks the one to attend to.
 
-    A candidate's score is its weighted features, times its habituation, plus its novelty. The
-    best takes over from the current target only after `min_dwell_s`, when it is better by
+    A candidate's score is the weighted mean of its features times its habituation, from 0 to 1.
+    The best takes over from the current target only after `min_dwell_s`, when it is better by
     `margin`.
     """
 
@@ -53,7 +54,8 @@ class VisualAttentionConfig(RVABaseModel):
     """How far back the speed is measured."""
     speed_m_s: float = Field(gt=0)
     """Speed from which moving is 1."""
-    novelty: NoveltyConfig
+    novelty_decay_s: float = Field(gt=0)
+    """Time for an entity's novelty to fall to a third."""
     face: HabituationConfig
     hand: HabituationConfig
     """Faster than a face's: a waving hand draws the eye, then yields to its owner's face."""

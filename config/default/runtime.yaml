@@ -115,7 +115,8 @@ stream:
   width: 960
 
 # Visual attention: which face or hand in view Lune attends to, as a point in the camera's frame.
-# A candidate's score is its weighted features, times its habituation, plus its novelty.
+# A candidate's score is the weighted mean of its features times its habituation, from 0 to 1:
+# the weights only count relative to each other.
 attention:
   weights:
     closeness: 1.0
@@ -124,22 +125,23 @@ attention:
     eye_contact: 0.7
     moving: 1.0
     known: 0.3
+    # A newcomer is worth a glance: as much as a face in front, for a second or two.
+    novelty: 1.0
   far_m: 4.0
   edge_deg: 45.0
   eye_contact_deg: 20.0
   moving_window_s: 0.3
   speed_m_s: 0.5
-  # A newcomer is worth a glance: the bonus of a face in front, fresh and looking.
-  novelty: {amplitude: 1.0, decay_s: 1.5}
+  novelty_decay_s: 1.5
   # A face attended keeps 40% of its score after a while; a hand fades within seconds, so a wave
   # draws the eye, then yields to its owner's face.
   face: {floor: 0.4, decay_s: 15.0, recovery_s: 5.0}
   hand: {floor: 0.1, decay_s: 1.5, recovery_s: 3.0}
-  margin: 0.3
+  margin: 0.055
   min_dwell_s: 1.0
   # A face the mesh or the depth misses for a frame has not left.
   hold_s: 0.3
-  min_score: 0.2
+  min_score: 0.036
   lifetime_s: 2.0
 
 admins: ~/.config/robot-voice-agent/admins.yaml
