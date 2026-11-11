@@ -91,16 +91,24 @@ the simulated robot's description download themselves on first use. The TensorRT
 vision models, the first time `lune see` or `lune` starts.
 
 With speakers rather than headphones, Lune needs echo cancellation, or it hears itself and
-keeps interrupting its own speech. PipeWire's WebRTC echo canceller does it:
+keeps interrupting its own speech. The default profile listens and speaks through a reSpeaker
+XVF3800 array, with a powered speaker on its jack: the array cancels the echo on its chip,
+against what it plays. Its stock firmware plays at 16 kHz, which muffles the voice; flash Seeed's
+48 kHz one (`respeaker_xvf3800_usb_dfu_firmware_v2.1.1_48k2ch.bin`, from
+[their repository](https://github.com/respeaker/reSpeaker_XVF3800_USB_4MIC_ARRAY/tree/master/xmos_firmwares/usb))
+through the USB-C port next to the jack:
+
+```bash
+sudo dfu-util -R -e -a 1 -D respeaker_xvf3800_usb_dfu_firmware_v2.1.1_48k2ch.bin
+```
+
+With another microphone, PipeWire's WebRTC echo canceller does it. Set `audio.input_device` to
+`rva_ec_source` and `audio.output_device` to `rva_ec_sink` in `runtime.yaml`, then:
 
 ```bash
 mkdir -p ~/.config/pipewire/pipewire.conf.d && cp config/pipewire/60-rva-echo-cancel.conf ~/.config/pipewire/pipewire.conf.d/
 systemctl --user restart pipewire pipewire-pulse wireplumber
 ```
-
-The conf listens to a reSpeaker XVF3800 array, pinned by its node name, and plays to the default
-output; put the speaker on another jack than the array's, which only runs at 16 kHz. With another
-microphone, change or remove `target.object` in it; the comment there says how.
 
 With headphones, set `audio.input_device` and `audio.output_device` to `null` in `runtime.yaml`
 to use the system's default devices instead.

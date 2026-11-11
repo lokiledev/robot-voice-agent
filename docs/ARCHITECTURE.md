@@ -140,7 +140,7 @@ stack, with a terminal, or with the fakes the tests use.
 flowchart TB
     subgraph hearing ["Hearing"]
         direction LR
-        mic([Microphone]) --> aec["Echo canceller<br/>[PipeWire, WebRTC AEC]"]
+        mic([Microphone]) --> aec["Echo canceller<br/>[reSpeaker XVF3800, or PipeWire]"]
         aec --> vad["Voice activity<br/>[Silero VAD]"]
         vad --> turn["End of turn<br/>[smart-turn v3]"]
         turn --> asr["Speech recognition<br/>[Parakeet TDT 0.6B]"]
@@ -170,13 +170,16 @@ flowchart TB
 - **Barge-in.** Speech while Lune talks stops the playback and the LLM stream, and the history
   keeps only what was heard.
 - **Not interrupting itself.** With speakers, three layers keep Lune from hearing its own voice:
-  PipeWire subtracts what it plays from the microphone, a barge-in needs clearer and longer
-  speech while it talks, and a transcript repeating what it said in the last 2 s is dropped.
-- **PipeWire's canceller, not the microphone array's.** The microphone is a reSpeaker XVF3800
-  array, which can cancel the echo on its chip, against what it plays from its own jack. Its
-  stock USB firmware runs at 16 kHz only, though, and Kokoro's 24 kHz voice through it sounded
-  clearly worse. So the speaker is on another output, and PipeWire cancels the echo; the array
-  still beamforms and suppresses noise.
+  the echo canceller subtracts what it plays from the microphone, a barge-in needs clearer and
+  longer speech while it talks, and a transcript repeating what it said in the last 2 s is
+  dropped.
+- **Echo cancellation on the microphone array.** The reSpeaker XVF3800 cancels the echo on its
+  chip, against what it plays from its own jack, so Lune listens and speaks through it, and gets
+  the array's beamforming and noise suppression too. Its stock USB firmware runs at 16 kHz,
+  which cut Kokoro's voice off at 8 kHz and sounded clearly worse; Seeed's 48 kHz firmware plays
+  tones up to 14 kHz through the jack, and the chip still cancels them. Capture is still
+  processed at 16 kHz inside the chip, which is the rate the ASR wants anyway. With another
+  microphone, PipeWire's WebRTC canceller does it between `rva_ec_sink` and `rva_ec_source`.
 
 ### Vision
 
