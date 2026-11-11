@@ -1,7 +1,7 @@
 import asyncio
 import threading
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Final
@@ -31,7 +31,7 @@ from rva_schemas.vision import (
 )
 from rva_vision_faces.attention import Attention
 from rva_vision_faces.body import POSE_ITEM, BodyEstimator, SteadyHands, attach_seen_first
-from rva_vision_faces.camera import Camera
+from rva_vision_faces.camera import Camera, VideoFile
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.depth import DepthEstimator
@@ -128,6 +128,7 @@ class FaceVision:
         recorder: Recorder,
         record_video: bool,
         speaker: SpeakerDetector | None,
+        open_camera: Callable[[], Camera | VideoFile],
     ) -> None:
         """Set up the pipeline; the camera and models open when `run` starts.
 
@@ -141,6 +142,7 @@ class FaceVision:
                 replay them.
             speaker: Tells which face speaks, with the microphone that feeds it; `None` without
                 one.
+            open_camera: Opens where the frames come from, in the thread that reads them.
         """
         self._config: Final = config
         self._database: Final = database
@@ -149,6 +151,7 @@ class FaceVision:
         # The user's last sentence, the track of the face that said it, and when.
         self._caption: tuple[int, str, float] | None = None
         self._speaker: Final = speaker
+        self._open_camera: Final = open_camera
         self._tracker: Final = Tracker(config.tracker)
         self._gallery = Gallery((), config.matching)
         self._granted_operators: frozenset[UUID] = frozenset()
@@ -259,7 +262,7 @@ class FaceVision:
         cv2.setNumThreads(2)
         config = self._config
         models = _Models(config)
-        camera = Camera(config.camera)
+        camera = self._open_camera()
         attention = (
             None
             if config.face_features is None
@@ -304,7 +307,7 @@ class FaceVision:
 
     def _step(
         self,
-        camera: Camera,
+        camera: Camera | VideoFile,
         models: _Models,
         attention: Attention | None,
         loop: asyncio.AbstractEventLoop,

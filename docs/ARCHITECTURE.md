@@ -421,6 +421,12 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
   an engaged one, in the window and the stream; the window's timeline has a lane for whether
   the main user is engaged. `lune see` and `lune sense` log people engaging and disengaging; `lune listen --camera`
   prints each turn with who said it and whether to the robot.
+- **Replayed from a video file**, with `lune listen --replay`: the file's frames stand in for
+  the camera, fitted into its size, and its sound, decoded by ffmpeg, for the microphone. Both
+  run at the file's pace from its first frame, on the monotonic clock, and frames that come due
+  while one is processed are skipped, as a camera's are. So the same people can be heard again
+  after a threshold changes. Distances are only rough: the depth is scaled for the robot's
+  camera, not the one that filmed.
 
 ### Agent loop and tools
 

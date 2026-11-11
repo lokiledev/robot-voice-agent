@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import os
 import sys
+import threading
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AbstractAsyncContextManager, aclosing
@@ -23,7 +24,7 @@ from rva_app.page import MergedInput, Recorders, serve_page
 from rva_app.servers import Server, ServersUnavailableError, require_servers
 from rva_app.services import Service, ServiceFailedError, services_running
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
-from rva_app.voice import open_voice_input, open_voice_output, robot_speech
+from rva_app.voice import open_voice_input, open_voice_output, replayed_voice_input, robot_speech
 from rva_attention.attention import VisualAttention
 from rva_attention.config import VisualAttentionConfig
 from rva_attention.follow import follow
@@ -60,6 +61,7 @@ from rva_ui.media import (
     media_server_directory,
 )
 from rva_ui.server import UiServer
+from rva_vision_faces.camera import Camera, VideoFile
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.vision import FaceVision
@@ -175,16 +177,27 @@ def text(
 
 @app.command
 def listen(
-    *, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False, camera: bool = False
+    *,
+    profile: ProfileDir = _DEFAULT_PROFILE,
+    viewer: bool = False,
+    camera: bool = False,
+    replay: Path | None = None,
+    show: bool = False,
 ) -> None:
     """Print what the microphone hears, turn by turn: VAD, end of turn and ASR, without the agent.
 
     Args:
         profile: Robot profile directory.
         viewer: Stream the recording, with the VAD probability, to a rerun viewer.
-        camera: Also print which face in view said each turn, from its lips and the sound.
+        camera: Also print which face in view said each turn, from its lips and the sound, and
+            whether to the robot.
+        replay: A video file to watch and hear in place of the camera and the microphone, at
+            its own pace, as with `camera`; it stops when the file ends.
+        show: With `camera` or `replay`, also show the camera with the tracked faces in a window.
     """
-    _run(_listen(profile, viewer, camera))
+    if replay is not None and not replay.is_file():
+        raise SystemExit(f"{replay} is not a file")
+    _run(_listen(profile, viewer, camera or replay is not None, replay, show))
 
 
 @app.command
@@ -356,34 +369,59 @@ def _typed_too(user_input: UserInput, page: UiServer | None) -> UserInput:
     return user_input if page is None else MergedInput(user_input, page)
 
 
-async def _listen(profile_dir: Path, viewer: bool, camera: bool) -> None:
+async def _listen(
+    profile_dir: Path, viewer: bool, camera: bool, replay: Path | None, show: bool
+) -> None:
     config = RuntimeConfig.load(profile_dir)
-    recorder = start_session(config.observability, "listen", viewer=viewer, console_level="WARNING")
+    session = start_session(config.observability, "listen", viewer=viewer, console_level="WARNING")
+    monitor = _monitor(config, camera, show, stream=False, on_key=None)
+    recorder = _recorder(session, None, monitor)
     # Nothing is played here, so the robot never speaks and no transcript is an echo.
     silent = robot_speech(config.audio)
     if camera and config.active_speaker is None:
         raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no active_speaker to tell who speaks")
     active_speaker = config.active_speaker if camera else None
     speaker = await _speaker(active_speaker)
-    async with open_voice_input(
-        config.audio, config.asr, recorder, silent, lambda: write("… "), _anyone, speaker
-    ) as voice:
+    # A replayed file's sound starts with its first image.
+    started = threading.Event()
+    async with contextlib.AsyncExitStack() as stack:
+        voice = (
+            await stack.enter_async_context(
+                open_voice_input(
+                    config.audio, config.asr, recorder, silent, _heard, _anyone, speaker
+                )
+            )
+            if replay is None
+            else await replayed_voice_input(
+                replay, started, config.audio, config.asr, recorder, silent, _heard, speaker
+            )
+        )
         write("Listening. Ctrl+C to stop.\n")
         if active_speaker is None:
             await _print_heard(voice)
             return
         vision = await asyncio.to_thread(
-            _face_vision, config.vision, recorder, False, depth=True, speaker=speaker
+            _face_vision,
+            config.vision,
+            recorder,
+            False,
+            depth=True,
+            speaker=speaker,
+            replay=None if replay is None else (replay, started),
         )
         interaction = Interaction(config.interaction, active_speaker.delay_s, recorder)
         await _with_vision(
             _print_heard(AttributedInput(voice, interaction)),
             vision,
-            None,
+            monitor,
             config.attention,
             interaction,
             recorder,
         )
+
+
+def _heard() -> None:
+    write("… ")
 
 
 def _anyone() -> bool:
@@ -444,7 +482,13 @@ async def _run_voice_agent(
         speaker = await _speaker(config.active_speaker) if camera else None
         vision = (
             await asyncio.to_thread(
-                _face_vision, config.vision, recorder, video, depth=depth, speaker=speaker
+                _face_vision,
+                config.vision,
+                recorder,
+                video,
+                depth=depth,
+                speaker=speaker,
+                replay=None,
             )
             if camera
             else None
@@ -588,7 +632,7 @@ async def _run_text_agent(
         recorder = _recorder(session, page, monitor)
         vision = (
             await asyncio.to_thread(
-                _face_vision, config.vision, recorder, video, depth=depth, speaker=None
+                _face_vision, config.vision, recorder, video, depth=depth, speaker=None, replay=None
             )
             if camera
             else None
@@ -665,7 +709,7 @@ async def _see(
         recorder,
     )
     vision = await asyncio.to_thread(
-        _face_vision, config.vision, recorder, video, depth=depth, speaker=speaker
+        _face_vision, config.vision, recorder, video, depth=depth, speaker=speaker, replay=None
     )
     if stream:
         logger.info("Streaming the window to {}", config.ui.video_page)
@@ -780,13 +824,23 @@ def _face_vision(
     *,
     depth: bool,
     speaker: SpeakerDetector | None,
+    replay: tuple[Path, threading.Event] | None,
 ) -> FaceVision:
+    """The camera pipeline.
+
+    With `replay`, it watches that video file in place of the camera, and sets the event as the
+    file starts.
+    """
+    camera = config.camera
     return FaceVision(
         config if depth else config.model_copy(update={"depth": None}),
         _face_database(config),
         recorder=recorder,
         record_video=record_video,
         speaker=speaker,
+        open_camera=(lambda: Camera(camera))
+        if replay is None
+        else (lambda: VideoFile(replay[0], camera, replay[1])),
     )
 
 
