@@ -52,11 +52,12 @@ what exists and why.
   turning to the robot and a talking mouth would exercise tracking, engagement and the active
   speaker: [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md) proposes how, with Rocketbox's own clips
   skinned in numpy and a patch to Nyx.
-- **Onboarding in the simulation.** The agent does not know the simulated people, so meeting the
-  first user and making an admin does not work as with a real face: the avatars are strangers, and
-  the Reachy profile shares the face database and the admins file with the default profile, so
-  naming an avatar would put it among real people. Wanted: a database and admins of the
-  simulation's own, and a way to make an avatar known, or an admin, without the camera ritual.
+- **Onboarding in the simulation.** The Reachy profile has a face database and an admins file of
+  its own, so the avatar is a stranger who meets Reachy as a new user would, and the first person
+  named becomes an operator. But what is said to Reachy is dropped as said by nobody in view: the
+  avatar's lips do not move, so the active speaker never sees it speak. Until they do (see
+  [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)), `active_speaker: null` in the profile hands each
+  utterance to the face in front.
 - **Reachy's gestures and gaze go to the mock's body API**, not to the simulated head: the head
   controller and a body client over kickmsg are to replace it.
 - **The head controller goes straight to each pose** it is sent, with no trajectory or speed

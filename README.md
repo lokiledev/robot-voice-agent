@@ -126,7 +126,11 @@ its head and antennas, and sees people standing in front of it through its head 
 uv run lune --profile config/reachy_mini_sim
 ```
 
-It starts the simulation and the head controller with the other servers. The simulation's camera is path traced by Nyx,
+It starts the simulation and the head controller with the other servers. The simulated person
+is kept apart from the people Lune knows, in a face database of the profile's own, so they meet
+Reachy as a stranger, and the first one Reachy learns the name of becomes its operator. To become
+Reachy's admin, follow "Become an operator" below with `--profile config/reachy_mini_sim` and its
+own admins file, `~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml`. The simulation's camera is path traced by Nyx,
 which needs an NVIDIA GPU with ray tracing; set `camera_renderer` to `kind: rasterizer` in
 `config/reachy_mini_sim/sim.yaml` without one. The people are Rocketbox avatars that
 [Blender](https://www.blender.org) bakes once on first use: set `avatars.blender` in `sim.yaml` to
@@ -134,8 +138,9 @@ its executable.
 
 ### Become an operator
 
-Lune talks with anyone but only acts for operators it recognizes. Make yourself an admin, an
-operator who can never be revoked:
+Lune talks with anyone but only acts for operators it recognizes. The first person it learns the
+name of, while its face database is empty, becomes an operator: tell it your name the first time
+it asks. To be an admin, an operator who can never be revoked:
 
 1. Run `uv run lune see`, face the camera and press `n` to type your name.
 2. Run `uv run lune people` to find your user id.

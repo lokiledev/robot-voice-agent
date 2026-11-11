@@ -130,6 +130,12 @@ class PeopleTools:
             return _result({"error": f"Invalid arguments: {error}"})
 
     async def _remember(self, args: RememberPersonArgs) -> ToolResult:
+        """Remember a face by name; the first person a fresh robot knows becomes an operator.
+
+        Otherwise nobody could ever authorize anyone on a robot with no admins listed: the first
+        to meet it is who set it up.
+        """
+        first = not await self._vision.people()
         try:
             remembered = await self._vision.remember(args.track_id, args.name.strip())
         except UnknownTrackError:
@@ -139,6 +145,13 @@ class PeopleTools:
         result = {"status": "remembered", "name": remembered.person.name}
         if remembered.previous is not None:
             result["previously_recognized_as"] = remembered.previous.name
+        if first:
+            user_id = remembered.person.user_id
+            # Nobody else could have granted it: they grant it to themselves.
+            await self._vision.grant_operator(user_id, user_id)
+            result["operator"] = (
+                "The first person you know, and now one of your operators: tell them so."
+            )
         return _result(result)
 
     def _who_is_here(self) -> ToolResult:

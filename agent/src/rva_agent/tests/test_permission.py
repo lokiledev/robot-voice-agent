@@ -128,6 +128,21 @@ async def _call(tools: PeopleTools, name: str, arguments: str) -> str:
     return (await tools.call(ToolCall(id="1", name=name, arguments=arguments))).content
 
 
+async def test_the_first_person_a_fresh_robot_knows_becomes_an_operator() -> None:
+    vision, tools = _people_tools([_face(1, None, nearest=True), _face(2, None, nearest=False)])
+
+    first = await _call(tools, "remember_person", '{"track_id": 1, "name": "Dana"}')
+    second = await _call(tools, "remember_person", '{"track_id": 2, "name": "Eve"}')
+
+    assert first == (
+        '{"status": "remembered", "name": "Dana", "operator": "The first person you know, and now'
+        ' one of your operators: tell them so."}'
+    )
+    assert second == '{"status": "remembered", "name": "Eve"}'
+    # Nobody else could have granted it.
+    assert vision.granted == {person("Dana").user_id: person("Dana").user_id}
+
+
 async def test_an_operator_in_front_authorizes_a_known_person_in_view() -> None:
     bob = person("Bob")
     vision, tools = _people_tools(

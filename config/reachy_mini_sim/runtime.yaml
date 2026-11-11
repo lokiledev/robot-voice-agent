@@ -115,7 +115,8 @@ vision:
     model:
       repo: Heliosoph/da3metric-large-onnx
       file: model_fp16.onnx
-  database: ~/.local/share/robot-voice-agent/faces.sqlite3
+  # The simulation's people, apart from the real ones: everyone meets Reachy anew.
+  database: ~/.local/share/robot-voice-agent/reachy_mini_sim/faces.sqlite3
   max_embeddings_per_person: 10
   # Used with --video: camera frames recorded with the session, to replay in rerun.
   video:
@@ -159,7 +160,8 @@ attention:
   min_score: 0.036
   lifetime_s: 2.0
 
-admins: ~/.config/robot-voice-agent/admins.yaml
+# The simulation's own, since the ids are those of its face database.
+admins: ~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml
 
 # Light-ASD: which face speaks, from its lips and the microphone together; null to leave it out.
 # Converted to ONNX on first use, which needs PyTorch once: `uv sync --group export`.

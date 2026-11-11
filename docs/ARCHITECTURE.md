@@ -481,8 +481,10 @@ second one is refused rather than queued:
 | People | `who_is_here`, `remember_person`, `rename_person`, `forget_person`, `list_operators` | Instant | Anyone |
 | Permissions | `authorize_person`, `revoke_person` | Instant | Operators |
 
-- **Operators** are the admins, listed in a file of the machine, and the people an operator
-  authorized by voice. They are only obeyed while the camera recognizes them as the face in
+- **Operators** are the admins, listed in a file of the machine, the people an operator
+  authorized by voice, and the first person a robot with an empty face database learns the name
+  of: whoever meets a fresh robot first is who set it up, and without them nobody could authorize
+  anyone where no admin is listed. They are only obeyed while the camera recognizes them as the face in
   front, but what they started runs to its end: in the turn that answers the end of a task or a
   walk, the next step may start whoever is in front, or nobody, since only an operator could
   have had the first one started. The tools check this themselves, so a slip of the LLM cannot
@@ -649,7 +651,8 @@ of the mock, until the head controller drives the simulated head.
 Its camera is the robot's: `vision.camera.source` is `kind: robot`, and the pipeline reads the
 head camera's frames over kickmsg instead of a V4L2 device, with the simulated camera's exact
 intrinsics. Its field of view is wider than the webcam's, so faces count from 0.06 of the frame
-height rather than 0.12: the same 1.8 m. `lune --profile config/reachy_mini_sim` starts the
+height rather than 0.12: the same 1.8 m. Its face database and admins are its own, apart from the
+real people's: the avatar meets Reachy as a stranger. `lune --profile config/reachy_mini_sim` starts the
 simulation with the other servers, and waits until it serves its topics, then the head
 controller.
 

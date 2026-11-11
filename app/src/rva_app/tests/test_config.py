@@ -92,3 +92,15 @@ def test_a_head_controller_needs_a_robot() -> None:
         RuntimeConfig.model_validate(
             {**default.model_dump(), "head_controller": reachy.head_controller.model_dump()}
         )
+
+
+def test_the_simulated_people_are_kept_apart_from_the_real_ones() -> None:
+    default = RuntimeConfig.load(_REPOSITORY / "config" / "default")
+    reachy = RuntimeConfig.load(_REPOSITORY / "config" / "reachy_mini_sim")
+
+    assert [reachy.vision.database, reachy.admins] == [
+        Path("~/.local/share/robot-voice-agent/reachy_mini_sim/faces.sqlite3"),
+        Path("~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml"),
+    ]
+    assert reachy.vision.database != default.vision.database
+    assert reachy.admins != default.admins

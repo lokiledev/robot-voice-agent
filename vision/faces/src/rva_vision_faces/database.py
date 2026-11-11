@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS embeddings (
     vector BLOB NOT NULL,
     created_at TEXT NOT NULL
 );
--- Operators granted by another operator; the founding ones are listed in the profile.
+-- Operators granted by another operator, or the first person known, by themselves; admins are
+-- listed in a file of the machine.
 CREATE TABLE IF NOT EXISTS operators (
     user_id TEXT PRIMARY KEY REFERENCES users (user_id) ON DELETE CASCADE,
     granted_by TEXT NOT NULL,

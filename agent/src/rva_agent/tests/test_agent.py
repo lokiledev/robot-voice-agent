@@ -324,7 +324,9 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
         ToolInvocation(
             name="remember_person",
             arguments='{"track_id": 8, "name": "Alice"}',
-            result='{"status": "remembered", "name": "Alice"}',
+            # Nobody was known: she is the robot's first person, and its first operator.
+            result='{"status": "remembered", "name": "Alice", "operator": "The first person you'
+            ' know, and now one of your operators: tell them so."}',
         )
     ]
     assert vision.faces() == (face.model_copy(update={"person": person("Alice")}),)

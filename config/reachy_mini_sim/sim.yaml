@@ -17,10 +17,10 @@ people:
   - avatar: Adults/Female_Adult_01
     position: [1.1, 0.0]
     turned_deg: 0
-  # Further away on its right, looking aside.
-  - avatar: Adults/Male_Adult_04
-    position: [1.9, -0.8]
-    turned_deg: 50
+  # More people, e.g. further away on its right, looking aside:
+  # - avatar: Adults/Male_Adult_04
+  #   position: [1.9, -0.8]
+  #   turned_deg: 50
 physics_dt: 0.005
 state_rate: 100
 camera_fps: 30
