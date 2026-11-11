@@ -36,6 +36,9 @@ class OpenAiLanguageModelConfig(RVABaseModel):
     """Passed to the server's chat template, e.g. {"enable_thinking": false} for Qwen."""
 
 
+_EVENT_TAG: Final = "<robot_event>"
+
+
 class OpenAiLanguageModel:
     """`LanguageModel` over an OpenAI-compatible chat completions server."""
 
@@ -54,6 +57,9 @@ class OpenAiLanguageModel:
             temperature=self._config.temperature,
             max_tokens=self._config.max_tokens,
             stream=True,
+            # Events are told to the model, never written by it: one it starts to write is made
+            # up, and would be said aloud.
+            stop=[_EVENT_TAG],
             extra_body={"chat_template_kwargs": self._config.chat_template_kwargs},
         )
         # Tool calls arrive in fragments keyed by index: id and name first, then the arguments.
@@ -99,7 +105,7 @@ def _to_openai(message: Message) -> ChatCompletionMessageParam:
         case RobotEventMessage():
             # Chat templates such as Qwen's only accept a system message first, so events go in a
             # user turn, tagged so the system prompt can tell the model what they are.
-            return {"role": "user", "content": f"<robot_event>{message.content}</robot_event>"}
+            return {"role": "user", "content": f"{_EVENT_TAG}{message.content}</robot_event>"}
         case _:
             assert_never(message)
 

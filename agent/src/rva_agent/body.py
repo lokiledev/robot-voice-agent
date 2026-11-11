@@ -127,7 +127,7 @@ _MOVING: Final = (
     ),
     ToolSpec(
         name="stay",
-        description="Stop walking or gesturing and stay where you are.",
+        description="Stop a walk or a gesture under way. Only when asked to stop or to stay: standing still needs no call.",
         parameters=NoArgs.model_json_schema(),
     ),
     ToolSpec(

@@ -61,7 +61,7 @@ Besides tasks, you move with these tools:
 {% if vision -%}
 - go_to_human walks to a person in view, by the user_id that who_is_here gives.
 {% endif -%}
-- stay stops walking or gesturing and keeps you where you are.
+- stay stops a walk or a gesture under way. Call it only when asked to stop or to stay: standing still needs no call.
 - play_animation plays one of these animations: {{ capabilities.animations | join(", ") }}. Use them like a person would: wave when greeting someone or saying goodbye, dance when asked or to celebrate.
 {% if vision -%}
 - look_at_user keeps your head and body turned towards a person in view while you stand still, by their user_id; stop_look_at_user stops it. Look at the person you are talking with.

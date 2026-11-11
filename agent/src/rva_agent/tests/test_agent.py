@@ -510,3 +510,66 @@ async def test_a_failed_task_is_reported_to_the_llm_as_its_own_failure() -> None
         content="You could not pick up the red cup: the grasp slipped. Say it as your own failure,"
         ' like "I couldn\'t ..."; never call it a task.'
     )
+
+
+async def test_a_tool_called_without_a_word_ends_the_turn() -> None:
+    # Asked again with nothing left to say, a small model makes up the event it expects next.
+    llm = ScriptedLanguageModel([[ToolCall(id="call_1", name="stay", arguments="{}")]])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("Okay.")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
+        None,
+    ).run()
+
+    assert speech.said == []
+    assert len(llm.requests) == 1
+
+
+async def test_a_call_that_failed_is_not_run_again_in_the_same_turn() -> None:
+    again = ToolCall(id="call_2", name="start_task", arguments='{"instruction": "wipe the table"}')
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Picking up the red cup."), START_PICK_CUP],
+            [TextDelta(text="Wiping the table."), again],
+            # Told it is busy, it says it again and retries, as small models do.
+            [TextDelta(text="Now I wipe the table."), again.model_copy(update={"id": "call_3"})],
+        ]
+    )
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            None,
+            None,
+        ).run()
+    )
+
+    user.say("Grab the red cup please.")
+    await speech.wait_for("Picking up the red cup.")
+    user.say("And wipe the table.")
+    await speech.wait_for("Now I wipe the table.")
+    user.say("stop")
+    user.leave()
+    await running
+
+    assert [entry.result for entry in recorder.entries if isinstance(entry, ToolInvocation)][
+        1:
+    ] == [
+        '{"error": "Busy with \'pick up the red cup\'. Do not retry: cancel it, or wait for its'
+        ' robot_event."}',
+        '{"error": "You just called this, and it was not run again. Do not call it again now."}',
+    ]
+    # The turn ended there: the LLM was not asked a fourth time.
+    assert len(llm.requests) == 3

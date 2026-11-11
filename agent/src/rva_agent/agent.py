@@ -58,6 +58,10 @@ _PUNCTUATION: Final = re.compile(r"[^\w\s]")
 # Told with each failure: deep in a long conversation, the LLM otherwise reports some of them from
 # the outside ("the task to gather the cables failed") despite its instructions.
 _OWN_FAILURE: Final = ' Say it as your own failure, like "I couldn\'t ..."; never call it a task.'
+_REPEATED: Final = ToolResult(
+    content='{"error": "You just called this, and it was not run again. Do not call it again now."}',
+    needs_reply=False,
+)
 
 
 class Agent:
@@ -350,6 +354,8 @@ class Agent:
         as the reply starts and stop being so, the reply stops after its sentence.
         """
         keep_going = self._while_listening(listener)
+        # The calls made in this turn, by name and arguments.
+        called: set[tuple[str, str]] = set()
         for _ in range(self._config.max_tool_rounds):
             text: list[str] = []
             tool_calls: list[ToolCall] = []
@@ -396,8 +402,14 @@ class Agent:
                 return
             needs_reply = False
             for call in tool_calls:
-                with _tracer.start_as_current_span(f"tool:{call.name}"):
-                    result = await self._call_tool(call)
+                if (call.name, call.arguments) in called:
+                    # The LLM retries what just failed, round after round, saying each time that
+                    # it does it now: the turn ends here instead.
+                    result = _REPEATED
+                else:
+                    called.add((call.name, call.arguments))
+                    with _tracer.start_as_current_span(f"tool:{call.name}"):
+                        result = await self._call_tool(call)
                 self._recorder.record(
                     ToolInvocation(name=call.name, arguments=call.arguments, result=result.content)
                 )
@@ -405,9 +417,9 @@ class Agent:
                     ToolResultMessage(tool_call_id=call.id, content=result.content)
                 )
                 needs_reply = needs_reply or result.needs_reply
-            # Asking the LLM again here would only make it repeat what it just announced, or say
-            # nothing while muted.
-            if (text or muted) and not needs_reply:
+            # Asking the LLM again here would only make it repeat what it just announced, or, with
+            # nothing left to say, make something up: an event it expects, said aloud.
+            if not needs_reply:
                 return
         logger.warning(
             "The LLM was still calling tools after {} rounds", self._config.max_tool_rounds
