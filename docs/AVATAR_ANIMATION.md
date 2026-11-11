@@ -72,7 +72,9 @@ of 33 ms. The patch for Nyx loads with the scene; the rasterizer needs none.
 
 **A talking mouth.** The weight of `AA_VI_10_aa` follows the loudness of the speech: of a clip the
 test plays into the agent's microphone, on the same clock, or a syllable-like 4 to 5 Hz
-modulation. The sim plays no sound yet, which a test of the active speaker needs.
+modulation. The sim plays no sound yet, which a test of the active speaker needs. Once the
+mouth moves, the Reachy profile gets its active speaker back: it is left out (`active_speaker:
+null`) only because a still mouth is never seen speaking.
 
 **Told what to do by `sim.yaml` first.** Each placed person gets a behaviour: a clip looped at a
 speed, a path to walk with the walk clip, facing the robot or a direction. It is deterministic,

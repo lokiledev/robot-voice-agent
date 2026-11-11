@@ -54,10 +54,12 @@ what exists and why.
   skinned in numpy and a patch to Nyx.
 - **Onboarding in the simulation.** The Reachy profile has a face database and an admins file of
   its own, so the avatar is a stranger who meets Reachy as a new user would, and the first person
-  named becomes an operator. But what is said to Reachy is dropped as said by nobody in view: the
-  avatar's lips do not move, so the active speaker never sees it speak. Until they do (see
-  [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)), `active_speaker: null` in the profile hands each
-  utterance to the face in front.
+  named becomes an operator. The avatar's lips do not move, so the active speaker would never see
+  it speak and would drop all that is said to Reachy: the profile sets `active_speaker: null` for
+  now, which hands each utterance to the face in front. **Put Light-ASD back in
+  `config/reachy_mini_sim/runtime.yaml` once the avatar's mouth moves** (see
+  [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)): until then nothing tells whether Reachy was spoken
+  to, and anyone's voice may interrupt it.
 - **Reachy's gestures and gaze go to the mock's body API**, not to the simulated head: the head
   controller and a body client over kickmsg are to replace it.
 - **The head controller goes straight to each pose** it is sent, with no trajectory or speed

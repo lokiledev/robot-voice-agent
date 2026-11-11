@@ -163,17 +163,10 @@ attention:
 # The simulation's own, since the ids are those of its face database.
 admins: ~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml
 
-# Light-ASD: which face speaks, from its lips and the microphone together; null to leave it out.
-# Converted to ONNX on first use, which needs PyTorch once: `uv sync --group export`.
-active_speaker:
-  device: cuda
-  model_dir: ~/.cache/robot-voice-agent/models
-  # Each frame scores the last second, at the frame 0.12 s before the newest: Light-ASD reads
-  # both ways, and the newest frame, with nothing after it, scores low.
-  window_s: 1.0
-  delay_s: 0.12
-  enter: -1.0
-  leave: -1.3
+# Light-ASD: which face speaks, from its lips and the microphone together. Left out: the avatar's
+# lips do not move yet, so it would never be seen speaking and every utterance would be dropped.
+# Without it, each utterance is the face in front's: the avatar's, that the microphone speaks for.
+active_speaker: null
 
 # Where perception meets the dialogue: who pays attention to the robot, which face said each
 # utterance and whether to the robot. None of it is tuned on recordings of several people yet.
