@@ -72,6 +72,7 @@ flowchart LR
 | Agent process | `lune run` (voice) or `lune text` (typing) | One asyncio loop; the camera has a thread of its own |
 | LLM server | `lune serve-llm` | OpenAI-compatible API; another model is a config change |
 | Robot API | `lune-mock` | Replace with the real robot's API |
+| Simulated robot | `lune-sim` | A Reachy Mini in Genesis: joints and head camera over kickmsg; not wired into the agent yet |
 | MediaMTX | `lune serve-video` | Only for the camera on the session page; downloaded on first use |
 | Session page | `--ui`, then <http://127.0.0.1:8700> | Served by the agent process |
 | Local data | paths in `runtime.yaml` | Profile, admins, face database, recordings; all but the profile outside the source tree |
@@ -545,6 +546,47 @@ is logged in its terminal.
 Tasks take 5 s to 2 min, walking 5 to 30 s, animations 2 to 8 s, and some fail or time out at
 random. With `--interactive`, typing `s`, `f <reason>` or `t` ends the running action instead.
 
+### Simulated robot
+
+Below the robot API are the joints and the camera, which visual servoing needs. `lune-sim` runs a
+Reachy Mini on a table in [Genesis](https://genesis-world.readthedocs.io), in a process of its own,
+and serves them over [kickmsg](https://pypi.org/project/kickmsg/), a lock-free shared-memory
+pub/sub: any process of the machine can read the joints and the camera, and send position
+targets.
+
+| Topic | Kind | Content |
+|---|---|---|
+| `joint_state` | Published by the robot, 100 Hz | Position and velocity of each actuated joint, as JSON |
+| `camera` | Published by the robot, 30 Hz | The head camera's BGR frame, 1280×720, after a small binary header |
+| `joint_command` | Mailbox of the robot | Position targets for some joints, as JSON; the others keep theirs |
+
+- **The MJCF, not the URDF.** Reachy Mini's head sits on a Stewart platform: six motors whose rods
+  close on the head. The MJCF closes those loops with equality constraints, which Genesis
+  follows; the URDF can only describe them as an open tree. Pollen ships both in their
+  `reachy-mini` package, and no official Hugging Face repository holds them, so the simulation
+  downloads that wheel from PyPI on first use, checks it against PyPI's digest and keeps only the
+  MJCF and its meshes: nothing of the robot is committed, and Pollen's SDK is not installed.
+- **The joints are the motors.** The nine actuated joints are exposed as they are: the body's yaw,
+  the six Stewart motors and the two antennas. Turning a head pose into motor angles is the
+  controller's job, not the simulation's.
+- **Genesis on the CPU.** For one environment, the CPU backend steps faster than the GPU launches
+  kernels; it keeps torch's CPU build too. A step takes about 0.15 ms; rendering the camera takes
+  most of the loop.
+- **kickmsg rather than zenoh.** Everything runs on one machine, and frames of 2.8 MB at 30 Hz are
+  where shared memory pays: a reader maps the frame instead of receiving a copy over a socket,
+  and there is no router to run. Zenoh would be the choice to reach the robot over a network.
+- **The robot owns the topics.** It creates them all when it starts, replacing any left by a
+  robot that crashed, and removes them when stopped. Clients only open them, waiting for the robot
+  if it is not up, and raise once it has been silent too long. Each reader gets the latest
+  message, never a backlog.
+- **Paced on the wall clock.** Each physics step first applies the commands received, then states
+  and frames are published when due on simulated time, stamped with `time.monotonic()`, the clock
+  the camera pipeline uses too. Genesis' viewer, with `--viewer`, does not pace the steps itself:
+  two pacings would fall behind real time.
+
+`lune robot` drives the joints with sliders and shows the head camera, to check the simulation by
+hand.
+
 ## A turn, end to end
 
 ```mermaid
@@ -592,6 +634,9 @@ flowchart BT
     VLAC["rva-vla-client"]
     BODYC["rva-body-client"]
     MOCK["rva-vla-mock"]
+    ROBS["rva-robot-schemas"]
+    ROBC["rva-robot-client"]
+    SIM["rva-robot-sim"]
     AGENT["rva-agent"]
     LLM["rva-llm"]
     AUD["rva-voice-audio"]
@@ -610,8 +655,10 @@ flowchart BT
     VLAC --> VLAS
     BODYC --> BODYS
     MOCK --> VLAS & BODYS
+    ROBS --> PYD
+    ROBC & SIM --> ROBS
     AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS & VLAC & BODYC
+    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS & VLAC & BODYC & ROBC
 ```
 
 | Package | Contents |
@@ -630,6 +677,9 @@ flowchart BT
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |
 | `rva-vla-client`, `rva-body-client` | HTTP and WebSocket clients of the robot API |
 | `rva-vla-mock` | The mock robot |
+| `rva-robot-schemas` | The joints' and camera's data types, their wire format and the kickmsg topics |
+| `rva-robot-client` | kickmsg client of the joints and the head camera |
+| `rva-robot-sim` | Reachy Mini simulated in Genesis, serving the robot's topics |
 | `rva-app` | Command line, runtime configuration, wiring |
 
 [AGENTS.md](../AGENTS.md) lists the conventions the code follows.

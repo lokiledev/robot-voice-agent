@@ -37,6 +37,22 @@ what exists and why.
 - **Voices out of view are ignored.** A microphone array that tells where a sound comes from
   (ReSpeaker) is planned, to place speakers the camera does not see.
 
+## Robot body
+
+- **Visual servoing.** A controller that keeps a point in space, the attention's target, in the
+  middle of the head camera, from its position and velocity, knowing nothing of the attention.
+  It needs Reachy Mini's head kinematics: a head pose to the six Stewart motors' angles
+  (Pollen's `reachy-mini-rust-kinematics` does it analytically, without their SDK).
+- **The camera's pose and intrinsics** are not published: the controller and the perception will
+  need where the camera is in the robot's base frame and its focal length. The simulation knows
+  both (the MJCF's mount and field of view); the head pose could be published as ground truth too.
+- **The simulated camera into the perception stack**, in place of the webcam, so that `lune see`
+  and the agent run on the simulation.
+- **A restarted simulation** replaces its topics: clients of the old one stop hearing from it and
+  raise once silent too long, rather than reopening the new ones. Restart them with it.
+- **The real Reachy Mini** needs a bridge from Pollen's daemon to the same topics, so that the
+  controller and the clients do not change.
+
 ## Sound
 
 - **The last second of the microphone** is missing from a recording: the frames are joined into

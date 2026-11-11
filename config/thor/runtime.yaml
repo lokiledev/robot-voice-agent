@@ -33,6 +33,12 @@ vla:
 body:
   base_url: http://127.0.0.1:8800
 
+# Joints and head camera over kickmsg; for now, of the simulation `lune-sim` runs.
+robot:
+  namespace: rva
+  connect_timeout_s: 5
+  silence_timeout_s: 2
+
 vision:
   device:
     kind: cuda

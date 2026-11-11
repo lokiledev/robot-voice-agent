@@ -1,0 +1,29 @@
+[project]
+name = "rva-robot-client"
+version = "0.1.0"
+description = "kickmsg client of the robot's joints and head camera"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "kickmsg>=0.10",
+  "pydantic>=2.11",
+  "rva-pydantic",
+  "rva-robot-schemas",
+]
+
+[dependency-groups]
+dev = [
+  "numpy>=2.0",
+  "rva-robot-sim",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-robot-schemas = {workspace = true}
+rva-robot-sim = {workspace = true}

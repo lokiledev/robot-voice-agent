@@ -85,8 +85,8 @@ curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 curl -LO https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
 ```
 
-The voice activity and face models, and MediaMTX, which streams the camera to the session page,
-download themselves on first use. The TensorRT engines are built on first use too, and kept in
+The voice activity and face models, MediaMTX, which streams the camera to the session page, and
+the simulated robot's description download themselves on first use. The TensorRT engines are built on first use too, and kept in
 `~/.cache/robot-voice-agent/tensorrt`: about a minute for Parakeet, and about 7 minutes for the
 vision models, the first time `lune see` or `lune` starts.
 
@@ -135,6 +135,8 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune` | Everything: the servers below, then the voice agent with its session page |
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
+| `lune-sim` | A Reachy Mini on a table, simulated in Genesis, serving its joints and head camera; `--viewer` opens Genesis' viewer. Its description downloads on first use, and the first start compiles Genesis' kernels, about a minute |
+| `lune robot` | Drives the simulated robot's joints with sliders and shows its head camera; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
 | `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot; `--replay clip.mp4` watches and hears a video file instead, `--show` opens the camera window |
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |

@@ -34,6 +34,11 @@ smart-turn expects.
 | [FFmpeg](https://ffmpeg.org) | Encoding the camera stream; run as a separate process | LGPL-2.1-or-later or GPL-2.0-or-later, depending on the build |
 | [PipeWire](https://pipewire.org) echo-cancel module | Echo cancellation | MIT |
 
+## Robot description
+
+Reachy Mini's MJCF and meshes, by Pollen Robotics, are unpacked from the `reachy-mini` wheel on
+PyPI on first use, under Apache-2.0. Only the description is kept; the package is not installed.
+
 ## Python packages
 
 Packages the agent runs with, by license (`uv export --no-dev` lists them with their versions):
@@ -57,6 +62,10 @@ Packages the agent runs with, by license (`uv export --no-dev` lists them with t
 - **GPL-3.0-or-later:** phonemizer, and the espeak-ng library that espeakng-loader bundles.
 - **NVIDIA proprietary (CUDA EULA):** nvidia-cublas, nvidia-cuda-nvrtc, nvidia-cuda-runtime,
   nvidia-cudnn-cu13, nvidia-cufft, nvidia-curand, nvidia-nvjitlink, installed with onnxruntime-gpu.
+- **CeCILL-C:** kickmsg, the shared-memory transport to the robot. Used unmodified.
+
+The robot simulation (`lune-sim`) also runs with Genesis (`genesis-world`, Apache-2.0), PyTorch's
+CPU build (BSD-3-Clause) and their dependencies; `uv export --no-dev` lists them.
 
 Development tools only (tests, linting, hooks): MIT for cfgv, deptry, executing, identify,
 iniconfig, inline-snapshot, platformdirs, pluggy, pre-commit, pytest, pytest-timeout,

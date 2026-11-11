@@ -1,14 +1,16 @@
 [project]
 name = "rva-app"
 version = "0.1.0"
-description = "Command line entry point that composes the agent, voice, LLM and VLA client"
+description = "Command line entry point that composes the agent, voice, LLM, VLA and robot clients"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
   "cyclopts>=4",
+  "dearpygui>=2.3",
   "httpx>=0.28",
   "loguru>=0.7",
   "numpy>=2.0",
+  "opencv-python>=4.10",
   "rva-agent",
   "rva-attention",
   "rva-body-client",
@@ -17,6 +19,8 @@ dependencies = [
   "rva-multimodal",
   "rva-observability",
   "rva-pydantic",
+  "rva-robot-client",
+  "rva-robot-schemas",
   "rva-schemas",
   "rva-ui",
   "rva-vla-client",
@@ -42,6 +46,8 @@ rva-llm = {workspace = true}
 rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
+rva-robot-client = {workspace = true}
+rva-robot-schemas = {workspace = true}
 rva-schemas = {workspace = true}
 rva-ui = {workspace = true}
 rva-vla-client = {workspace = true}

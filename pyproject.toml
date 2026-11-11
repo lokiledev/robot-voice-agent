@@ -8,6 +8,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
   "rva-app",
+  "rva-robot-sim",
   "rva-vla-mock",
 ]
 
@@ -53,6 +54,9 @@ rva-llm = {workspace = true}
 rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
+rva-robot-client = {workspace = true}
+rva-robot-schemas = {workspace = true}
+rva-robot-sim = {workspace = true}
 rva-schemas = {workspace = true}
 rva-ui = {workspace = true}
 rva-vla-client = {workspace = true}
@@ -63,7 +67,7 @@ rva-vision-viewer = {workspace = true}
 rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
 rva-voice-tts = {workspace = true}
-# Only converts a checkpoint once: the CPU build spares the CUDA libraries.
+# Converts a checkpoint once, and runs Genesis' CPU backend: the CPU build spares the CUDA libraries.
 torch = {index = "pytorch-cpu"}
 
 [[tool.uv.index]]
@@ -83,6 +87,9 @@ members = [
   "interaction",
   "llm",
   "multimodal",
+  "robot/client",
+  "robot/schemas",
+  "robot/sim",
   "schemas",
   "ui",
   "vla/client",

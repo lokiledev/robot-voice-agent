@@ -11,6 +11,7 @@ from rva_llm.server import LlamaServerConfig
 from rva_multimodal.config import ActiveSpeakerConfig
 from rva_observability.session import ObservabilityConfig
 from rva_pydantic import RVABaseModel, load_yaml
+from rva_robot_client.client import RobotClientConfig
 from rva_schemas.profile import Admins
 from rva_ui.media import MediaServerConfig
 from rva_ui.server import UiConfig
@@ -30,6 +31,8 @@ class RuntimeConfig(RVABaseModel):
     llm_server: LlamaServerConfig
     vla: HttpVlaClientConfig
     body: HttpBodyClientConfig
+    robot: RobotClientConfig
+    """The robot's joints and head camera; for now, of the simulation `lune-sim` runs."""
     audio: AudioConfig
     asr: ParakeetConfig
     tts: KokoroConfig

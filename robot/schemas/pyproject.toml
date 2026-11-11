@@ -1,0 +1,20 @@
+[project]
+name = "rva-robot-schemas"
+version = "0.1.0"
+description = "Data model of the robot's joints and camera, and how it travels between processes"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "numpy>=2.0",
+  "pydantic>=2.11",
+  "rva-pydantic",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}

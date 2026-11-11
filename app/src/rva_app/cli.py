@@ -21,6 +21,7 @@ from rva_agent.sentences import split_sentences
 from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig, load_admins
 from rva_app.page import MergedInput, Recorders, serve_page
+from rva_app.robot import drive_robot
 from rva_app.servers import Server, ServersUnavailableError, require_servers
 from rva_app.services import Service, ServiceFailedError, services_running
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
@@ -664,6 +665,18 @@ async def _run_text_agent(
             # No microphone: typed lines are the face in front's, and people still engage.
             None if vision is None else Interaction(config.interaction, None, recorder),
         )
+
+
+@app.command
+def robot(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
+    """Drive the robot's joints with sliders and watch its head camera, without the agent.
+
+    Start the simulated robot first with `uv run lune-sim`; close the window to quit.
+
+    Args:
+        profile: Robot profile directory.
+    """
+    asyncio.run(drive_robot(RuntimeConfig.load(profile).robot))
 
 
 @app.command

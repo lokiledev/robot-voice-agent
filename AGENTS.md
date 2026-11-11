@@ -25,6 +25,9 @@ The repository is one uv workspace. Each package lives in its domain directory w
 | `vla/mock` | `rva-vla-mock` | Mock robot server: VLA and body |
 | `body/schemas` | `rva-body-schemas` | Body motion, gaze data model and the `BodyClient` interface |
 | `body/client` | `rva-body-client` | HTTP + WebSocket `BodyClient` |
+| `robot/schemas` | `rva-robot-schemas` | Joints and camera data model, wire format and kickmsg topic names |
+| `robot/client` | `rva-robot-client` | asyncio kickmsg client of the joints and head camera |
+| `robot/sim` | `rva-robot-sim` | Reachy Mini simulated in Genesis (CPU backend), serving the robot's topics |
 | `schemas` | `rva-schemas` | Shared data model and interfaces (`abc/`) for agent, voice and LLM |
 | `agent` | `rva-agent` | Dialogue loop, tools, VLA task supervision |
 | `llm` | `rva-llm` | `LanguageModel` over an OpenAI-compatible server |
