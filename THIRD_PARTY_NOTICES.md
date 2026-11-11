@@ -38,6 +38,8 @@ smart-turn expects.
 
 Reachy Mini's MJCF and meshes, by Pollen Robotics, are unpacked from the `reachy-mini` wheel on
 PyPI on first use, under Apache-2.0. Only the description is kept; the package is not installed.
+`robot/kinematics/src/rva_robot_kinematics/tests/reachy_mini_head.xml` is a cut-down copy of that
+MJCF, its kinematic tree without meshes, for the kinematics' tests.
 
 ## Python packages
 

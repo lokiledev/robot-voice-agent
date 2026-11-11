@@ -41,8 +41,10 @@ what exists and why.
 
 - **Visual servoing.** A controller that keeps a point in space, the attention's target, in the
   middle of the head camera, from its position and velocity, knowing nothing of the attention.
-  It needs Reachy Mini's head kinematics: a head pose to the six Stewart motors' angles
-  (Pollen's `reachy-mini-rust-kinematics` does it analytically, without their SDK).
+  `rva-robot-kinematics` gives the motors' angles for a head pose; the head's pose from the
+  joints' (forward kinematics, for the camera's pose) is still missing. In the simulation, the
+  head's yaw strays by a few degrees when the platform turns it near Pollen's 65° from the body:
+  the motors' small errors weigh more there.
 - **The camera's pose and intrinsics** are not published: the controller and the perception will
   need where the camera is in the robot's base frame and its focal length. The simulation knows
   both (the MJCF's mount and field of view); the head pose could be published as ground truth too.

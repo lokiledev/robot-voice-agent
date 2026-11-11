@@ -8,6 +8,8 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
   "rva-app",
+  # Not used by the app yet; listed so that the workspace installs it.
+  "rva-robot-kinematics",
   "rva-robot-sim",
   "rva-vla-mock",
 ]
@@ -55,6 +57,7 @@ rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-robot-client = {workspace = true}
+rva-robot-kinematics = {workspace = true}
 rva-robot-schemas = {workspace = true}
 rva-robot-sim = {workspace = true}
 rva-schemas = {workspace = true}
@@ -88,6 +91,7 @@ members = [
   "llm",
   "multimodal",
   "robot/client",
+  "robot/kinematics",
   "robot/schemas",
   "robot/sim",
   "schemas",
