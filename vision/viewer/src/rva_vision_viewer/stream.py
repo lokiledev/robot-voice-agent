@@ -37,8 +37,9 @@ class RtspPublisher:
             round(height * config.width / width) // 2 * 2,
         )
         self._url: Final = config.url
+        # In a group of its own, out of reach of the terminal's Ctrl+C: it ends in `close`.
         self._process: Final = subprocess.Popen(
-            publish_command(config.url, *self._size), stdin=subprocess.PIPE
+            publish_command(config.url, *self._size), stdin=subprocess.PIPE, process_group=0
         )
 
     def send(self, frame: npt.NDArray[np.uint8]) -> None:

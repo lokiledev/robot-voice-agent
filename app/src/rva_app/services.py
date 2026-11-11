@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import os
 import re
 import time
@@ -75,6 +74,9 @@ async def _start(service: Service, log: Path) -> asyncio.subprocess.Process:
             stderr=asyncio.subprocess.STDOUT,
             env={**os.environ, **service.environment},
             cwd=service.directory,
+            # In a group of its own, out of reach of the terminal's Ctrl+C: stopped on exit,
+            # after what talks to it, which would fail on a server gone first.
+            process_group=0,
         )
 
 
@@ -97,9 +99,7 @@ async def _wait_until_ready(
 
 async def _stop(process: asyncio.subprocess.Process) -> None:
     if process.returncode is None:
-        # Gone meanwhile if it got the same Ctrl+C, being in the same process group.
-        with contextlib.suppress(ProcessLookupError):
-            process.terminate()
+        process.terminate()
     try:
         await asyncio.wait_for(process.wait(), _STOP_TIMEOUT_S)
     except TimeoutError:

@@ -88,10 +88,11 @@ class CameraMonitor:
             self._on_key(key)
 
     def close(self) -> None:
-        """Close the window and stop streaming, once the last frame was shown."""
+        """Stop streaming, once the last frame was shown.
+
+        The window is left to the end of the process: Dear PyGui crashes when its window is closed
+        from another thread than the camera's, which it lives in and which has stopped by now.
+        """
         if self._publisher is not None:
             self._publisher.close()
             self._publisher = None
-        if self._window is not None:
-            self._window.close()
-            self._window = None
