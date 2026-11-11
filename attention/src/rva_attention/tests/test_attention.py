@@ -108,7 +108,12 @@ def observe(time: float, *people: TrackedPerson, main_user: int | None = None) -
     return VisualObservation(
         time=time,
         people=PeopleInView(
-            image_width=1920, image_height=1080, intrinsics=None, people=people, unmatched_bodies=()
+            frame="camera_optical",
+            image_width=1920,
+            image_height=1080,
+            intrinsics=None,
+            people=people,
+            unmatched_bodies=(),
         ),
         main_user=main_user,
     )

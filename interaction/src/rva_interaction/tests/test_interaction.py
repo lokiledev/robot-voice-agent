@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from rva_interaction.config import EngagementConfig, InteractionConfig
+from rva_interaction.config import EngagementConfig, InteractionConfig, SoundDirectionConfig
 from rva_interaction.interaction import Interaction
 from rva_interaction.tests.people import AT_ROBOT, AWAY, at, face, frame, seen
 from rva_schemas.dialogue import NobodySeenSpeaking, SeenSpeaking, SpeechSpan, UserUtterance
+from rva_schemas.frames import StaticTransforms
 from rva_schemas.interaction import Engaged
 from rva_schemas.record import Record
 from rva_schemas.vision import Gaze
@@ -21,6 +22,7 @@ def config(barge_in: Literal["anyone", "engaged"]) -> InteractionConfig:
         min_segment_s=1.0,
         engaged_min_gaze=0.1,
         bystander_min_gaze=0.5,
+        sound_direction=SoundDirectionConfig(tolerance_deg=15.0, max_age_s=0.2),
         barge_in=barge_in,
         engagement=EngagementConfig(
             near_m=2.0,
@@ -42,7 +44,9 @@ class _NoRecorder:
 
 
 def interaction(barge_in: Literal["anyone", "engaged"] = "engaged") -> Interaction:
-    return Interaction(config(barge_in), score_delay_s=0.0, recorder=_NoRecorder())
+    return Interaction(
+        config(barge_in), score_delay_s=0.0, transforms=StaticTransforms(()), recorder=_NoRecorder()
+    )
 
 
 def spoken(start: float, end: float) -> UserUtterance:
@@ -134,7 +138,12 @@ def test_an_utterance_nobody_was_seen_speaking_is_from_nobody_in_view() -> None:
 
 def test_typed_lines_and_everything_without_an_active_speaker_pass_as_they_are() -> None:
     typed = UserUtterance(text="Hi.", started_at=NOW, ended_at=NOW, speech=None, speaker=None)
-    deaf = Interaction(config("engaged"), score_delay_s=None, recorder=_NoRecorder())
+    deaf = Interaction(
+        config("engaged"),
+        score_delay_s=None,
+        transforms=StaticTransforms(()),
+        recorder=_NoRecorder(),
+    )
 
     assert interaction().hear(typed) == typed
     assert deaf.hear(spoken(0.0, 1.0)) == spoken(0.0, 1.0)

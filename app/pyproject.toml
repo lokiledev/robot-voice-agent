@@ -29,6 +29,7 @@ dependencies = [
   "rva-vla-client",
   "rva-voice-asr",
   "rva-voice-audio",
+  "rva-voice-respeaker",
   "rva-voice-tts",
   "rva-vision-faces",
   "rva-vision-viewer",
@@ -58,6 +59,7 @@ rva-ui = {workspace = true}
 rva-vla-client = {workspace = true}
 rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
+rva-voice-respeaker = {workspace = true}
 rva-voice-tts = {workspace = true}
 rva-vision-faces = {workspace = true}
 rva-vision-viewer = {workspace = true}

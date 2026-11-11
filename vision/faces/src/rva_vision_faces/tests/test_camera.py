@@ -8,7 +8,11 @@ from rva_vision_faces.camera import VideoFile, fit
 from rva_vision_faces.config import CameraConfig, V4l2Source
 
 CAMERA = CameraConfig(
-    source=V4l2Source(device=Path("/dev/video0"), fps=30), width=64, height=36, intrinsics=None
+    source=V4l2Source(device=Path("/dev/video0"), fps=30),
+    frame="camera_optical",
+    width=64,
+    height=36,
+    intrinsics=None,
 )
 
 

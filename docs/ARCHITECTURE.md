@@ -423,6 +423,28 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
   replayed interview, two faces were each seen speaking in over half of the same frames. An
   utterance is said by the face seen speaking in the largest share of its frames, if that is at
   least 0.3: pauses between words count against the speaker. Otherwise nobody in view said it.
+- **Where the speech comes from.** With the reSpeaker XVF3800, `rva-voice-respeaker` asks the
+  chip 20 times a second for its two focused beams' azimuths and speech energies. Speech comes
+  from the beam hearing the most of it, when its energy is above 0: 10^5 to 4·10^6 while someone
+  talked, exactly 0 in a quiet room with a PC's fan. The chip's own direction of the speaker
+  would be simpler, but it held 164 degrees for most of a second after the speech ended, with
+  every energy at 0. The direction is sent in the array's own frame, named by its link, with the
+  time it was heard: 60 ms before it is read, for the chip's processing. Each frame takes the last direction heard by its time, within
+  0.2 s, turns it into the camera's frame through the profile's transform between the two links,
+  and compares it, around the vertical, with each face's bearing from where its box is in the
+  image. A face within 15 degrees of it may have said it. Among the faces seen speaking, those
+  it comes from are preferred, whoever the active speaker is surest of: the listener who nods
+  along is set apart from the talker, unless they stand in the same direction. Speech from out
+  of view makes the frame nobody's in view, as lips moving in view are then a listener's. A face
+  in view the speech comes from, and only that one, counts as speaking although its lips are not
+  seen to: turned away, or hidden. When the speech comes from where no face is in view, the lips
+  decide: a flat array of four mics 66 mm apart is too rough to overrule them. The array only
+  helps the active speaker, so a profile with one must have the other. Directions are not in
+  the recordings replayed with `lune listen --replay`.
+- **Links.** What the camera sees names the camera's optical link, and each direction heard the
+  array's link, so that both can be placed on the robot's description later. Until then, the
+  profile's `transforms` fix one link to another, as a URDF joint's origin would; the links' names
+  are placeholders.
 - **One speaker per utterance.** People who talk on without a pause make one turn for the
   endpointer: in that interview, 70 s with three voices, which no single face said. So a turn is
   cut where the face speaking changes, and each piece is recognized and judged as an utterance
@@ -742,6 +764,7 @@ flowchart BT
     AUD["rva-voice-audio"]
     ASR["rva-voice-asr"]
     TTS["rva-voice-tts"]
+    RSP["rva-voice-respeaker"]
     VIS["rva-vision-faces"]
     ATT["rva-attention"]
     INT["rva-interaction"]
@@ -757,21 +780,22 @@ flowchart BT
     MOCK --> VLAS & BODYS
     ROBS --> PYD
     ROBC & SIM & KIN --> ROBS
-    AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS & VLAC & BODYC & ROBC
+    AGENT & LLM & AUD & ASR & TTS & RSP & VIS & ATT & INT & VIEW & MM & UI & OBS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & RSP & VIS & ATT & INT & VIEW & MM & UI & OBS & VLAC & BODYC & ROBC
 ```
 
 | Package | Contents |
 |---|---|
-| `rva-schemas` | Shared data types (dialogue, profile, faces, records) and the agent's interfaces |
+| `rva-schemas` | Shared data types (dialogue, profile, faces, sound directions, links and their transforms, records) and the agent's interfaces |
 | `rva-vla-schemas`, `rva-body-schemas` | The robot API's data types and client interfaces |
 | `rva-agent` | Agent loop, history, system prompt, tools, supervisors, permissions |
 | `rva-llm` | The LLM client over the OpenAI API, and llama-server's launch settings |
 | `rva-voice-audio`, `-asr`, `-tts` | Microphone and speaker, VAD, end of turn, barge-in; Parakeet; Kokoro |
+| `rva-voice-respeaker` | Where the reSpeaker XVF3800 array hears speech from, asked over USB |
 | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face database, camera stream |
 | `rva-vision-viewer` | Shows the camera as it is processed: overlay, Dear PyGui debug window, RTSP stream; a recorder, so vision runs without it |
 | `rva-attention` | Visual attention: which face or hand in view to attend to, as a 3D point |
-| `rva-interaction` | Where perception meets the dialogue: which face in view said each utterance |
+| `rva-interaction` | Where perception meets the dialogue: which face in view said each utterance, from their lips and where the sound comes from |
 | `rva-multimodal` | Where camera and microphone meet: which face speaks, with Light-ASD |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |

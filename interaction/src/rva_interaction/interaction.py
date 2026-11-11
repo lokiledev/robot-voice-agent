@@ -11,8 +11,10 @@ from rva_interaction.gaze import GazeHistory
 from rva_interaction.speakers import SpeakerAttribution
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.dialogue import NobodySeenSpeaking, SeenSpeaking, SpeechSpan, UserUtterance
+from rva_schemas.frames import StaticTransforms
 from rva_schemas.interaction import EngagementEvent, EngagementState
 from rva_schemas.observation import VisualObservation
+from rva_schemas.sound import HeardDirection
 
 
 class Interaction:
@@ -23,7 +25,11 @@ class Interaction:
     """
 
     def __init__(
-        self, config: InteractionConfig, score_delay_s: float | None, recorder: Recorder
+        self,
+        config: InteractionConfig,
+        score_delay_s: float | None,
+        transforms: StaticTransforms,
+        recorder: Recorder,
     ) -> None:
         """Start with nobody seen.
 
@@ -31,6 +37,7 @@ class Interaction:
             config: Thresholds and time constants.
             score_delay_s: How long before its frame the moment the active speaker scores is;
                 `None` without an active speaker, when no utterance can be attributed.
+            transforms: Turn where a microphone array hears speech from into the camera's frame.
             recorder: Receives the engagement of each frame.
         """
         self._config: Final = config
@@ -41,7 +48,12 @@ class Interaction:
             None
             if score_delay_s is None
             else SpeakerAttribution(
-                config.history_s, config.min_speaking_share, config.min_segment_s, score_delay_s
+                config.history_s,
+                config.min_speaking_share,
+                config.min_segment_s,
+                score_delay_s,
+                config.sound_direction,
+                transforms,
             )
         )
         self._speaking: frozenset[int] = frozenset()
@@ -52,6 +64,16 @@ class Interaction:
         """Follow what the camera sees until `observations` ends."""
         async for observation in observations:
             self.observe(observation)
+
+    async def listen(self, directions: AsyncIterator[HeardDirection]) -> None:
+        """Follow where a microphone array hears speech from until `directions` ends."""
+        async for direction in directions:
+            self.hear_direction(direction)
+
+    def hear_direction(self, direction: HeardDirection) -> None:
+        """Take where a microphone array hears speech from; ignored without an active speaker."""
+        if self._speakers is not None:
+            self._speakers.hear(direction)
 
     def observe(self, observation: VisualObservation) -> EngagementState:
         self._gaze.observe(observation)

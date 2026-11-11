@@ -56,6 +56,9 @@ type CameraSource = Annotated[V4l2Source | RobotSource, Field(discriminator="kin
 
 class CameraConfig(RVABaseModel):
     source: CameraSource
+    frame: str
+    """The camera's optical link, whose frame what is seen is placed in: x towards the right of
+    the image, y down and z forward along the camera's axis."""
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     intrinsics: Path | None

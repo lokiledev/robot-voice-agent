@@ -1,51 +1,71 @@
 from collections import Counter, deque
+from collections.abc import Sequence
 from typing import Final, NamedTuple
 
 from loguru import logger
 
+from rva_interaction.bearings import apart, face_bearing, speech_bearing, view_bearings
+from rva_interaction.config import SoundDirectionConfig
 from rva_schemas.dialogue import NobodySeenSpeaking, SeenSpeaking, SpeechSpan, UtteranceSpeaker
+from rva_schemas.frames import StaticTransforms
 from rva_schemas.observation import VisualObservation
+from rva_schemas.record import PeopleInView, TrackedPerson
+from rva_schemas.sound import HeardDirection
 from rva_schemas.vision import KnownPerson
 
 
 class SpeakerAttribution:
     """Tells which face in view said an utterance, from who was seen speaking while it was heard.
 
-    The active speaker often sees a listener speak too, nodding or smiling along, so in each frame
-    only the face it is surest of counts. Fed one observation per frame, in order. It runs on the
-    frames' times and does no I/O: fed a recorded sequence, it attributes the same.
+    One face counts as speaking in each frame. The active speaker often sees a listener speak too,
+    nodding or smiling along, so it is the one it is surest of; but with a microphone array, the
+    direction the speech comes from decides between them first. Fed one observation per frame,
+    and the directions heard, each in order. It runs on their times and does no I/O: fed a
+    recorded sequence, it attributes the same.
     """
 
     def __init__(
-        self, history_s: float, min_share: float, min_segment_s: float, score_delay_s: float
+        self,
+        history_s: float,
+        min_share: float,
+        min_segment_s: float,
+        score_delay_s: float,
+        sound: SoundDirectionConfig,
+        transforms: StaticTransforms,
     ) -> None:
-        """Start with nothing seen.
+        """Start with nothing seen or heard.
 
         Args:
             history_s: How far back who was speaking is kept.
             min_share: Share of an utterance's frames a face must be the one speaking in.
             min_segment_s: The shortest piece a turn is cut into where the speaker changes.
             score_delay_s: How long before its frame the moment the active speaker scores is.
+            sound: How a direction heard tells which face speaks.
+            transforms: Turn a direction heard into the camera's frame.
         """
         self._history_s: Final = history_s
         self._min_share: Final = min_share
         self._min_segment_s: Final = min_segment_s
         self._score_delay_s: Final = score_delay_s
+        self._sound: Final = sound
+        self._transforms: Final = transforms
         self._frames: Final = deque[_Frame]()
+        self._directions: Final = deque[HeardDirection]()
+
+    def hear(self, direction: HeardDirection) -> None:
+        """Take where a microphone array heard speech from, or that it heard none."""
+        self._directions.append(direction)
+        while self._directions[0].time < direction.time - self._history_s:
+            self._directions.popleft()
 
     def observe(self, observation: VisualObservation) -> None:
         time = observation.time - self._score_delay_s
-        speaking = [
-            (person.speaker.score, person)
-            for person in observation.people.people
-            if person.confirmed and person.speaker is not None and person.speaker.speaking
-        ]
-        _, surest = max(speaking, key=lambda scored: scored[0], default=(None, None))
+        speaker = self._speaking(observation.people, self._heard_at(time))
         self._frames.append(
             _Frame(
                 time,
-                None if surest is None else surest.track_id,
-                None if surest is None else surest.person,
+                None if speaker is None else speaker.track_id,
+                None if speaker is None else speaker.person,
             )
         )
         while self._frames[0].time < time - self._history_s:
@@ -101,6 +121,51 @@ class SpeakerAttribution:
         person = next(frame.person for frame in reversed(frames) if frame.track_id == track_id)
         return SeenSpeaking(track_id=track_id, person=person, to_robot=True)
 
+    def _speaking(self, people: PeopleInView, heard: HeardDirection | None) -> TrackedPerson | None:
+        """The face speaking in a frame, if any, from what was seen and heard at its time."""
+        confirmed = [person for person in people.people if person.confirmed]
+        speaking = [
+            (person.speaker.score, person)
+            for person in confirmed
+            if person.speaker is not None and person.speaker.speaking
+        ]
+        surest = _surest(speaking)
+        intrinsics = people.intrinsics
+        bearing = (
+            None
+            if heard is None or intrinsics is None
+            else speech_bearing(heard, people.frame, self._transforms)
+        )
+        if bearing is None or intrinsics is None:
+            return surest
+        tolerance = self._sound.tolerance_deg
+        toward = [
+            person
+            for person in confirmed
+            if apart(face_bearing(person.box, intrinsics), bearing) <= tolerance
+        ]
+        heard_from = {person.track_id for person in toward}
+        seen = _surest([scored for scored in speaking if scored[1].track_id in heard_from])
+        if seen is not None:
+            return seen
+        left, right = view_bearings(intrinsics)
+        if not left - tolerance <= bearing <= right + tolerance:
+            # Someone out of view speaks: lips moving in view are a listener's.
+            return None
+        if surest is not None:
+            # The speech comes from where no face is seen speaking: the direction is too rough
+            # to overrule the lips.
+            return surest
+        # Turned away, or the lips hidden: heard from where only they are.
+        return toward[0] if len(toward) == 1 else None
+
+    def _heard_at(self, time: float) -> HeardDirection | None:
+        """The last direction heard by `time`, unless older than it holds for."""
+        for direction in reversed(self._directions):
+            if direction.time <= time:
+                return direction if time - direction.time <= self._sound.max_age_s else None
+        return None
+
     def _during(self, speech: SpeechSpan) -> list["_Frame"]:
         return [frame for frame in self._frames if speech.start <= frame.time <= speech.end]
 
@@ -112,3 +177,9 @@ class _Frame(NamedTuple):
     """The face seen speaking then, the surest when several were; `None` when none was."""
     person: KnownPerson | None
     """Who that face was recognized as."""
+
+
+def _surest(speaking: Sequence[tuple[float, TrackedPerson]]) -> TrackedPerson | None:
+    """The face the active speaker is surest of among those it saw speaking."""
+    _, surest = max(speaking, key=lambda scored: scored[0], default=(None, None))
+    return surest

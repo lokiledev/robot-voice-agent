@@ -144,6 +144,9 @@ class PeopleInView(RVABaseModel):
     """Every person tracked or seen in one camera frame."""
 
     kind: Literal["people"] = "people"
+    frame: str
+    """The camera's optical link, whose frame the 3D points are in: x towards the right of the
+    image, y down and z forward along the camera's axis."""
     image_width: int
     image_height: int
     """Size of the image the coordinates are in: the recorded video's when there is one."""

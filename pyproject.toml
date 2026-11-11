@@ -67,6 +67,7 @@ rva-vision-faces = {workspace = true}
 rva-vision-viewer = {workspace = true}
 rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
+rva-voice-respeaker = {workspace = true}
 rva-voice-tts = {workspace = true}
 # CUDA build: Nyx, the simulated camera's path tracer, renders on the GPU through it.
 torch = {index = "pytorch-cu130"}
@@ -101,6 +102,7 @@ members = [
   "vision/viewer",
   "voice/asr",
   "voice/audio",
+  "voice/respeaker",
   "voice/tts",
 ]
 

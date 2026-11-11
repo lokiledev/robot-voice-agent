@@ -90,6 +90,7 @@ def test_people_are_drawn_on_the_image_and_in_3d(tmp_path: Path) -> None:
     )
     recorder.record(
         PeopleInView(
+            frame="camera_optical",
             image_width=96,
             image_height=54,
             intrinsics=intrinsics,

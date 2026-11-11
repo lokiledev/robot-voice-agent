@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from rva_app.config import RuntimeConfig, load_admins
 from rva_pydantic import load_yaml
@@ -104,3 +105,10 @@ def test_the_simulated_people_are_kept_apart_from_the_real_ones() -> None:
     ]
     assert reachy.vision.database != default.vision.database
     assert reachy.admins != default.admins
+
+
+def test_the_respeaker_needs_a_transform_to_the_camera() -> None:
+    config = RuntimeConfig.load(_REPOSITORY / "config" / "default")
+
+    with pytest.raises(ValidationError, match="No transform between"):
+        RuntimeConfig.model_validate({**config.model_dump(), "transforms": ()})

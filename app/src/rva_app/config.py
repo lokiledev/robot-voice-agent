@@ -15,6 +15,7 @@ from rva_observability.session import ObservabilityConfig
 from rva_pydantic import RVABaseModel, load_yaml
 from rva_robot_client.client import RobotClientConfig
 from rva_robot_sim.config import ReachyMiniDescriptionConfig
+from rva_schemas.frames import FrameTransform, StaticTransforms
 from rva_schemas.profile import Admins
 from rva_ui.media import MediaServerConfig
 from rva_ui.server import UiConfig
@@ -23,6 +24,7 @@ from rva_vision_viewer.stream import VideoStreamConfig
 from rva_vla_client.client import HttpVlaClientConfig
 from rva_voice_asr.parakeet import ParakeetConfig
 from rva_voice_audio.config import AudioConfig
+from rva_voice_respeaker.config import ReSpeakerConfig
 from rva_voice_tts.kokoro import KokoroConfig
 
 
@@ -65,6 +67,11 @@ class RuntimeConfig(RVABaseModel):
     """Which face speaks, from the camera and the microphone; `None` to leave it out."""
     interaction: InteractionConfig
     """Who pays attention to the robot, and who each utterance is from and to."""
+    respeaker: ReSpeakerConfig | None
+    """The microphone array asked where speech comes from, to tell who said it; `None` without
+    one."""
+    transforms: tuple[FrameTransform, ...]
+    """Where links are fixed relative to each other, until the robot's description tells it."""
     admins: Path
     """YAML file of the admins' user ids, outside the source tree like the face database their ids
     refer to; `~` is expanded. Without it there are no admins."""
@@ -78,6 +85,12 @@ class RuntimeConfig(RVABaseModel):
             raise ValueError("vision.camera.source is the robot's, but there is no robot")
         if self.head_controller is not None and self.robot is None:
             raise ValueError("There is a head controller, but no robot for it to drive")
+        if self.respeaker is not None:
+            if self.active_speaker is None:
+                raise ValueError("The reSpeaker's directions only help the active speaker")
+            camera, array = self.vision.camera.frame, self.respeaker.frame
+            if not StaticTransforms(self.transforms).connects(camera, array):
+                raise ValueError(f"No transform between the camera's {camera} and the {array}")
         return self
 
     @classmethod

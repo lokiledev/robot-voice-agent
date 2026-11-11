@@ -113,6 +113,17 @@ systemctl --user restart pipewire pipewire-pulse wireplumber
 With headphones, set `audio.input_device` and `audio.output_device` to `null` in `runtime.yaml`
 to use the system's default devices instead.
 
+The reSpeaker also tells where it hears speech from, which helps tell who in view is speaking.
+Lune asks it over USB, which takes root unless this rule lets you:
+
+```bash
+sudo cp config/udev/70-respeaker-xvf3800.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger
+```
+
+`lune doa` then prints the direction it hears, to check the profile's `transforms` entry, which
+says how the array sits relative to the camera. Without the array, set `respeaker: null`.
+
 ### Run
 
 ```bash
@@ -175,6 +186,7 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
 | `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot; `--replay clip.mp4` watches and hears a video file instead, `--show` opens the camera window |
+| `lune doa` | Prints where the reSpeaker array hears speech from, on the board and from the camera, to check how the profile places it; `--viewer` plots each of its beams in rerun |
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |
 | `lune llm` | Chat with the LLM alone; tool calls are shown, not run |
 | `lune prompt` | Prints the system prompt built from the profile |

@@ -55,7 +55,12 @@ def frame(time: float, *people: TrackedPerson) -> VisualObservation:
     return VisualObservation(
         time=time,
         people=PeopleInView(
-            image_width=1920, image_height=1080, intrinsics=None, people=people, unmatched_bodies=()
+            frame="camera_optical",
+            image_width=1920,
+            image_height=1080,
+            intrinsics=None,
+            people=people,
+            unmatched_bodies=(),
         ),
         main_user=None,
     )

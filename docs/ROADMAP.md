@@ -34,8 +34,18 @@ what exists and why.
 - **A plan going on can take up what a stranger asked meanwhile.** The next step of an
   operator's plan may start with nobody in front. The LLM chooses that step, with all it heard
   in mind: a request it declined to someone else during the plan is not kept from it by code.
-- **Voices out of view are ignored.** A microphone array that tells where a sound comes from
-  (ReSpeaker) is planned, to place speakers the camera does not see.
+- **Voices out of view are nobody's.** The reSpeaker tells where they come from, but nothing
+  turns to them yet: speech from out of view could be a candidate of the attention, so that the
+  head turns to look, and the utterance could carry its direction.
+- **The sound's direction is not measured against faces yet.** The 15 degrees a face may be from
+  the speech, and the transform from the array to the camera, are guesses: check them with
+  `lune doa` and with recordings of several people. The array's offset from the camera is left
+  out, which is wrong by a few degrees for someone close and off to the side.
+- **Steering the array's beams** at the people engaged, which the chip's fixed-beam mode can do
+  for two: each beam's speech energy would then tell which of them speaks, and the second USB
+  channel could carry the second beam, a stream per person when they talk over each other. It
+  waits until the directions heard prove right; the beams' gating must stay off, or someone out
+  of view could no longer interrupt.
 
 ## Robot body
 
@@ -97,6 +107,18 @@ what exists and why.
   controller and the clients do not change.
 
 ## Sound
+
+- **Which of the reSpeaker's channels to recognize.** Lune reads the first, the selected beam
+  after all the chip's processing. The second carries the beam's speech recognition output,
+  without the noise and residual echo suppression and the gain control, whose artifacts can
+  cost a recognizer words, but with the robot's own voice left in it (0.045 against 0.0003 RMS
+  during a chirp). Both could be read: the voice activity and barge-in on the first, which is
+  free of echo, and Parakeet on the second over the same stretch, while the robot is silent.
+  Record both while people talk, with and without the robot speaking, and compare the
+  transcripts' errors and the false barge-ins.
+- **Links from the robot's description.** Transforms are given in the profile, between two
+  links at a time, and fixed. Read from the URDF and the joints, chained through the tree, the
+  array and the camera could sit on links that move apart, the head turning above the body.
 
 - **The last second of the microphone** is missing from a recording: the frames are joined into
   clips of a second, and the one still filling when the session ends is not written.

@@ -39,7 +39,12 @@ async def test_a_page_gets_the_session_so_far_then_each_entry_as_it_comes() -> N
         # Drawn into the video stream instead.
         ui.record(
             PeopleInView(
-                image_width=96, image_height=54, intrinsics=None, people=(), unmatched_bodies=()
+                frame="camera_optical",
+                image_width=96,
+                image_height=54,
+                intrinsics=None,
+                people=(),
+                unmatched_bodies=(),
             )
         )
         ui.record(RobotLine(text="Hi!", interrupted=False))

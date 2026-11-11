@@ -55,6 +55,9 @@ vision:
   camera:
     source:
       kind: robot
+    # A placeholder: the MJCF's camera is `eye_camera`, which looks along -z with +y up, not an
+    # optical frame. The robot's description would add the optical link.
+    frame: eye_camera_optical
     width: 1280
     height: 720
     intrinsics: cameras/reachy_mini_sim.yaml
@@ -192,6 +195,12 @@ interaction:
   # Someone engaged with no other face in view is trusted wherever they look.
   engaged_min_gaze: 0.1
   bystander_min_gaze: 0.5
+  # With a microphone array, the direction speech is heard from picks the face speaking among those
+  # seen to, and speech from out of view is nobody's in view: a face within this angle of it, around
+  # the vertical, may have said it. A direction holds for this long after it is heard.
+  sound_direction:
+    tolerance_deg: 15.0
+    max_age_s: 0.2
   # Whose speech stops the robot's: `engaged`, only an engaged person seen speaking (anyone while
   # nobody is engaged), or `anyone`. A stop word stops it either way.
   barge_in: engaged
@@ -226,6 +235,9 @@ media_server:
 
 observability:
   captures_dir: ~/Captures/robot-voice-agent
+
+respeaker: null
+transforms: []
 
 audio:
   # The reSpeaker XVF3800 cancels the echo on its chip, against what it plays from its own jack,

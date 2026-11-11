@@ -35,6 +35,7 @@ The repository is one uv workspace. Each package lives in its domain directory w
 | `voice/audio` | `rva-voice-audio` | Audio I/O, VAD, end of turn, barge-in; implements `UserInput` and `SpeechOutput` |
 | `voice/asr` | `rva-voice-asr` | `SpeechRecognizer` with Parakeet |
 | `voice/tts` | `rva-voice-tts` | `SpeechSynthesizer` with Kokoro |
+| `voice/respeaker` | `rva-voice-respeaker` | The reSpeaker XVF3800 array, asked over USB where it hears speech from (pyusb) |
 | `vision/faces` | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face memory; implements `Vision` |
 | `vision/viewer` | `rva-vision-viewer` | Shows the camera as it is processed: the overlay, a Dear PyGui debug window and the RTSP stream; implements `Recorder` |
 | `attention` | `rva-attention` | Visual attention: scores the faces and hands in view and picks the one to attend to, as a 3D point |

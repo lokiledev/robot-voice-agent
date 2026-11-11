@@ -40,6 +40,17 @@ class EngagementConfig(RVABaseModel):
         return self
 
 
+class SoundDirectionConfig(RVABaseModel):
+    """How the direction a microphone array hears speech from tells which face said it."""
+
+    tolerance_deg: float = Field(gt=0)
+    """How far apart around the vertical a face and the speech may be for the speech to be the
+    face's: the array's error, and the room's echoes."""
+    max_age_s: float = Field(gt=0)
+    """How long a direction heard holds for the frames after it: longer than the array is asked
+    at, shorter than a pause between two speakers."""
+
+
 class InteractionConfig(RVABaseModel):
     """How what the camera and the microphone perceive shapes the conversation."""
 
@@ -59,6 +70,7 @@ class InteractionConfig(RVABaseModel):
     throughout. Alone in view, they are trusted wherever they look."""
     bystander_min_gaze: float = Field(ge=0, le=1)
     """The same for a speaker who is not engaged, who must look at the robot for most of it."""
+    sound_direction: SoundDirectionConfig
     barge_in: Literal["anyone", "engaged"]
     """Whose speech stops the robot's: anyone's, or only an engaged person's seen speaking; anyone's
     still while nobody is engaged."""

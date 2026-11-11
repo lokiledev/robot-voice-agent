@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import math
 import os
 import signal
 import sys
@@ -39,6 +40,7 @@ from rva_attention.attention import VisualAttention
 from rva_attention.config import VisualAttentionConfig
 from rva_attention.follow import follow
 from rva_body_client.client import HttpBodyClient
+from rva_interaction.bearings import speech_bearing
 from rva_interaction.input import AttributedInput
 from rva_interaction.interaction import Interaction
 from rva_llm.client import OpenAiLanguageModel
@@ -65,6 +67,7 @@ from rva_schemas.dialogue import (
     UserMessage,
     UserUtterance,
 )
+from rva_schemas.frames import StaticTransforms
 from rva_schemas.profile import Profile
 from rva_schemas.vision import UnknownTrackError
 from rva_ui.media import (
@@ -82,6 +85,8 @@ from rva_vision_faces.vision import FaceVision
 from rva_vision_viewer.monitor import CameraMonitor
 from rva_vla_client.client import HttpVlaClient
 from rva_voice_audio.devices import Microphone
+from rva_voice_respeaker.control import ReSpeakerUnavailableError
+from rva_voice_respeaker.respeaker import ReSpeaker, open_respeaker
 
 app = cyclopts.App(
     name="lune",
@@ -92,6 +97,8 @@ type ProfileDir = Annotated[Path, cyclopts.Parameter(help="Robot profile directo
 _DEFAULT_PROFILE = Path("config/default")
 _WINDOW_SIZE: Final = (960, 540)
 """Size of the camera image in the debug window."""
+_DOA_PRINT_S: Final = 0.25
+"""How often `lune doa` prints where speech comes from, at most."""
 
 
 @app.command
@@ -215,6 +222,21 @@ def listen(
 
 
 @app.command
+def doa(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+    """Print where the reSpeaker array hears speech from, without the agent.
+
+    Four times a second while it hears speech: the azimuth in the array's frame, and the bearing
+    from the camera that the profile's transform gives it, to check or calibrate the transform.
+
+    Args:
+        profile: Robot profile directory.
+        viewer: Stream the recording, with each beam's azimuth and speech energy, to a rerun
+            viewer.
+    """
+    _run(_doa(profile, viewer))
+
+
+@app.command
 def say(*, profile: ProfileDir = _DEFAULT_PROFILE, voice: str | None = None) -> None:
     """Speak each line typed, sentence by sentence.
 
@@ -253,7 +275,12 @@ def run(
 def _run(main: Coroutine[object, object, None]) -> None:
     try:
         asyncio.run(main)
-    except (ServersUnavailableError, ServiceFailedError, RobotUnavailableError) as error:
+    except (
+        ServersUnavailableError,
+        ServiceFailedError,
+        RobotUnavailableError,
+        ReSpeakerUnavailableError,
+    ) as error:
         sys.stderr.write(f"{error}\n")
         raise SystemExit(1) from error
 
@@ -457,7 +484,7 @@ async def _listen(
     interaction = (
         None
         if active_speaker is None
-        else Interaction(config.interaction, active_speaker.delay_s, recorder)
+        else Interaction(config.interaction, active_speaker.delay_s, _transforms(config), recorder)
     )
     split = _whole if interaction is None else interaction.split
     # A replayed file's sound starts with its first image.
@@ -478,6 +505,10 @@ async def _listen(
         if interaction is None:
             await _print_heard(voice)
             return
+        # The array hears the room now, not the file's.
+        respeaker = await stack.enter_async_context(
+            _respeaker(config, recorder, listening=replay is None)
+        )
         vision = await asyncio.to_thread(
             _face_vision,
             config,
@@ -494,6 +525,7 @@ async def _listen(
             config.attention,
             gaze_out(config),
             interaction,
+            respeaker,
             recorder,
         )
 
@@ -527,6 +559,29 @@ async def _print_heard(user_input: UserInput) -> None:
             case _:
                 assert_never(utterance.speaker)
         write(f"{who}{utterance.text}  [{delay_ms:.0f} ms after the end of the turn]\n")
+
+
+async def _doa(profile_dir: Path, viewer: bool) -> None:
+    config = RuntimeConfig.load(profile_dir)
+    if config.respeaker is None:
+        raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no respeaker")
+    recorder = start_session(config.observability, "doa", viewer=viewer, console_level="WARNING")
+    camera = config.vision.camera.frame
+    transforms = _transforms(config)
+    async with open_respeaker(config.respeaker, recorder) as respeaker:
+        write("Listening for where speech comes from. Ctrl+C to stop.\n")
+        printed = -math.inf
+        async for direction in respeaker.directions():
+            if direction.speech_azimuth is None or direction.time - printed < _DOA_PRINT_S:
+                continue
+            printed = direction.time
+            bearing = speech_bearing(direction, camera, transforms)
+            assert bearing is not None, "speech was heard"
+            side = "right" if bearing >= 0 else "left"
+            write(
+                f"{math.degrees(direction.speech_azimuth):6.1f}° in {direction.frame},"
+                f" {abs(bearing):5.1f}° {side} of {camera}\n"
+            )
 
 
 async def _say(profile_dir: Path, voice_name: str | None) -> None:
@@ -582,8 +637,13 @@ async def _run_voice_agent(
             if speaker is None or config.active_speaker is None
             else config.active_speaker.delay_s
         )
-        interaction = None if vision is None else Interaction(config.interaction, delay_s, recorder)
+        interaction = (
+            None
+            if vision is None
+            else Interaction(config.interaction, delay_s, _transforms(config), recorder)
+        )
         async with (
+            _respeaker(config, recorder, listening=speaker is not None) as respeaker,
             open_voice_output(config.audio, config.tts, speaking, recorder) as speech,
             open_voice_input(
                 config.audio,
@@ -607,6 +667,7 @@ async def _run_voice_agent(
                 vision,
                 monitor,
                 interaction,
+                respeaker,
             )
 
 
@@ -621,6 +682,7 @@ async def _run_agent(
     vision: FaceVision | None,
     monitor: CameraMonitor | None,
     interaction: Interaction | None,
+    respeaker: ReSpeaker | None,
 ) -> None:
     if interaction is not None:
         user_input = AttributedInput(user_input, interaction)
@@ -646,6 +708,7 @@ async def _run_agent(
         config.attention,
         gaze_out(config),
         interaction,
+        respeaker,
         recorder,
     )
 
@@ -741,7 +804,10 @@ async def _run_text_agent(
             vision,
             monitor,
             # No microphone: typed lines are the face in front's, and people still engage.
-            None if vision is None else Interaction(config.interaction, None, recorder),
+            None
+            if vision is None
+            else Interaction(config.interaction, None, _transforms(config), recorder),
+            None,
         )
 
 
@@ -845,6 +911,7 @@ async def _see(
     interaction = Interaction(
         config.interaction,
         None if config.active_speaker is None or not listen else config.active_speaker.delay_s,
+        _transforms(config),
         recorder,
     )
     vision = await asyncio.to_thread(
@@ -868,6 +935,11 @@ async def _see(
                 )
                 # The speaker detector takes the sound in the audio thread; nothing else needs it.
                 tasks.append(group.create_task(_drain(microphone.frames())))
+                respeaker = await stack.enter_async_context(
+                    _respeaker(config, recorder, listening=True)
+                )
+                if respeaker is not None:
+                    tasks.append(group.create_task(interaction.listen(respeaker.directions())))
             seeing = group.create_task(vision.run())
             # Until the camera fails or the window is closed.
             await asyncio.wait([seeing, tasks[2]], return_when=asyncio.FIRST_COMPLETED)
@@ -926,6 +998,19 @@ async def _interact(vision: FaceVision, interaction: Interaction) -> None:
 
 async def _speaker(config: ActiveSpeakerConfig | None) -> SpeakerDetector | None:
     return None if config is None else await asyncio.to_thread(open_light_asd, config)
+
+
+def _respeaker(
+    config: RuntimeConfig, recorder: Recorder, *, listening: bool
+) -> AbstractAsyncContextManager[ReSpeaker | None]:
+    """The profile's microphone array, if it has one and the room is listened to."""
+    if config.respeaker is None or not listening:
+        return contextlib.nullcontext(None)
+    return open_respeaker(config.respeaker, recorder)
+
+
+def _transforms(config: RuntimeConfig) -> StaticTransforms:
+    return StaticTransforms(config.transforms)
 
 
 async def _drain(items: AsyncIterator[object]) -> None:
@@ -1042,12 +1127,13 @@ async def _with_vision(
     attention: VisualAttentionConfig,
     gaze: GazeOut | None,
     interaction: Interaction | None,
+    respeaker: ReSpeaker | None,
     recorder: Recorder,
 ) -> None:
     """Run `main` while the camera is watched, shown and attended to.
 
     With `gaze`, the head looks at the attention's target; with an `interaction`, it is shown what
-    the camera sees meanwhile.
+    the camera sees meanwhile, and told where `respeaker` hears speech from.
 
     A camera failure stops `main`; closing the window only closes it.
     """
@@ -1060,6 +1146,8 @@ async def _with_vision(
             watching = [group.create_task(_attend(vision, attention, gaze, recorder))]
             if interaction is not None:
                 watching.append(group.create_task(_interact(vision, interaction)))
+                if respeaker is not None:
+                    watching.append(group.create_task(interaction.listen(respeaker.directions())))
             await main
             seeing.cancel()
             for task in watching:

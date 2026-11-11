@@ -437,7 +437,14 @@ class FaceVision:
         height, width = frame.shape[:2]
         caption = self._current_caption()
         people = people_in_view(
-            self._tracker.tracks, scene, 1.0, width, height, intrinsics, caption
+            self._tracker.tracks,
+            scene,
+            1.0,
+            width,
+            height,
+            self._config.camera.frame,
+            intrinsics,
+            caption,
         )
         if not self._record_video:
             self._recorder.record(people)
@@ -465,6 +472,7 @@ class FaceVision:
                     scale,
                     round(width * scale),
                     round(height * scale),
+                    self._config.camera.frame,
                     intrinsics,
                     caption,
                 )

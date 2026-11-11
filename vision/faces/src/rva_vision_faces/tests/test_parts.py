@@ -359,6 +359,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
         scale=0.5,
         width=960,
         height=540,
+        frame="camera_optical",
         intrinsics=CameraIntrinsics(
             calibrated=False, width=1920, height=1080, fx=1360.0, fy=1360.0, cx=959.5, cy=539.5
         ),
@@ -375,6 +376,7 @@ def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
         right_hand=half_hand,
     )
     assert people == PeopleInView(
+        frame="camera_optical",
         image_width=960,
         image_height=540,
         intrinsics=CameraIntrinsics(

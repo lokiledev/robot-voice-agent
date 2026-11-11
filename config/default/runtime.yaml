@@ -45,6 +45,8 @@ vision:
       kind: v4l2
       device: /dev/video0  # Logitech HD Pro Webcam C920
       fps: 30
+    # A placeholder until a description of the setup names the camera's optical link.
+    frame: c920_optical
     width: 1920
     height: 1080
     intrinsics: cameras/c920.yaml  # Assumed from the datasheet, not calibrated yet.
@@ -185,6 +187,12 @@ interaction:
   # Someone engaged with no other face in view is trusted wherever they look.
   engaged_min_gaze: 0.1
   bystander_min_gaze: 0.5
+  # With a microphone array, the direction speech is heard from picks the face speaking among those
+  # seen to, and speech from out of view is nobody's in view: a face within this angle of it, around
+  # the vertical, may have said it. A direction holds for this long after it is heard.
+  sound_direction:
+    tolerance_deg: 15.0
+    max_age_s: 0.2
   # Whose speech stops the robot's: `engaged`, only an engaged person seen speaking (anyone while
   # nobody is engaged), or `anyone`. A stop word stops it either way.
   barge_in: engaged
@@ -219,6 +227,27 @@ media_server:
 
 observability:
   captures_dir: ~/Captures/robot-voice-agent
+
+# The reSpeaker XVF3800 array, asked over USB where it hears speech from: see
+# config/udev/70-respeaker-xvf3800.rules to do it without root. `lune doa` prints what it hears.
+respeaker:
+  # A placeholder until a description of the setup names the array's link.
+  frame: respeaker_xvf3800
+  poll_hz: 20.0
+  # The chip's processing, from the sound to its answer: XMOS gives 58 ms at least.
+  delay_s: 0.06
+
+# Where links are fixed relative to each other, as URDF joints' origins, until a description of
+# the setup gives them. Directions use only the rotation: how far the speaker is, nobody knows.
+transforms:
+  # The array lies flat under the camera, its azimuths growing to the left. Someone talking
+  # straight in front of the camera is at 176 degrees on the board, measured with `lune doa`, so
+  # its x axis points back, 4 degrees off: pitch 90 - 4 degrees. Facing ahead, it would be
+  # [1.5707963, -1.5707963, 0.0]. The offset is not measured.
+  - parent: c920_optical
+    child: respeaker_xvf3800
+    xyz: [0.0, 0.05, 0.0]
+    rpy: [1.5707963, 1.5009832, 0.0]
 
 audio:
   # The reSpeaker XVF3800 cancels the echo on its chip, against what it plays from its own jack,

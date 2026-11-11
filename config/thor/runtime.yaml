@@ -46,6 +46,8 @@ vision:
       # RealSense D455 colour stream, named by the robot's udev rules; YUYV only, up to 1280x800.
       device: /dev/video-ego-rgb
       fps: 30
+    # A placeholder until the robot's description is read: ROS names the D455's this way.
+    frame: camera_color_optical_frame
     width: 1280
     height: 720
     intrinsics: null  # Not calibrated yet; see config/default/cameras for the format.
@@ -184,6 +186,12 @@ interaction:
   # Someone engaged with no other face in view is trusted wherever they look.
   engaged_min_gaze: 0.1
   bystander_min_gaze: 0.5
+  # With a microphone array, the direction speech is heard from picks the face speaking among those
+  # seen to, and speech from out of view is nobody's in view: a face within this angle of it, around
+  # the vertical, may have said it. A direction holds for this long after it is heard.
+  sound_direction:
+    tolerance_deg: 15.0
+    max_age_s: 0.2
   # Whose speech stops the robot's: `engaged`, only an engaged person seen speaking (anyone while
   # nobody is engaged), or `anyone`. A stop word stops it either way.
   barge_in: engaged
@@ -218,6 +226,9 @@ media_server:
 
 observability:
   captures_dir: ~/Captures/robot-voice-agent
+
+respeaker: null
+transforms: []
 
 audio:
   # No sound server on Thor: the USB headset is ALSA's default, through a `plug` PCM in

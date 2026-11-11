@@ -32,15 +32,17 @@ def people_in_view(
     scale: float,
     width: int,
     height: int,
+    frame: str,
     intrinsics: CameraIntrinsics | None,
     caption: tuple[int, str] | None,
 ) -> PeopleInView:
     """The tracks and what was seen of them, in an image scaled by `scale` to `width` by `height`.
 
-    `intrinsics` are the camera's at the frame's resolution, if known. `caption` is a track id and
-    what that person said, shown on their box.
+    `frame` is the camera's optical link, `intrinsics` the camera's at the frame's resolution, if
+    known. `caption` is a track id and what that person said, shown on their box.
     """
     return PeopleInView(
+        frame=frame,
         image_width=width,
         image_height=height,
         intrinsics=None if intrinsics is None else intrinsics.scaled_to(width, height),
