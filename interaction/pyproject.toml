@@ -1,7 +1,7 @@
 [project]
 name = "rva-interaction"
 version = "0.1.0"
-description = "Where perception meets the dialogue: which face in view said each utterance"
+description = "Where perception meets the dialogue: who is engaged, who said each utterance and to whom"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [

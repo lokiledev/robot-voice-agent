@@ -3,7 +3,6 @@ from typing import Final, NamedTuple
 
 from loguru import logger
 
-from rva_interaction.config import SpeakerAttributionConfig
 from rva_schemas.dialogue import NobodySeenSpeaking, SeenSpeaking, SpeechSpan, UtteranceSpeaker
 from rva_schemas.observation import VisualObservation
 from rva_schemas.vision import KnownPerson
@@ -16,14 +15,16 @@ class SpeakerAttribution:
     recorded sequence, it attributes the same.
     """
 
-    def __init__(self, config: SpeakerAttributionConfig, score_delay_s: float) -> None:
+    def __init__(self, history_s: float, min_share: float, score_delay_s: float) -> None:
         """Start with nothing seen.
 
         Args:
-            config: How much of an utterance a face must be seen speaking in.
+            history_s: How far back who was speaking is kept.
+            min_share: Share of an utterance's frames a face must be seen speaking in.
             score_delay_s: How long before its frame the moment the active speaker scores is.
         """
-        self._config: Final = config
+        self._history_s: Final = history_s
+        self._min_share: Final = min_share
         self._score_delay_s: Final = score_delay_s
         self._frames: Final = deque[_Frame]()
 
@@ -39,14 +40,15 @@ class SpeakerAttribution:
                 },
             )
         )
-        while self._frames[0].time < time - self._config.history_s:
+        while self._frames[0].time < time - self._history_s:
             self._frames.popleft()
 
     def attribute(self, speech: SpeechSpan) -> UtteranceSpeaker:
         """Who said what was heard over `speech`: the face seen speaking for most of it.
 
         Nobody, when no face was seen speaking for `min_share` of it: the speaker is out of
-        view, or turned away.
+        view, or turned away. Whether it was said to the robot is not judged here: it is taken
+        to be.
         """
         frames = [frame for frame in self._frames if speech.start <= frame.time <= speech.end]
         seen = Counter(track_id for frame in frames for track_id in frame.speaking)
@@ -55,13 +57,13 @@ class SpeakerAttribution:
         if not shares:
             return NobodySeenSpeaking()
         track_id, share = max(shares.items(), key=lambda item: item[1])
-        if share < self._config.min_share:
+        if share < self._min_share:
             return NobodySeenSpeaking()
         # Whoever the face was last recognized as: a name can come in the middle of a sentence.
         person = next(
             frame.speaking[track_id] for frame in reversed(frames) if track_id in frame.speaking
         )
-        return SeenSpeaking(track_id=track_id, person=person)
+        return SeenSpeaking(track_id=track_id, person=person, to_robot=True)
 
 
 class _Frame(NamedTuple):

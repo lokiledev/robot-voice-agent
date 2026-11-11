@@ -8,6 +8,7 @@ from rva_body_schemas.motion import Motion
 from rva_pydantic import RVABaseModel
 from rva_schemas.attention import AttentionState
 from rva_schemas.dialogue import ToolSpec
+from rva_schemas.interaction import EngagementState
 from rva_schemas.vision import (
     ActiveSpeaker,
     Body,
@@ -60,7 +61,7 @@ class RobotLine(RVABaseModel):
     text: str
     """What the user heard of the reply."""
     interrupted: bool
-    """Whether the user talked over the robot, which stopped there."""
+    """Whether the robot stopped there: the user talked over it, or stopped listening."""
 
 
 class ToolInvocation(RVABaseModel):
@@ -187,6 +188,7 @@ type Record = Annotated[
     | CameraFrame
     | DepthFrame
     | LiveFrame
-    | AttentionState,
+    | AttentionState
+    | EngagementState,
     Field(discriminator="kind"),
 ]

@@ -5,7 +5,7 @@ from loguru import logger
 from rva_agent.config import AgentConfig
 from rva_attention.config import VisualAttentionConfig
 from rva_body_client.client import HttpBodyClientConfig
-from rva_interaction.config import SpeakerAttributionConfig
+from rva_interaction.config import InteractionConfig
 from rva_llm.client import OpenAiLanguageModelConfig
 from rva_llm.server import LlamaServerConfig
 from rva_multimodal.config import ActiveSpeakerConfig
@@ -40,8 +40,8 @@ class RuntimeConfig(RVABaseModel):
     """Where the camera with the overlay is published for the session page, with `--ui`."""
     active_speaker: ActiveSpeakerConfig | None
     """Which face speaks, from the camera and the microphone; `None` to leave it out."""
-    speakers: SpeakerAttributionConfig
-    """Which face said each utterance, from who the active speaker saw speaking meanwhile."""
+    interaction: InteractionConfig
+    """Who pays attention to the robot, and who each utterance is from and to."""
     admins: Path
     """YAML file of the admins' user ids, outside the source tree like the face database their ids
     refer to; `~` is expanded. Without it there are no admins."""

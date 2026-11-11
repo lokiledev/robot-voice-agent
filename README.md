@@ -136,7 +136,7 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
-| `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it |
+| `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot |
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |
 | `lune llm` | Chat with the LLM alone; tool calls are shown, not run |
 | `lune prompt` | Prints the system prompt built from the profile |

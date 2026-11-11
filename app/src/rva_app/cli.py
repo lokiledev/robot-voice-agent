@@ -29,7 +29,7 @@ from rva_attention.config import VisualAttentionConfig
 from rva_attention.follow import follow
 from rva_body_client.client import HttpBodyClient
 from rva_interaction.input import AttributedInput
-from rva_interaction.speakers import SpeakerAttribution
+from rva_interaction.interaction import Interaction
 from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
 from rva_multimodal.config import ActiveSpeakerConfig
@@ -366,24 +366,29 @@ async def _listen(profile_dir: Path, viewer: bool, camera: bool) -> None:
     active_speaker = config.active_speaker if camera else None
     speaker = await _speaker(active_speaker)
     async with open_voice_input(
-        config.audio, config.asr, recorder, silent, lambda: write("… "), speaker
+        config.audio, config.asr, recorder, silent, lambda: write("… "), _anyone, speaker
     ) as voice:
         write("Listening. Ctrl+C to stop.\n")
         if active_speaker is None:
             await _print_heard(voice)
             return
         vision = await asyncio.to_thread(
-            _face_vision, config.vision, recorder, False, depth=False, speaker=speaker
+            _face_vision, config.vision, recorder, False, depth=True, speaker=speaker
         )
-        attribution = SpeakerAttribution(config.speakers, active_speaker.delay_s)
+        interaction = Interaction(config.interaction, active_speaker.delay_s, recorder)
         await _with_vision(
-            _print_heard(AttributedInput(voice, attribution)),
+            _print_heard(AttributedInput(voice, interaction)),
             vision,
             None,
             config.attention,
-            attribution,
+            interaction,
             recorder,
         )
+
+
+def _anyone() -> bool:
+    """Whose speech may stop the robot's, where nobody is told apart."""
+    return True
 
 
 async def _print_heard(user_input: UserInput) -> None:
@@ -392,9 +397,10 @@ async def _print_heard(user_input: UserInput) -> None:
         match utterance.speaker:
             case None:
                 who = ""
-            case SeenSpeaking(track_id=track_id, person=person):
+            case SeenSpeaking(track_id=track_id, person=person, to_robot=to_robot):
                 name = "unknown person" if person is None else person.name
-                who = f"[{name}, track {track_id}] "
+                to = "to the robot" if to_robot else "not to the robot"
+                who = f"[{name}, track {track_id}, {to}] "
             case NobodySeenSpeaking():
                 who = "[nobody seen speaking] "
             case _:
@@ -411,7 +417,7 @@ async def _say(profile_dir: Path, voice_name: str | None) -> None:
         write("Type sentences to hear them. Ctrl+D to stop.\n")
         async for line in read_lines():
             started = time.perf_counter()
-            spoken = await voice.say(split_sentences(_one(line)))
+            spoken = await voice.say(split_sentences(_one(line)), lambda: True)
             write(f"[{(time.perf_counter() - started):.1f} s] {spoken.text}\n")
 
 
@@ -443,18 +449,25 @@ async def _run_voice_agent(
             if camera
             else None
         )
+        # Without an active speaker, an utterance is the face in front's, said to the robot.
+        delay_s = (
+            None
+            if speaker is None or config.active_speaker is None
+            else config.active_speaker.delay_s
+        )
+        interaction = None if vision is None else Interaction(config.interaction, delay_s, recorder)
         async with (
             open_voice_output(config.audio, config.tts, speaking, recorder) as speech,
             open_voice_input(
-                config.audio, config.asr, recorder, speaking, speech.interrupt, speaker
+                config.audio,
+                config.asr,
+                recorder,
+                speaking,
+                speech.interrupt,
+                _anyone if interaction is None or delay_s is None else interaction.may_interrupt,
+                speaker,
             ) as voice,
         ):
-            # Without an active speaker, an utterance is the face in front's.
-            attribution = (
-                None
-                if speaker is None or config.active_speaker is None
-                else SpeakerAttribution(config.speakers, config.active_speaker.delay_s)
-            )
             await _run_agent(
                 profile,
                 config,
@@ -465,7 +478,7 @@ async def _run_voice_agent(
                 _typed_too(voice, page),
                 vision,
                 monitor,
-                attribution,
+                interaction,
             )
 
 
@@ -479,10 +492,10 @@ async def _run_agent(
     user_input: UserInput,
     vision: FaceVision | None,
     monitor: CameraMonitor | None,
-    attribution: SpeakerAttribution | None,
+    interaction: Interaction | None,
 ) -> None:
-    if attribution is not None:
-        user_input = AttributedInput(user_input, attribution)
+    if interaction is not None:
+        user_input = AttributedInput(user_input, interaction)
     agent = Agent(
         llm=OpenAiLanguageModel(config.llm),
         vla=vla,
@@ -491,12 +504,13 @@ async def _run_agent(
         speech=speech,
         recorder=recorder,
         vision=vision,
+        engagement=interaction,
         profile=profile,
         admins=load_admins(config.admins),
         config=config.agent,
     )
     logger.info("{} is up", profile.character.name)
-    await _with_vision(agent.run(), vision, monitor, config.attention, attribution, recorder)
+    await _with_vision(agent.run(), vision, monitor, config.attention, interaction, recorder)
 
 
 async def _one(text: str) -> AsyncGenerator[str]:
@@ -589,7 +603,8 @@ async def _run_text_agent(
             _typed_too(TerminalUserInput(), page),
             vision,
             monitor,
-            None,
+            # No microphone: typed lines are the face in front's, and people still engage.
+            None if vision is None else Interaction(config.interaction, None, recorder),
         )
 
 
@@ -644,6 +659,11 @@ async def _see(
 
     monitor = _monitor(config, True, window, stream=stream, on_key=on_key)
     recorder = _recorder(session, None, monitor)
+    interaction = Interaction(
+        config.interaction,
+        None if config.active_speaker is None or not listen else config.active_speaker.delay_s,
+        recorder,
+    )
     vision = await asyncio.to_thread(
         _face_vision, config.vision, recorder, video, depth=depth, speaker=speaker
     )
@@ -656,6 +676,8 @@ async def _see(
                 group.create_task(_name_nearest_face(vision, keys)),
                 group.create_task(_attend(vision, config.attention, recorder)),
                 group.create_task(closed.wait()),
+                # People engaging and disengaging are logged, and their scores recorded.
+                group.create_task(_interact(vision, interaction)),
             ]
             if speaker is not None:
                 microphone = await stack.enter_async_context(
@@ -709,11 +731,10 @@ async def _attend(vision: FaceVision, config: VisualAttentionConfig, recorder: R
         await _drain(follow(observations, VisualAttention(config), recorder))
 
 
-async def _attribute(vision: FaceVision, attribution: SpeakerAttribution) -> None:
-    """Show `attribution` who is seen speaking in each frame, until cancelled."""
+async def _interact(vision: FaceVision, interaction: Interaction) -> None:
+    """Show `interaction` what the camera sees in each frame, until cancelled."""
     async with vision.observations() as observations:
-        async for observation in observations:
-            attribution.observe(observation)
+        await interaction.run(observations)
 
 
 async def _speaker(config: ActiveSpeakerConfig | None) -> SpeakerDetector | None:
@@ -807,12 +828,12 @@ async def _with_vision(
     vision: FaceVision | None,
     monitor: CameraMonitor | None,
     attention: VisualAttentionConfig,
-    attribution: SpeakerAttribution | None,
+    interaction: Interaction | None,
     recorder: Recorder,
 ) -> None:
     """Run `main` while the camera is watched, shown and attended to.
 
-    With an `attribution`, it is shown who is seen speaking meanwhile.
+    With an `interaction`, it is shown what the camera sees meanwhile.
 
     A camera failure stops `main`; closing the window only closes it.
     """
@@ -823,8 +844,8 @@ async def _with_vision(
         async with asyncio.TaskGroup() as group:
             seeing = group.create_task(vision.run())
             watching = [group.create_task(_attend(vision, attention, recorder))]
-            if attribution is not None:
-                watching.append(group.create_task(_attribute(vision, attribution)))
+            if interaction is not None:
+                watching.append(group.create_task(_interact(vision, interaction)))
             await main
             seeing.cancel()
             for task in watching:

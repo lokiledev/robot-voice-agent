@@ -1,9 +1,9 @@
 import asyncio
 import re
 import time
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
-from typing import Final, assert_never
+from typing import Final, Never, assert_never
 from uuid import UUID
 
 from loguru import logger
@@ -21,6 +21,7 @@ from rva_agent.tools import TaskTools, ToolResult
 from rva_body_schemas.abc.client import BodyClient
 from rva_body_schemas.motion import GoToHuman, GoToLocation, Motion, PlayAnimation, describe
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
+from rva_schemas.abc.engagement import Engagement
 from rva_schemas.abc.llm import LanguageModel
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.vision import Vision
@@ -37,6 +38,7 @@ from rva_schemas.dialogue import (
     UserUtterance,
     UtteranceSpeaker,
 )
+from rva_schemas.interaction import Disengaged, Engaged, EngagementEvent
 from rva_schemas.profile import Admins, Profile
 from rva_schemas.record import (
     AgentStarted,
@@ -47,7 +49,7 @@ from rva_schemas.record import (
     ToolInvocation,
     UserLine,
 )
-from rva_schemas.vision import FaceAppeared, FaceEvent, FaceLeft
+from rva_schemas.vision import FaceAppeared, FaceEvent, FaceLeft, KnownPerson
 from rva_vla_schemas.abc.client import VlaClient
 from rva_vla_schemas.task import Task, TaskCancelled, TaskFailed, TaskRunning, TaskSucceeded
 
@@ -61,7 +63,8 @@ _OWN_FAILURE: Final = ' Say it as your own failure, like "I couldn\'t ..."; neve
 class Agent:
     """The robot's dialogue loop: answers the user and drives the body through the VLA.
 
-    With a `Vision`, it is also told when people come and go, and can remember their names.
+    With a `Vision`, it can remember people's names. With an `Engagement`, it greets whoever
+    starts paying attention to it, and stops talking to someone who no longer listens.
     """
 
     def __init__(
@@ -74,6 +77,7 @@ class Agent:
         speech: SpeechOutput,
         recorder: Recorder,
         vision: Vision | None,
+        engagement: Engagement | None,
         profile: Profile,
         admins: Admins,
         config: AgentConfig,
@@ -85,11 +89,13 @@ class Agent:
         self._speech: Final = speech
         self._recorder: Final = recorder
         self._vision: Final = vision
+        self._engagement: Final = engagement
         self._config: Final = config
         self._name: Final = profile.character.name
-        # One turn at a time: user utterances, ended tasks and motions, and face events queue up.
+        # One turn at a time: user utterances, ended tasks and motions, and people coming, going
+        # and engaging queue up.
         self._inbox: Final = asyncio.Queue[
-            UserUtterance | Task | Motion | FaceAppeared | FaceLeft
+            UserUtterance | Task | Motion | FaceAppeared | FaceLeft | Engaged | Disengaged
         ]()
         self._supervisor: Final = TaskSupervisor(vla, recorder, self._inbox.put_nowait)
         self._body: Final = BodySupervisor(body, recorder, self._inbox.put_nowait)
@@ -113,8 +119,12 @@ class Agent:
         self._history: Final = History(
             render_system_prompt(profile, vision=vision is not None), config.max_history_messages
         )
-        # When each known person was last seen leaving, by user id, on the monotonic clock.
-        self._left_at: Final[dict[UUID, float]] = {}
+        # When each known person last disengaged, by user id, on the monotonic clock.
+        self._disengaged_at: Final[dict[UUID, float]] = {}
+        # The tracks already greeted or heard from: a face is greeted once.
+        self._greeted: Final[set[int]] = set()
+        # The track of whoever stopped listening in the middle of a reply, until they are back.
+        self._cut_short_for: int | None = None
 
     async def run(self) -> None:
         """Converse until the user input ends, then finish the turns already queued."""
@@ -123,19 +133,24 @@ class Agent:
             self._vla.events() as events,
             self._body_client.events() as motions,
             self._face_events() as faces,
+            self._engagement_events() as engagements,
             asyncio.TaskGroup() as group,
         ):
-            watching = group.create_task(self._supervisor.watch(events))
-            moving = group.create_task(self._body.watch(motions))
-            seeing = group.create_task(self._queue_faces(faces))
-            handling = group.create_task(self._handle_inbox())
+            background = [
+                group.create_task(self._supervisor.watch(events)),
+                group.create_task(self._body.watch(motions)),
+                group.create_task(self._queue(faces)),
+                group.create_task(self._queue(engagements)),
+                group.create_task(self._handle_inbox()),
+            ]
             async for utterance in self._user_input.utterances():
+                if self._is_stop_word(utterance.text):
+                    # Before its turn comes: a reply being said must not delay a stop.
+                    self._speech.interrupt()
                 self._inbox.put_nowait(utterance)
             await self._inbox.join()
-            watching.cancel()
-            moving.cancel()
-            seeing.cancel()
-            handling.cancel()
+            for task in background:
+                task.cancel()
 
     @asynccontextmanager
     async def _face_events(self) -> AsyncGenerator[AsyncIterator[FaceEvent]]:
@@ -145,7 +160,17 @@ class Agent:
         async with self._vision.events() as events:
             yield events
 
-    async def _queue_faces(self, events: AsyncIterator[FaceEvent]) -> None:
+    @asynccontextmanager
+    async def _engagement_events(self) -> AsyncGenerator[AsyncIterator[EngagementEvent]]:
+        if self._engagement is None:
+            yield _no_events()
+            return
+        async with self._engagement.events() as events:
+            yield events
+
+    async def _queue(
+        self, events: AsyncIterator[FaceEvent] | AsyncIterator[EngagementEvent]
+    ) -> None:
         async for event in events:
             self._inbox.put_nowait(event)
 
@@ -162,7 +187,11 @@ class Agent:
                         case Motion():
                             await self._on_motion_end(item)
                         case FaceAppeared() | FaceLeft():
-                            await self._on_face(item)
+                            self._on_face(item)
+                        case Engaged():
+                            await self._on_engaged(item)
+                        case Disengaged():
+                            self._on_disengaged(item)
                         case _:
                             assert_never(item)
             finally:
@@ -170,6 +199,15 @@ class Agent:
 
     async def _on_utterance(self, utterance: UserUtterance) -> None:
         speaker = self._speaker_of(utterance)
+        busy = self._supervisor.active is not None or self._body.active is not None
+        stopping = self._is_stop_word(utterance.text) and busy
+        if not _said_to_robot(speaker) and not stopping:
+            # Anyone may stop the body; the rest of what is not said to the robot is not heard.
+            logger.info("Not said to the robot, dropped: {!r} from {}", utterance.text, speaker)
+            return
+        listener = speaker.track_id if isinstance(speaker, SeenSpeaking) else None
+        if listener is not None:
+            self._greeted.add(listener)
         self._recorder.record(
             UserLine(text=utterance.text, speaker=_speaker(speaker, self._permission))
         )
@@ -181,14 +219,13 @@ class Agent:
         if not self._muted and _mentions(utterance.text, self._config.mute_phrases):
             await self._mute()
             return
-        busy = self._supervisor.active is not None or self._body.active is not None
-        if self._is_stop_word(utterance.text) and busy:
+        if stopping:
             logger.info("Stop word: stopping the body without the LLM")
             await self._supervisor.cancel()
             await self._body.stay()
             await self._say_fixed("Stopping.")
             return
-        await self._respond()
+        await self._respond(listener)
 
     async def _on_task_end(self, task: Task) -> None:
         self._history.append(RobotEventMessage(content=_describe_end(task)))
@@ -197,31 +234,57 @@ class Agent:
                 # Someone asked for it, the user already knows.
                 pass
             case TaskSucceeded() | TaskFailed():
-                await self._respond()
+                await self._respond(None)
             case TaskRunning():
                 raise AssertionError(f"Task {task.id} reported as ended while running")
             case _:
                 assert_never(task.status)
 
-    async def _on_face(self, event: FaceAppeared | FaceLeft) -> None:
+    def _on_face(self, event: FaceAppeared | FaceLeft) -> None:
+        # Only recorded: the LLM hears of people once they engage, not of everyone passing by.
         self._recorder.record(FaceUpdate(event=event))
-        self._history.append(RobotEventMessage(content=_describe_face(event, self._permission)))
-        match event:
-            case FaceAppeared():
-                person = event.face.person
-                left_at = None if person is None else self._left_at.get(person.user_id)
-                if (
-                    left_at is not None
-                    and time.monotonic() - left_at < self._config.regreet_after_s
-                ):
-                    # Stepped out of view for a moment: already greeted.
-                    return
-                await self._respond()
-            case FaceLeft():
-                if event.person is not None:
-                    self._left_at[event.person.user_id] = time.monotonic()
-            case _:
-                assert_never(event)
+        if isinstance(event, FaceLeft):
+            self._greeted.discard(event.track_id)
+
+    async def _on_engaged(self, event: Engaged) -> None:
+        who = _describe_person(event.track_id, event.person, self._permission)
+        if self._cut_short_for == event.track_id:
+            self._cut_short_for = None
+            self._history.append(
+                RobotEventMessage(
+                    content=f"{who} is listening to you again. You had stopped in the middle of"
+                    " your answer: pick it up if it still matters, briefly."
+                )
+            )
+            await self._respond(event.track_id)
+            return
+        if event.track_id in self._greeted or self._back_soon(event.person):
+            self._greeted.add(event.track_id)
+            self._history.append(
+                RobotEventMessage(content=f"{who} is paying attention to you again.")
+            )
+            return
+        self._greeted.add(event.track_id)
+        # Said in the event itself: the model follows it far more than a rule in its prompt.
+        self._history.append(
+            RobotEventMessage(
+                content=f"{who} came to you and is looking at you. Greet them: look at them and"
+                " wave."
+            )
+        )
+        await self._respond(event.track_id)
+
+    def _on_disengaged(self, event: Disengaged) -> None:
+        if event.person is not None:
+            self._disengaged_at[event.person.user_id] = time.monotonic()
+        who = _name(event.track_id, event.person)
+        what = "left" if event.left else "is no longer paying attention to you"
+        self._history.append(RobotEventMessage(content=f"{who} {what}."))
+
+    def _back_soon(self, person: KnownPerson | None) -> bool:
+        """Whether a known person is back soon enough after disengaging not to be greeted again."""
+        at = None if person is None else self._disengaged_at.get(person.user_id)
+        return at is not None and time.monotonic() - at < self._config.regreet_after_s
 
     async def _on_motion_end(self, motion: Motion) -> None:
         self._history.append(RobotEventMessage(content=_describe_motion_end(motion)))
@@ -232,7 +295,7 @@ class Agent:
             case TaskSucceeded(), PlayAnimation():
                 pass
             case _:
-                await self._respond()
+                await self._respond(None)
 
     def _speaker_of(self, utterance: UserUtterance) -> UtteranceSpeaker | None:
         """Who said `utterance`; `None` with nobody in view to have said it, or no camera.
@@ -245,11 +308,9 @@ class Agent:
         if self._vision is None:
             return None
         nearest = next((face for face in self._vision.faces() if face.nearest), None)
-        return (
-            None
-            if nearest is None
-            else SeenSpeaking(track_id=nearest.track_id, person=nearest.person)
-        )
+        if nearest is None:
+            return None
+        return SeenSpeaking(track_id=nearest.track_id, person=nearest.person, to_robot=True)
 
     def _attributed(self, text: str, speaker: UtteranceSpeaker | None) -> str:
         """`text` prefixed with who said it and with what the body is busy with, if anything.
@@ -282,8 +343,13 @@ class Agent:
         motion = self._body.active
         return None if motion is None else describe(motion.action)
 
-    async def _respond(self) -> None:
-        """Let the LLM speak and call tools until it has nothing left to do."""
+    async def _respond(self, listener: int | None) -> None:
+        """Let the LLM speak and call tools until it has nothing left to do.
+
+        `listener` is the track of the person answered, if it is one person: when they are engaged
+        as the reply starts and stop being so, the reply stops after its sentence.
+        """
+        keep_going = self._while_listening(listener)
         for _ in range(self._config.max_tool_rounds):
             text: list[str] = []
             tool_calls: list[ToolCall] = []
@@ -294,16 +360,34 @@ class Agent:
                     aclosing(self._stream_text(text, tool_calls)) as chunks,
                     aclosing(split_sentences(chunks)) as sentences,
                 ):
-                    spoken = await (_silently(sentences) if muted else self._speech.say(sentences))
+                    spoken = await (
+                        _silently(sentences) if muted else self._speech.say(sentences, keep_going)
+                    )
             if muted:
                 # Nothing was heard, so nothing was said.
                 text.clear()
-            if spoken.interrupted:
-                # The user talked over the robot: keep what they heard, drop the rest and any action.
-                self._add_robot_message(
-                    AssistantMessage(content=spoken.text, tool_calls=()), interrupted=True
-                )
-                return
+            match spoken.end:
+                case "talked_over":
+                    # Keep what the user heard, drop the rest and any action.
+                    self._add_robot_message(
+                        AssistantMessage(content=spoken.text, tool_calls=()), interrupted=True
+                    )
+                    return
+                case "cut_short":
+                    self._add_robot_message(
+                        AssistantMessage(content=spoken.text, tool_calls=()), interrupted=True
+                    )
+                    self._history.append(
+                        RobotEventMessage(
+                            content="You stopped talking there: they were no longer listening."
+                        )
+                    )
+                    self._cut_short_for = listener
+                    return
+                case "finished":
+                    pass
+                case _:
+                    assert_never(spoken.end)
             self._add_robot_message(
                 AssistantMessage(content="".join(text), tool_calls=tuple(tool_calls)),
                 interrupted=False,
@@ -328,6 +412,13 @@ class Agent:
         logger.warning(
             "The LLM was still calling tools after {} rounds", self._config.max_tool_rounds
         )
+
+    def _while_listening(self, listener: int | None) -> Callable[[], bool]:
+        """Whether to keep talking: until a `listener` engaged now no longer is."""
+        engagement = self._engagement
+        if engagement is None or listener is None or listener not in engagement.engaged():
+            return _always
+        return lambda: listener in engagement.engaged()
 
     async def _call_tool(self, call: ToolCall) -> ToolResult:
         if self._people is not None and call.name in PeopleTools.names:
@@ -355,9 +446,10 @@ class Agent:
     async def _say_fixed(self, text: str) -> None:
         if self._muted:
             return
-        spoken = await self._speech.say(_single(text))
+        spoken = await self._speech.say(_single(text), _always)
         self._add_robot_message(
-            AssistantMessage(content=spoken.text, tool_calls=()), interrupted=spoken.interrupted
+            AssistantMessage(content=spoken.text, tool_calls=()),
+            interrupted=spoken.end != "finished",
         )
 
     def _add_robot_message(self, message: AssistantMessage, *, interrupted: bool) -> None:
@@ -454,27 +546,33 @@ def _speaker(speaker: UtteranceSpeaker | None, permission: ActionPermission) -> 
             assert_never(speaker)
 
 
-def _describe_face(event: FaceAppeared | FaceLeft, permission: ActionPermission) -> str:
-    match event:
-        case FaceAppeared():
-            face = event.face
-            where = f"track {face.track_id}, nearest" if face.nearest else f"track {face.track_id}"
-            # Said in the event itself: the model follows it far more than a rule in its prompt.
-            greet = " Greet them: look at them and wave." if face.nearest else ""
-            if face.person is None:
-                return f"An unknown person is in view ({where}).{greet}"
-            # Said up front so the LLM declines a non-operator's request instead of trying it.
-            role = "one of" if permission.is_operator(face.person.user_id) else "not one of"
-            return (
-                f"{face.person.name} is in view ({where}, user {face.person.user_id},"
-                f" {role} your operators).{greet}"
-            )
-        case FaceLeft():
-            if event.person is None:
-                return f"The unknown person on track {event.track_id} left."
-            return f"{event.person.name} left (track {event.track_id})."
+def _said_to_robot(speaker: UtteranceSpeaker | None) -> bool:
+    """Whether to hear an utterance: not when it was said to someone else, or by nobody in view."""
+    match speaker:
+        case None:
+            return True
+        case SeenSpeaking():
+            return speaker.to_robot
+        case NobodySeenSpeaking():
+            return False
         case _:
-            assert_never(event)
+            assert_never(speaker)
+
+
+def _name(track_id: int, person: KnownPerson | None) -> str:
+    if person is None:
+        return f"The unknown person on track {track_id}"
+    return f"{person.name} (track {track_id})"
+
+
+def _describe_person(
+    track_id: int, person: KnownPerson | None, permission: ActionPermission
+) -> str:
+    if person is None:
+        return f"An unknown person (track {track_id})"
+    # Said up front so the LLM declines a non-operator's request instead of trying it.
+    role = "one of" if permission.is_operator(person.user_id) else "not one of"
+    return f"{person.name} (track {track_id}, user {person.user_id}, {role} your operators)"
 
 
 def _normalized(text: str) -> str:
@@ -491,13 +589,17 @@ async def _silently(sentences: AsyncIterator[str]) -> Spoken:
     """Consume the LLM's sentences without speaking them."""
     async for _ in sentences:
         pass
-    return Spoken(text="", interrupted=False)
+    return Spoken(text="", end="finished")
+
+
+def _always() -> bool:
+    return True
 
 
 async def _single(text: str) -> AsyncIterator[str]:
     yield text
 
 
-async def _no_events() -> AsyncIterator[FaceEvent]:
+async def _no_events() -> AsyncIterator[Never]:
     return
     yield

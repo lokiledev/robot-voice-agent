@@ -13,7 +13,7 @@ from opentelemetry import trace
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speech import SpeechRecognizer, SpeechSynthesizer
 from rva_schemas.audio import AudioClip
-from rva_schemas.dialogue import SpeechSpan, Spoken, UserUtterance
+from rva_schemas.dialogue import SpeechEnd, SpeechSpan, Spoken, UserUtterance
 from rva_schemas.record import Measurement, RobotSentence
 from rva_voice_audio.devices import Speaker
 from rva_voice_audio.echo import RobotSpeech
@@ -35,6 +35,7 @@ class VoiceInput:
         recorder: Recorder,
         robot_speech: RobotSpeech,
         on_speech_start: Callable[[], None],
+        may_interrupt: Callable[[], bool],
     ) -> None:
         """Listen to a 16 kHz stream.
 
@@ -48,6 +49,9 @@ class VoiceInput:
                 to drop transcripts of its own voice.
             on_speech_start: Called as soon as the user starts talking, e.g. to stop the robot's
                 speech.
+            may_interrupt: Asked while the robot speaks whether the speech heard may stop it,
+                e.g. only once the person it talks with is seen speaking. Until it says so,
+                `on_speech_start` waits; the turn is recognized either way.
         """
         self._frames: Final = frames
         self._vad: Final = vad
@@ -56,20 +60,28 @@ class VoiceInput:
         self._recorder: Final = recorder
         self._robot_speech: Final = robot_speech
         self._on_speech_start: Final = on_speech_start
+        self._may_interrupt: Final = may_interrupt
 
     async def utterances(self) -> AsyncGenerator[UserUtterance]:
         started_at = datetime.now(UTC)
+        # Whether a turn started that may not stop the robot's speech yet.
+        held_back = False
         async for frame in self._frames:
             probability = self._vad.probability(frame)
             self._recorder.record(Measurement(name="vad", value=probability))
             match self._endpointer.push(frame, probability, self._robot_speech.speaking):
                 case None:
-                    pass
+                    if held_back and self._may_interrupt():
+                        held_back = False
+                        self._on_speech_start()
                 case SpeechStarted():
                     started_at = datetime.now(UTC)
-                    logger.debug("Speech started")
-                    self._on_speech_start()
+                    held_back = self._robot_speech.speaking and not self._may_interrupt()
+                    logger.debug("Speech started{}", ", held back" if held_back else "")
+                    if not held_back:
+                        self._on_speech_start()
                 case TurnEnded() as turn:
+                    held_back = False
                     ended_at = datetime.now(UTC)
                     # The turn's audio runs up to this frame, the silence that ended it included.
                     heard_at = time.monotonic()
@@ -116,13 +128,13 @@ class VoiceOutput:
         """Cut off what the robot is saying; the current `say` returns what was heard."""
         self._speaker.interrupt()
 
-    async def say(self, sentences: AsyncIterator[str]) -> Spoken:
+    async def say(self, sentences: AsyncIterator[str], keep_going: Callable[[], bool]) -> Spoken:
         self._speaker.reset()
         # A sentence counts as heard once its last clip has played; None marks that point.
         clips = asyncio.Queue[tuple[str, AudioClip | None] | None](maxsize=4)
         synthesizing = asyncio.create_task(self._synthesize(sentences, clips))
         heard: list[str] = []
-        interrupted = False
+        end: SpeechEnd = "finished"
         # Whether the next clip is the first of its sentence.
         starting = True
         try:
@@ -136,18 +148,22 @@ class VoiceOutput:
                     if not heard:
                         span.add_event("first_audio")
                     if starting:
+                        # Sentences are synthesized ahead: asked here, as each is about to play.
+                        if not keep_going():
+                            end = "cut_short"
+                            break
                         self._recorder.record(RobotSentence(text=sentence))
                         starting = False
                     self._robot_speech.starts(sentence)
                     if not await self._speaker.play(clip):
-                        interrupted = True
+                        end = "talked_over"
                         break
         finally:
             self._robot_speech.stops()
             synthesizing.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await synthesizing
-        return Spoken(text=" ".join(heard), interrupted=interrupted)
+        return Spoken(text=" ".join(heard), end=end)
 
     async def _synthesize(
         self,

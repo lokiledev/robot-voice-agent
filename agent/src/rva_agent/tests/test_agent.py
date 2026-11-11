@@ -5,6 +5,7 @@ from rva_agent.config import AgentConfig
 from rva_agent.tests.fakes import (
     ADMINS,
     PROFILE,
+    FakeEngagement,
     FakeVision,
     ListRecorder,
     QueueUserInput,
@@ -22,6 +23,7 @@ from rva_schemas.dialogue import (
     ToolCall,
     UserMessage,
 )
+from rva_schemas.interaction import Disengaged, Engaged
 from rva_schemas.record import (
     AgentStarted,
     FaceUpdate,
@@ -56,6 +58,7 @@ def _agent(
     speech: RecordingSpeech,
     recorder: ListRecorder,
     vision: FakeVision | None,
+    engagement: FakeEngagement | None,
 ) -> Agent:
     return Agent(
         llm=llm,
@@ -65,6 +68,7 @@ def _agent(
         speech=speech,
         recorder=recorder,
         vision=vision,
+        engagement=engagement,
         profile=PROFILE,
         admins=ADMINS,
         config=CONFIG,
@@ -85,6 +89,7 @@ async def test_answers_a_question() -> None:
         user,
         speech,
         recorder,
+        None,
         None,
     ).run()
 
@@ -118,7 +123,13 @@ async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
         _agent(
-            llm, TaskRunner(TerminalPolicy(commands, fallback=None)), user, speech, recorder, None
+            llm,
+            TaskRunner(TerminalPolicy(commands, fallback=None)),
+            user,
+            speech,
+            recorder,
+            None,
+            None,
         ).run()
     )
 
@@ -155,6 +166,7 @@ async def test_stop_word_cancels_the_task_without_the_llm() -> None:
             user,
             speech,
             recorder,
+            None,
             None,
         ).run()
     )
@@ -198,6 +210,7 @@ async def test_barge_in_keeps_only_what_was_heard_and_skips_the_action() -> None
         speech,
         recorder,
         None,
+        None,
     ).run()
 
     assert llm.requests[1][-2] == AssistantMessage(content="Sure.", tool_calls=())
@@ -223,7 +236,7 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
         ]
     )
     face = TrackedFace(track_id=8, box=BOX, person=None, nearest=True)
-    vision = FakeVision([face])
+    vision, engagement = FakeVision([face]), FakeEngagement([])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
         _agent(
@@ -233,10 +246,11 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
             speech,
             recorder,
             vision,
+            engagement,
         ).run()
     )
 
-    vision.show(FaceAppeared(face=face))
+    engagement.show(Engaged(track_id=8, person=None))
     await speech.wait_for("Hello!")
     user.say("I'm Alice.")
     await speech.wait_for("Nice to meet you, Alice.")
@@ -244,7 +258,8 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
     await running
 
     assert llm.requests[0][-1] == RobotEventMessage(
-        content="An unknown person is in view (track 8, nearest). Greet them: look at them and wave."
+        content="An unknown person (track 8) came to you and is looking at you. Greet them: look"
+        " at them and wave."
     )
     assert (
         UserLine(text="I'm Alice.", speaker=Speaker(track_id=8, person=None, operator=False))
@@ -261,7 +276,7 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
 
 
 async def test_a_turn_is_tagged_with_the_face_seen_speaking_not_the_one_in_front() -> None:
-    llm = ScriptedLanguageModel([[TextDelta(text="Hi Bob.")], [TextDelta(text="Who is there?")]])
+    llm = ScriptedLanguageModel([[TextDelta(text="Hi Bob.")]])
     vision = FakeVision(
         [
             TrackedFace(track_id=7, box=BOX, person=person("Alice"), nearest=True),
@@ -277,60 +292,165 @@ async def test_a_turn_is_tagged_with_the_face_seen_speaking_not_the_one_in_front
             speech,
             recorder,
             vision,
+            None,
         ).run()
     )
 
-    user.say_as("Hello.", SeenSpeaking(track_id=9, person=person("Bob")))
+    user.say_as("Hello.", SeenSpeaking(track_id=9, person=person("Bob"), to_robot=True))
     await speech.wait_for("Hi Bob.")
-    user.say_as("Over here.", NobodySeenSpeaking())
-    await speech.wait_for("Who is there?")
     user.leave()
     await running
 
     assert llm.requests[0][-1] == UserMessage(content="[Bob, track 9] Hello.")
-    assert llm.requests[1][-1] == UserMessage(content="[someone out of view] Over here.")
     assert [entry for entry in recorder.entries if isinstance(entry, UserLine)] == [
         UserLine(text="Hello.", speaker=Speaker(track_id=9, person=person("Bob"), operator=False)),
-        UserLine(text="Over here.", speaker=None),
     ]
 
 
-async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_again() -> None:
-    llm = ScriptedLanguageModel([[TextDelta(text="Hi Alice.")], [TextDelta(text="You are Alice.")]])
+def _running(
+    llm: ScriptedLanguageModel,
+    user: QueueUserInput,
+    speech: RecordingSpeech,
+    recorder: ListRecorder,
+    vision: FakeVision,
+    engagement: FakeEngagement,
+) -> asyncio.Task[None]:
+    vla = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
+    return asyncio.create_task(_agent(llm, vla, user, speech, recorder, vision, engagement).run())
+
+
+ALICE_ID = "cd736558-bc50-5e7f-a2ce-297e9d7b1465"
+
+
+async def test_someone_passing_by_is_recorded_but_starts_no_turn() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Nobody came to me.")]])
     alice = TrackedFace(track_id=7, box=BOX, person=person("Alice"), nearest=True)
-    vision = FakeVision([])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
-    running = asyncio.create_task(
-        _agent(
-            llm,
-            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
-            user,
-            speech,
-            recorder,
-            vision,
-        ).run()
-    )
+    vision = FakeVision([])
+    running = _running(llm, user, speech, recorder, vision, FakeEngagement([]))
 
     vision.show(FaceAppeared(face=alice))
-    await speech.wait_for("Hi Alice.")
     vision.show(FaceLeft(track_id=7, person=person("Alice")))
-    vision.show(FaceAppeared(face=alice.model_copy(update={"track_id": 9})))
     await recorder.wait_until(
-        lambda entries: sum(isinstance(entry, FaceUpdate) for entry in entries) == 3
+        lambda entries: sum(isinstance(entry, FaceUpdate) for entry in entries) == 2
     )
+    user.say("Who came?")
+    await speech.wait_for("Nobody came to me.")
+    user.leave()
+    await running
+
+    assert [message.role for message in llm.requests[0]] == ["system", "user"]
+
+
+async def test_a_quick_return_is_not_greeted_again() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Hi Alice.")], [TextDelta(text="You are Alice.")]])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    engagement = FakeEngagement([])
+    running = _running(llm, user, speech, recorder, FakeVision([]), engagement)
+
+    engagement.show(Engaged(track_id=7, person=person("Alice")))
+    await speech.wait_for("Hi Alice.")
+    engagement.show(Disengaged(track_id=7, person=person("Alice"), left=True))
+    engagement.show(Engaged(track_id=9, person=person("Alice")))
     user.say("Who am I?")
     await speech.wait_for("You are Alice.")
     user.leave()
     await running
 
     assert speech.said == ["Hi Alice.", "You are Alice."]
+    assert llm.requests[0][-1] == RobotEventMessage(
+        content=f"Alice (track 7, user {ALICE_ID}, one of your operators) came to you and is"
+        " looking at you. Greet them: look at them and wave."
+    )
     assert llm.requests[1][-3:-1] == (
-        RobotEventMessage(content="Alice left (track 7)."),
+        RobotEventMessage(content="Alice (track 7) left."),
         RobotEventMessage(
-            content="Alice is in view (track 9, nearest, user cd736558-bc50-5e7f-a2ce-297e9d7b1465,"
-            " one of your operators). Greet them: look at them and wave."
+            content=f"Alice (track 9, user {ALICE_ID}, one of your operators) is paying attention"
+            " to you again."
         ),
     )
+
+
+async def test_what_is_not_said_to_the_robot_is_not_heard() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="It is noon.")]])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = _running(llm, user, speech, recorder, FakeVision([]), FakeEngagement([]))
+
+    user.say_as("Shall we go?", SeenSpeaking(track_id=9, person=person("Bob"), to_robot=False))
+    user.say_as("Hey, robot!", NobodySeenSpeaking())
+    user.say_as("What time is it?", SeenSpeaking(track_id=7, person=None, to_robot=True))
+    await speech.wait_for("It is noon.")
+    user.leave()
+    await running
+
+    assert llm.requests[0][1:] == (
+        UserMessage(content="[unknown person, track 7] What time is it?"),
+    )
+    assert [entry.text for entry in recorder.entries if isinstance(entry, UserLine)] == [
+        "What time is it?"
+    ]
+
+
+async def test_a_reply_stops_when_its_listener_turns_away_and_is_picked_up_when_they_are_back() -> (
+    None
+):
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="There are three. The first is the lobby. The second is the bar.")],
+            [TextDelta(text="As I was saying, the second is the bar.")],
+        ]
+    )
+    user, recorder = QueueUserInput(), ListRecorder()
+    engagement = FakeEngagement([7])
+
+    speech = RecordingSpeech(interrupt_after=None)
+
+    def turn_away(sentence: str) -> None:
+        if sentence == "There are three.":
+            engagement.show(Disengaged(track_id=7, person=person("Alice"), left=False))
+
+    speech.after_sentence = turn_away
+    running = _running(llm, user, speech, recorder, FakeVision([]), engagement)
+
+    user.say_as("Which rooms?", SeenSpeaking(track_id=7, person=person("Alice"), to_robot=True))
+    await speech.wait_for("There are three.")
+    engagement.show(Engaged(track_id=7, person=person("Alice")))
+    await speech.wait_for("As I was saying, the second is the bar.")
+    user.leave()
+    await running
+
+    assert speech.said == ["There are three.", "As I was saying, the second is the bar."]
+    assert RobotLine(text="There are three.", interrupted=True) in recorder.entries
+    assert llm.requests[1][-4:] == (
+        AssistantMessage(content="There are three.", tool_calls=()),
+        RobotEventMessage(content="You stopped talking there: they were no longer listening."),
+        RobotEventMessage(content="Alice (track 7) is no longer paying attention to you."),
+        RobotEventMessage(
+            content=f"Alice (track 7, user {ALICE_ID}, one of your operators) is listening to you"
+            " again. You had stopped in the middle of your answer: pick it up if it still"
+            " matters, briefly."
+        ),
+    )
+
+
+async def test_a_stop_word_cuts_off_the_reply_being_said() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Hello.")], [TextDelta(text="Okay.")]])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("Hello.")
+    user.say("Stop!")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
+        None,
+    ).run()
+
+    assert speech.interruptions == 1
 
 
 async def test_muted_robot_says_nothing_until_it_may_talk_again() -> None:
@@ -349,6 +469,7 @@ async def test_muted_robot_says_nothing_until_it_may_talk_again() -> None:
         speech,
         recorder,
         vision=None,
+        engagement=None,
     ).run()
 
     assert speech.said == ["Okay.", "I can talk again."]
@@ -374,6 +495,7 @@ async def test_a_failed_task_is_reported_to_the_llm_as_its_own_failure() -> None
             speech,
             recorder,
             vision=None,
+            engagement=None,
         ).run()
     )
 

@@ -27,6 +27,7 @@ async def open_voice_input(
     recorder: Recorder,
     robot_speech: RobotSpeech,
     on_speech_start: Callable[[], None],
+    may_interrupt: Callable[[], bool],
     speaker: SpeakerDetector | None,
 ) -> AsyncGenerator[VoiceInput]:
     recognizer = ParakeetRecognizer(asr)
@@ -47,6 +48,7 @@ async def open_voice_input(
             recorder=recorder,
             robot_speech=robot_speech,
             on_speech_start=on_speech_start,
+            may_interrupt=may_interrupt,
         )
 
 

@@ -14,6 +14,7 @@ from pydantic import StringConstraints
 from rva_pydantic import RVABaseModel
 from rva_schemas.attention import AttentionState
 from rva_schemas.dialogue import UserUtterance
+from rva_schemas.interaction import EngagementState
 from rva_schemas.record import (
     AgentStarted,
     CameraFrame,
@@ -89,7 +90,14 @@ class UiServer:
 
     def record(self, entry: Record) -> None:
         match entry:
-            case PeopleInView() | CameraFrame() | DepthFrame() | LiveFrame() | AttentionState():
+            case (
+                PeopleInView()
+                | CameraFrame()
+                | DepthFrame()
+                | LiveFrame()
+                | AttentionState()
+                | EngagementState()
+            ):
                 # The boxes are drawn into the video stream instead.
                 return
             case Measurement():

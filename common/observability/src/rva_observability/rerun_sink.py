@@ -9,6 +9,7 @@ from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
 from rva_body_schemas.motion import describe
 from rva_schemas.attention import AttentionEntity, AttentionState, FaceEntity, HandEntity
+from rva_schemas.interaction import EngagementState
 from rva_schemas.record import (
     AgentStarted,
     CameraFrame,
@@ -165,6 +166,13 @@ class RerunRecorder:
                 )
             case AttentionState():
                 self._attention(entry)
+            case EngagementState():
+                for person in entry.people:
+                    self._recording.log(
+                        f"engagement/track_{person.track_id}/score", rr.Scalars(person.score)
+                    )
+                for event in entry.events:
+                    self._recording.log("engagement/events", rr.TextLog(event.model_dump_json()))
             case LiveFrame():
                 # Shown in the process; the recording keeps the JPEG camera frames.
                 return

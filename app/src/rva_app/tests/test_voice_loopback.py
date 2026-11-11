@@ -76,6 +76,7 @@ async def test_synthesized_request_is_heard_back() -> None:
         recorder=_NoRecorder(),
         robot_speech=RobotSpeech(echo_window_s=2, clock=time.monotonic),
         on_speech_start=lambda: starts.append(None),
+        may_interrupt=lambda: True,
     )
 
     utterances = [utterance.text async for utterance in voice.utterances()]

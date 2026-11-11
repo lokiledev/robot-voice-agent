@@ -96,7 +96,7 @@ flowchart LR
         vision["Vision<br/>detect, track, recognize faces"]
         asd["Active speaker<br/>lips and sound together"]
         att["Visual attention<br/>which face or hand, as a 3D point"]
-        who["Speaker attribution<br/>which face said each utterance"]
+        who["Interaction<br/>who is engaged, who said<br/>each utterance, and to whom"]
         mon["Camera monitor<br/>overlay, debug window, stream"]
         ui["Session page server"]
         loop["Agent loop<br/>inbox, history, LLM turns"]
@@ -105,12 +105,13 @@ flowchart LR
         rec["Recorder<br/>every part records to it"]
     end
     vin -- "utterances" --> who
-    vision -- "who is seen speaking" --> who
+    vision -- "what each frame shows" --> who
     who -- "utterances, with their speaker" --> loop
+    who -- "people engaging,<br/>disengaging" --> loop
+    who -. "may this speech<br/>interrupt?" .-> vin
     vin -- "sound" --> asd
     vision -- "faces" --> asd
     asd -- "who speaks" --> vision
-    vision -- "people coming and going" --> loop
     vision -- "what each frame shows" --> att
     ui -- "typed lines" --> loop
     loop -- "sentences" --> vout
@@ -253,7 +254,7 @@ flowchart LR
   its pinned checkpoint is converted on first use, in a process of its own, as only that needs
   PyTorch (the `export` dependency group); the network is vendored for it, with the one change
   ONNX needs. `lune sense` runs it with the camera alone; `lune run` too. It is shown, recorded, and tells
-  who said each utterance; it does not yet take part in turn-taking.
+  who said each utterance and whose speech may interrupt Lune.
 - **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the upper
   body (head, shoulders, elbows, wrists and hips) and both hands (21 points each) are kept. Legs and
   feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
@@ -375,35 +376,56 @@ core does no I/O.
   at the point. Nothing takes the target yet: the body API is to be
   redone around it.
 
-### Speaker attribution
+### Interaction
 
-Who said an utterance is the face seen speaking it, not the face in front when the agent gets to
-it. It is the first part of `rva-interaction`, where perception meets the dialogue; like the
-attention, it is fed one observation per frame by the vision loop, runs on the frames' times and
-does no I/O.
+Where perception meets the dialogue, in `rva-interaction`: who pays attention to the robot, which
+face said an utterance, and whether they said it to the robot. Like the attention, it is fed one
+observation per frame by the vision loop, runs on the frames' times and its parts do no I/O, so a
+recording replays to the same decisions. The reflexes are scores with hysteresis here; what to
+say about them is the LLM's. None of the thresholds is tuned on recordings of several people yet.
 
+- **Engagement.** Each tracked face has a score from 0 to 1, from its first frame, and engages
+  once confirmed. While they look at the robot (a
+  gaze within 15 degrees of the camera) it rises towards closeness times staying: closeness is 1
+  up to 2 m and falls to 0 at 4.5 m, staying is 1 standing still and 0 from a walking pace,
+  measured straight between where the face was half a second ago and where it is, as its depth
+  jitters. While they do not look it falls towards 0, more slowly: listeners look away. They are
+  engaged from 0.6, after about 0.7 s of eye contact up close, down to 0.2, after about 5 s
+  looking away; a track that ends has left at once. So someone walking past, glancing from afar
+  or standing with their back turned is not engaged. Once engaged, speaking counts as looking:
+  people look away to think. At most three are engaged at once. Without depth, any tracked face
+  is taken as close and staying.
 - **One clock.** The voice input stamps each utterance with when its speech started and ended on
   the monotonic clock the frames are stamped with: back from the frame that ended the turn by the
   length of its audio, and by the silence that ended it.
-- **Share of the utterance.** For each frame, the faces the active speaker saw speaking are kept,
-  at the moment it scored, 0.12 s before the frame, for the last 30 s. An utterance is said by
-  the face seen speaking in the largest share of its frames, if that is at least `min_share`
-  (0.3, not tuned on recordings yet): pauses between words count against the speaker, so the
-  share of someone talking is well under 1. Otherwise nobody in view said it, and the turn is
-  tagged `[someone out of view]`; it is still answered, until addressee detection decides.
-- **Attributed as it arrives**, by a `UserInput` wrapped around the voice input, so the agent
-  only reads the speaker off the utterance. Typed lines, and utterances without an active
-  speaker, are still taken to be the face in front's.
+- **Who said it.** For each frame, the faces the active speaker saw speaking are kept, at the
+  moment it scored, 0.12 s before the frame, for the last 30 s. An utterance is said by the face
+  seen speaking in the largest share of its frames, if that is at least 0.3: pauses between
+  words count against the speaker. Otherwise nobody in view said it.
+- **Whether to the robot.** By the share of the utterance its speaker looked at the robot:
+  someone engaged is trusted unless they faced someone else throughout (under 0.1); anyone else
+  must look at it for most of it (0.5), and is engaged from then on. What is not said to the
+  robot, or said by nobody in view, is dropped before the LLM, with a log line. A stop word while
+  the body is busy is obeyed whoever says it.
+- **Judged as it arrives**, by a `UserInput` wrapped around the voice input, so the agent only
+  reads the speaker off the utterance. Typed lines, and utterances without an active speaker,
+  are taken to be the face in front's, said to the robot.
+- **Whose speech interrupts.** While someone is engaged, speech stops Lune's only once an engaged
+  face is seen speaking; the voice input holds the barge-in back until then, and the turn is
+  recognized either way. With nobody engaged, or `barge_in: anyone`, any speech does. A stop
+  word cuts the reply off as soon as it is recognized, before its turn comes.
 - **Permissions are not the speaker's yet**: tools still check that the face in front is an
   operator, whoever spoke.
-- `lune listen --camera` prints each turn with who said it.
+- **Recorded** every frame: each person's score under `engagement/track_<n>/score`, and the
+  events. `lune see` and `lune sense` log people engaging and disengaging; `lune listen --camera`
+  prints each turn with who said it and whether to the robot.
 
 ### Agent loop and tools
 
 ```mermaid
 flowchart LR
-    utt([Utterances]) --> inbox
-    faces([People coming and going]) --> inbox
+    utt([Utterances said to the robot]) --> inbox
+    faces([People engaging and disengaging]) --> inbox
     ends([Actions ending]) --> inbox
     inbox[["Inbox<br/>one turn at a time"]] --> fixed{"Stop word or<br/>mute phrase?"}
     fixed -- "yes" --> code["Handled in code:<br/>stop the body, mute, unmute"]
@@ -438,12 +460,18 @@ second one is refused rather than queued:
   in a real session.
 - **Guidance goes where the model reads it.** The LLM follows the text of a turn far more than
   rules in its system prompt. So each user turn says who is speaking and what the body is busy
-  with; a person arriving in front of the robot comes with "greet them"; and an action's end is
+  with; a person engaging comes with "greet them"; and an action's end is
   told as Lune's own ("You could not pick up the red cup: the grasp slipped. Say it as your own
   failure."). Replaying a real session, that last hint took replies like "the task failed" from
   8 in 10 to none.
 - **Initiative.** Lune looks at people and gestures on its own, but starts tasks and walks only
   when asked.
+- **People.** The LLM hears of people when they engage, not when a face is detected: an engaged
+  person is greeted, once per track, and a known one not again within `regreet_after_s`. Faces
+  coming and going are only recorded; `who_is_here` lists them.
+- **A listener lost.** A reply to one person stops after the sentence being said once they are
+  no longer engaged, if they were as it started. The history keeps what was heard and why it
+  stopped; when they engage again, the LLM gets a turn to pick it up or let it go.
 - **History.** One session's messages, trimmed from the oldest when the context fills; the
   system prompt always stays.
 

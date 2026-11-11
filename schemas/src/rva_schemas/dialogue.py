@@ -25,6 +25,8 @@ class SeenSpeaking(RVABaseModel):
     track_id: int
     person: KnownPerson | None
     """`None` for someone the robot does not know."""
+    to_robot: bool
+    """Whether they said it to the robot, rather than to someone else in view."""
 
 
 class NobodySeenSpeaking(RVABaseModel):
@@ -49,13 +51,17 @@ class UserUtterance(RVABaseModel):
     were not, and for a typed line."""
 
 
+type SpeechEnd = Literal["finished", "talked_over", "cut_short"]
+"""How the robot stopped speaking: it said everything, the user talked over it, or it stopped
+after a sentence because it was told not to keep going."""
+
+
 class Spoken(RVABaseModel):
     """What the robot actually said out loud."""
 
     text: str
     """The text up to where playback stopped."""
-    interrupted: bool
-    """Whether the user talked over the robot and cut it off."""
+    end: SpeechEnd
 
 
 class ToolCall(RVABaseModel):

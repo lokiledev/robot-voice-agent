@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import Final
 
@@ -28,15 +28,22 @@ class TerminalSpeechOutput:
         self._robot_name: Final = robot_name
         self._recorder: Final = recorder
 
-    async def say(self, sentences: AsyncIterator[str]) -> Spoken:
+    async def say(self, sentences: AsyncIterator[str], keep_going: Callable[[], bool]) -> Spoken:
         said: list[str] = []
+        cut_short = False
         async for sentence in sentences:
+            if not keep_going():
+                cut_short = True
+                break
             self._recorder.record(RobotSentence(text=sentence))
             write(f"{self._robot_name}: {sentence}" if not said else f" {sentence}")
             said.append(sentence)
         if said:
             write("\n")
-        return Spoken(text=" ".join(said), interrupted=False)
+        return Spoken(text=" ".join(said), end="cut_short" if cut_short else "finished")
+
+    def interrupt(self) -> None:
+        """Nothing to cut off: a sentence written is already read."""
 
 
 def write(text: str) -> None:

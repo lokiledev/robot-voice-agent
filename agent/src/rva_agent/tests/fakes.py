@@ -2,17 +2,19 @@ import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Final
+from typing import Final, assert_never
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from rva_schemas.dialogue import (
     LlmOutput,
     Message,
+    SpeechEnd,
     Spoken,
     ToolSpec,
     UserUtterance,
     UtteranceSpeaker,
 )
+from rva_schemas.interaction import Disengaged, Engaged, EngagementEvent
 from rva_schemas.profile import Admins, Capabilities, Character, Environment, Profile, Skill
 from rva_schemas.record import Record
 from rva_schemas.vision import (
@@ -76,20 +78,31 @@ class RecordingSpeech:
     def __init__(self, interrupt_after: int | None) -> None:
         self._interrupt_after: Final = interrupt_after
         self.said: Final[list[str]] = []
+        self.interruptions = 0
+        self.after_sentence: Callable[[str], None] | None = None
+        """Called once each sentence is said, e.g. for the listener to turn away then."""
         self._changed: Final = asyncio.Condition()
 
-    async def say(self, sentences: AsyncIterator[str]) -> Spoken:
+    async def say(self, sentences: AsyncIterator[str], keep_going: Callable[[], bool]) -> Spoken:
         heard: list[str] = []
-        interrupted = False
+        end: SpeechEnd = "finished"
         async for sentence in sentences:
+            if not keep_going():
+                end = "cut_short"
+                break
             heard.append(sentence)
+            if self.after_sentence is not None:
+                self.after_sentence(sentence)
             if len(heard) == self._interrupt_after:
-                interrupted = True
+                end = "talked_over"
                 break
         async with self._changed:
             self.said.extend(heard)
             self._changed.notify_all()
-        return Spoken(text=" ".join(heard), interrupted=interrupted)
+        return Spoken(text=" ".join(heard), end=end)
+
+    def interrupt(self) -> None:
+        self.interruptions += 1
 
     async def wait_for(self, sentence: str) -> None:
         async with self._changed:
@@ -112,6 +125,36 @@ class ListRecorder:
     async def _notify(self) -> None:
         async with self._changed:
             self._changed.notify_all()
+
+
+class FakeEngagement:
+    """Engages and disengages the people a test says."""
+
+    def __init__(self, engaged: Sequence[int]) -> None:
+        """Start with the people on the `engaged` tracks already engaged."""
+        self._events: Final = asyncio.Queue[EngagementEvent]()
+        self._engaged: Final = set(engaged)
+
+    def show(self, event: EngagementEvent) -> None:
+        match event:
+            case Engaged():
+                self._engaged.add(event.track_id)
+            case Disengaged():
+                self._engaged.discard(event.track_id)
+            case _:
+                assert_never(event)
+        self._events.put_nowait(event)
+
+    @asynccontextmanager
+    async def events(self) -> AsyncGenerator[AsyncIterator[EngagementEvent]]:
+        yield self._drain()
+
+    def engaged(self) -> frozenset[int]:
+        return frozenset(self._engaged)
+
+    async def _drain(self) -> AsyncIterator[EngagementEvent]:
+        while True:
+            yield await self._events.get()
 
 
 def person(name: str) -> KnownPerson:

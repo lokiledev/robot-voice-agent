@@ -155,15 +155,42 @@ active_speaker:
   enter: -1.0
   leave: -1.3
 
-# Who said each utterance: the face the active speaker saw speaking for the largest share of it.
-# Without an active speaker, it is taken to be the face in front.
-speakers:
-  # Longer than the longest utterance, and than a frame takes to be processed.
+# Where perception meets the dialogue: who pays attention to the robot, which face said each
+# utterance and whether to the robot. None of it is tuned on recordings of several people yet.
+interaction:
+  # A gaze within this angle of the camera looks at the robot.
+  eye_contact_deg: 15.0
+  # Who spoke and looked is kept this long: longer than the longest utterance.
   history_s: 30.0
-  # A face seen speaking in under this share of an utterance's frames did not say it: nobody in
-  # view did. Pauses between words count against the speaker, so it is well below 1. Not tuned
-  # on recordings yet.
-  min_share: 0.3
+  # An utterance is said by the face the active speaker saw speaking in the largest share of its
+  # frames, if at least this; otherwise by nobody in view, and it is not heard. Pauses between
+  # words count against the speaker, so it is well below 1. Without an active speaker, every
+  # utterance is the face in front's, said to the robot.
+  min_speaking_share: 0.3
+  # An utterance is said to the robot when its speaker looked at it for this share of it: hardly
+  # any for someone engaged, trusted unless they face someone else throughout; most of it for
+  # anyone else, who is engaged from then on.
+  engaged_min_gaze: 0.1
+  bystander_min_gaze: 0.5
+  # Whose speech stops the robot's: `engaged`, only an engaged person seen speaking (anyone while
+  # nobody is engaged), or `anyone`. A stop word stops it either way.
+  barge_in: engaged
+  # A person's score moves towards closeness x staying while they look at the robot, towards 0
+  # while they do not. Engaged from `enter`, when they are greeted, down to `leave`.
+  engagement:
+    # Closeness is 1 up to near_m and 0 from far_m: at 3 m it is 0.6, just enough.
+    near_m: 2.0
+    far_m: 4.5
+    # Staying is 1 standing still and 0 from walking_m_s, measured over moving_window_s.
+    moving_window_s: 0.5
+    walking_m_s: 1.0
+    # About 0.7 s of eye contact up close to engage; about 5 s looking away to disengage, as
+    # listeners look away now and then.
+    rise_s: 0.7
+    fall_s: 3.0
+    enter: 0.6
+    leave: 0.2
+    max_engaged: 3
 
 # The session page of `lune run --ui` and `lune text --ui`.
 ui:

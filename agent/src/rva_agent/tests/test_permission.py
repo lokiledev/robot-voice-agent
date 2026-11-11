@@ -93,6 +93,7 @@ async def test_a_stranger_cannot_start_a_task_but_can_still_talk() -> None:
         speech=speech,
         recorder=ListRecorder(),
         vision=FakeVision([_face(4, person("Bob"), nearest=True)]),
+        engagement=None,
         profile=PROFILE,
         admins=ADMINS,
         config=AgentConfig(
@@ -300,6 +301,7 @@ async def test_each_user_turn_names_who_was_in_front() -> None:
         speech=RecordingSpeech(interrupt_after=None),
         recorder=ListRecorder(),
         vision=vision,
+        engagement=None,
         profile=PROFILE,
         admins=ADMINS,
         config=AgentConfig(
@@ -338,6 +340,7 @@ async def test_anyone_may_mute_but_only_an_operator_unmutes() -> None:
             speech=speech,
             recorder=ListRecorder(),
             vision=vision,
+            engagement=None,
             profile=PROFILE,
             admins=ADMINS,
             config=AgentConfig(
