@@ -17,7 +17,7 @@ class _Queued:
     async def utterances(self) -> AsyncGenerator[UserUtterance]:
         while (text := await self.lines.get()) is not None:
             now = datetime.now(UTC)
-            yield UserUtterance(text=text, started_at=now, ended_at=now)
+            yield UserUtterance(text=text, started_at=now, ended_at=now, speech=None, speaker=None)
 
 
 class _Broken:

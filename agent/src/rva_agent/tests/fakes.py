@@ -5,7 +5,14 @@ from datetime import UTC, datetime
 from typing import Final
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from rva_schemas.dialogue import LlmOutput, Message, Spoken, ToolSpec, UserUtterance
+from rva_schemas.dialogue import (
+    LlmOutput,
+    Message,
+    Spoken,
+    ToolSpec,
+    UserUtterance,
+    UtteranceSpeaker,
+)
 from rva_schemas.profile import Admins, Capabilities, Character, Environment, Profile, Skill
 from rva_schemas.record import Record
 from rva_schemas.vision import (
@@ -42,18 +49,25 @@ class ScriptedLanguageModel:
 
 class QueueUserInput:
     def __init__(self) -> None:
-        self._lines: Final = asyncio.Queue[str | None]()
+        self._lines: Final = asyncio.Queue[tuple[str, UtteranceSpeaker | None] | None]()
 
     def say(self, text: str) -> None:
-        self._lines.put_nowait(text)
+        self._lines.put_nowait((text, None))
+
+    def say_as(self, text: str, speaker: UtteranceSpeaker) -> None:
+        """Say `text` as an utterance the camera and the microphone attributed to `speaker`."""
+        self._lines.put_nowait((text, speaker))
 
     def leave(self) -> None:
         self._lines.put_nowait(None)
 
     async def utterances(self) -> AsyncGenerator[UserUtterance]:
-        while (text := await self._lines.get()) is not None:
+        while (line := await self._lines.get()) is not None:
+            text, speaker = line
             now = datetime.now(UTC)
-            yield UserUtterance(text=text, started_at=now, ended_at=now)
+            yield UserUtterance(
+                text=text, started_at=now, ended_at=now, speech=None, speaker=speaker
+            )
 
 
 class RecordingSpeech:

@@ -32,7 +32,7 @@ class AgentStarted(RVABaseModel):
 
 
 class Speaker(RVABaseModel):
-    """The face in front of the robot when a user line was said, taken as who said it."""
+    """Who said a user line: the face seen speaking it, or else the face in front of the robot."""
 
     track_id: int
     person: KnownPerson | None
@@ -45,7 +45,7 @@ class UserLine(RVABaseModel):
     kind: Literal["user_line"] = "user_line"
     text: str
     speaker: Speaker | None
-    """`None` when nobody was in view, or without a camera."""
+    """`None` when nobody in view said it, or without a camera."""
 
 
 class RobotSentence(RVABaseModel):

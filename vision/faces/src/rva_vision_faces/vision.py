@@ -146,7 +146,7 @@ class FaceVision:
         self._database: Final = database
         self._recorder: Final = recorder
         self._record_video: Final = record_video
-        # The user's last sentence, the track of the face in front when it was said, and when.
+        # The user's last sentence, the track of the face that said it, and when.
         self._caption: tuple[int, str, float] | None = None
         self._speaker: Final = speaker
         self._tracker: Final = Tracker(config.tracker)
@@ -244,14 +244,9 @@ class FaceVision:
         logger.info("Revoked operator {}: {}", user_id, revoked)
         return revoked
 
-    def caption(self, text: str) -> None:
-        """Show a sentence of the user's on their face's box for a few seconds.
-
-        It goes to the face in front of the robot, taken as the speaker, if there is one.
-        """
-        nearest = next((face for face in self.faces() if face.nearest), None)
-        if nearest is not None:
-            self._caption = (nearest.track_id, text, time.monotonic())
+    def caption(self, track_id: int, text: str) -> None:
+        """Show a sentence of the user's on the box of the face that said it, for a few seconds."""
+        self._caption = (track_id, text, time.monotonic())
 
     async def _reload(self) -> None:
         gallery = Gallery(await asyncio.to_thread(self._database.load), self._config.matching)

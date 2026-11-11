@@ -155,6 +155,16 @@ active_speaker:
   enter: -1.0
   leave: -1.3
 
+# Who said each utterance: the face the active speaker saw speaking for the largest share of it.
+# Without an active speaker, it is taken to be the face in front.
+speakers:
+  # Longer than the longest utterance, and than a frame takes to be processed.
+  history_s: 30.0
+  # A face seen speaking in under this share of an utterance's frames did not say it: nobody in
+  # view did. Pauses between words count against the speaker, so it is well below 1. Not tuned
+  # on recordings yet.
+  min_share: 0.3
+
 # The session page of `lune run --ui` and `lune text --ui`.
 ui:
   host: 127.0.0.1

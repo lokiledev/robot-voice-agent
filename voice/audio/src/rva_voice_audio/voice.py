@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import Final, assert_never
@@ -12,7 +13,7 @@ from opentelemetry import trace
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speech import SpeechRecognizer, SpeechSynthesizer
 from rva_schemas.audio import AudioClip
-from rva_schemas.dialogue import Spoken, UserUtterance
+from rva_schemas.dialogue import SpeechSpan, Spoken, UserUtterance
 from rva_schemas.record import Measurement, RobotSentence
 from rva_voice_audio.devices import Speaker
 from rva_voice_audio.echo import RobotSpeech
@@ -70,6 +71,12 @@ class VoiceInput:
                     self._on_speech_start()
                 case TurnEnded() as turn:
                     ended_at = datetime.now(UTC)
+                    # The turn's audio runs up to this frame, the silence that ended it included.
+                    heard_at = time.monotonic()
+                    speech = SpeechSpan(
+                        start=heard_at - len(turn.audio) / SAMPLE_RATE,
+                        end=heard_at - turn.silence_ms / 1000,
+                    )
                     with _tracer.start_as_current_span("asr"):
                         text = await self._recognizer.transcribe(
                             AudioClip(samples=turn.audio, sample_rate=SAMPLE_RATE)
@@ -78,7 +85,13 @@ class VoiceInput:
                     if self._robot_speech.is_echo(text):
                         logger.info("Dropped {!r}: the robot's own voice", text)
                     elif text:
-                        yield UserUtterance(text=text, started_at=started_at, ended_at=ended_at)
+                        yield UserUtterance(
+                            text=text,
+                            started_at=started_at,
+                            ended_at=ended_at,
+                            speech=speech,
+                            speaker=None,
+                        )
                 case other:
                     assert_never(other)
 

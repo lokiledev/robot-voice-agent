@@ -117,7 +117,7 @@ class UiServer:
         while True:
             text = await self._typed.get()
             now = datetime.now(UTC)
-            yield UserUtterance(text=text, started_at=now, ended_at=now)
+            yield UserUtterance(text=text, started_at=now, ended_at=now, speech=None, speaker=None)
 
     async def serve(self, sock: socket.socket) -> None:
         """Serve the page on `sock`, already listening, until cancelled."""

@@ -16,7 +16,9 @@ class TerminalUserInput:
         async for line in read_lines():
             if line.strip():
                 now = datetime.now(UTC)
-                yield UserUtterance(text=line.strip(), started_at=now, ended_at=now)
+                yield UserUtterance(
+                    text=line.strip(), started_at=now, ended_at=now, speech=None, speaker=None
+                )
 
 
 class TerminalSpeechOutput:

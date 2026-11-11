@@ -15,7 +15,9 @@ from rva_agent.tests.fakes import (
 )
 from rva_schemas.dialogue import (
     AssistantMessage,
+    NobodySeenSpeaking,
     RobotEventMessage,
+    SeenSpeaking,
     TextDelta,
     ToolCall,
     UserMessage,
@@ -256,6 +258,41 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
         )
     ]
     assert vision.faces() == (face.model_copy(update={"person": person("Alice")}),)
+
+
+async def test_a_turn_is_tagged_with_the_face_seen_speaking_not_the_one_in_front() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Hi Bob.")], [TextDelta(text="Who is there?")]])
+    vision = FakeVision(
+        [
+            TrackedFace(track_id=7, box=BOX, person=person("Alice"), nearest=True),
+            TrackedFace(track_id=9, box=BOX, person=person("Bob"), nearest=False),
+        ]
+    )
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            vision,
+        ).run()
+    )
+
+    user.say_as("Hello.", SeenSpeaking(track_id=9, person=person("Bob")))
+    await speech.wait_for("Hi Bob.")
+    user.say_as("Over here.", NobodySeenSpeaking())
+    await speech.wait_for("Who is there?")
+    user.leave()
+    await running
+
+    assert llm.requests[0][-1] == UserMessage(content="[Bob, track 9] Hello.")
+    assert llm.requests[1][-1] == UserMessage(content="[someone out of view] Over here.")
+    assert [entry for entry in recorder.entries if isinstance(entry, UserLine)] == [
+        UserLine(text="Hello.", speaker=Speaker(track_id=9, person=person("Bob"), operator=False)),
+        UserLine(text="Over here.", speaker=None),
+    ]
 
 
 async def test_a_departure_starts_no_turn_and_a_quick_return_is_not_greeted_again() -> None:

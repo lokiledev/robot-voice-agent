@@ -96,6 +96,7 @@ flowchart LR
         vision["Vision<br/>detect, track, recognize faces"]
         asd["Active speaker<br/>lips and sound together"]
         att["Visual attention<br/>which face or hand, as a 3D point"]
+        who["Speaker attribution<br/>which face said each utterance"]
         mon["Camera monitor<br/>overlay, debug window, stream"]
         ui["Session page server"]
         loop["Agent loop<br/>inbox, history, LLM turns"]
@@ -103,7 +104,9 @@ flowchart LR
         vout["Voice output<br/>sentences to speech"]
         rec["Recorder<br/>every part records to it"]
     end
-    vin -- "utterances" --> loop
+    vin -- "utterances" --> who
+    vision -- "who is seen speaking" --> who
+    who -- "utterances, with their speaker" --> loop
     vin -- "sound" --> asd
     vision -- "faces" --> asd
     asd -- "who speaks" --> vision
@@ -122,7 +125,7 @@ flowchart LR
     rec -. "rerun file" .-> disk([Recordings])
 
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
-    class vin,vision,asd,att,mon,loop,tools,vout,ui,rec component
+    class vin,vision,asd,att,who,mon,loop,tools,vout,ui,rec component
 ```
 
 The agent loop depends only on interfaces (`typing.Protocol`s): where utterances come from, where
@@ -199,7 +202,7 @@ flowchart LR
   is no longer embedded: a continuous track is the same face, so the name does not flicker and
   the embedder rests. A person already on a track is not given to another one. Every track is
   matched again when the known people change: someone is named, renamed or forgotten. The largest
-  face is taken as the person in front of the robot, and as whoever is speaking.
+  face is taken as the person in front of the robot.
 - **Memory.** The database is pseudonymous: people are user ids, names sit in a table of their
   own, and embeddings, operators and admins refer to ids only. No image is stored.
 - **Face features**, on every face detected in the frame: MediaPipe's face mesh (478 points,
@@ -249,8 +252,8 @@ flowchart LR
   thresholds were tuned on that same take. There is no ONNX export of Light-ASD to download, so
   its pinned checkpoint is converted on first use, in a process of its own, as only that needs
   PyTorch (the `export` dependency group); the network is vendored for it, with the one change
-  ONNX needs. `lune sense` runs it with the camera alone; `lune run` too. It is shown and recorded,
-  not yet used for turn-taking.
+  ONNX needs. `lune sense` runs it with the camera alone; `lune run` too. It is shown, recorded, and tells
+  who said each utterance; it does not yet take part in turn-taking.
 - **Skeletons.** YOLOX finds people, RTMW places the 133 COCO-WholeBody keypoints on each; the upper
   body (head, shoulders, elbows, wrists and hips) and both hands (21 points each) are kept. Legs and
   feet are left out: gestures need the arms, and RTMW would place a foot on a raised hand. The face
@@ -372,6 +375,29 @@ core does no I/O.
   at the point. Nothing takes the target yet: the body API is to be
   redone around it.
 
+### Speaker attribution
+
+Who said an utterance is the face seen speaking it, not the face in front when the agent gets to
+it. It is the first part of `rva-interaction`, where perception meets the dialogue; like the
+attention, it is fed one observation per frame by the vision loop, runs on the frames' times and
+does no I/O.
+
+- **One clock.** The voice input stamps each utterance with when its speech started and ended on
+  the monotonic clock the frames are stamped with: back from the frame that ended the turn by the
+  length of its audio, and by the silence that ended it.
+- **Share of the utterance.** For each frame, the faces the active speaker saw speaking are kept,
+  at the moment it scored, 0.12 s before the frame, for the last 30 s. An utterance is said by
+  the face seen speaking in the largest share of its frames, if that is at least `min_share`
+  (0.3, not tuned on recordings yet): pauses between words count against the speaker, so the
+  share of someone talking is well under 1. Otherwise nobody in view said it, and the turn is
+  tagged `[someone out of view]`; it is still answered, until addressee detection decides.
+- **Attributed as it arrives**, by a `UserInput` wrapped around the voice input, so the agent
+  only reads the speaker off the utterance. Typed lines, and utterances without an active
+  speaker, are still taken to be the face in front's.
+- **Permissions are not the speaker's yet**: tools still check that the face in front is an
+  operator, whoever spoke.
+- `lune listen --camera` prints each turn with who said it.
+
 ### Agent loop and tools
 
 ```mermaid
@@ -439,7 +465,7 @@ flowchart LR
   face; the conversation, sentence by sentence as Lune speaks, with each tool call and how
   actions end; and the actions board, where whatever holds the body glows and the actions it
   excludes are dimmed.
-- **Typed lines** join the microphone's and are attributed to the face in front, like speech.
+- **Typed lines** join the microphone's and are attributed to the face in front.
 - **Plain HTML served by the agent**, rather than a Streamlit app: entries are pushed as they
   happen, with no polling and nothing to build.
 
@@ -513,6 +539,7 @@ flowchart BT
     TTS["rva-voice-tts"]
     VIS["rva-vision-faces"]
     ATT["rva-attention"]
+    INT["rva-interaction"]
     VIEW["rva-vision-viewer"]
     MM["rva-multimodal"]
     UI["rva-ui"]
@@ -523,8 +550,8 @@ flowchart BT
     VLAC --> VLAS
     BODYC --> BODYS
     MOCK --> VLAS & BODYS
-    AGENT & LLM & AUD & ASR & TTS & VIS & ATT & VIEW & MM & UI & OBS --> SCH
-    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & ATT & VIEW & MM & UI & OBS & VLAC & BODYC
+    AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS --> SCH
+    APP --> AGENT & LLM & AUD & ASR & TTS & VIS & ATT & INT & VIEW & MM & UI & OBS & VLAC & BODYC
 ```
 
 | Package | Contents |
@@ -537,6 +564,7 @@ flowchart BT
 | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face database, camera stream |
 | `rva-vision-viewer` | Shows the camera as it is processed: overlay, Dear PyGui debug window, RTSP stream; a recorder, so vision runs without it |
 | `rva-attention` | Visual attention: which face or hand in view to attend to, as a 3D point |
+| `rva-interaction` | Where perception meets the dialogue: which face in view said each utterance |
 | `rva-multimodal` | Where camera and microphone meet: which face speaks, with Light-ASD |
 | `rva-ui` | Session page server and page; MediaMTX's launch settings |
 | `rva-observability` | Logging, OpenTelemetry spans and the rerun recorder |

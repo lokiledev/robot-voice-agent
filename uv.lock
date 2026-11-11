@@ -22,6 +22,7 @@ members = [
     "rva-attention",
     "rva-body-client",
     "rva-body-schemas",
+    "rva-interaction",
     "rva-llm",
     "rva-multimodal",
     "rva-observability",
@@ -1966,6 +1967,7 @@ dependencies = [
     { name = "rva-agent" },
     { name = "rva-attention" },
     { name = "rva-body-client" },
+    { name = "rva-interaction" },
     { name = "rva-llm" },
     { name = "rva-multimodal" },
     { name = "rva-observability" },
@@ -1989,6 +1991,7 @@ requires-dist = [
     { name = "rva-agent", editable = "agent" },
     { name = "rva-attention", editable = "attention" },
     { name = "rva-body-client", editable = "body/client" },
+    { name = "rva-interaction", editable = "interaction" },
     { name = "rva-llm", editable = "llm" },
     { name = "rva-multimodal", editable = "multimodal" },
     { name = "rva-observability", editable = "common/observability" },
@@ -2070,6 +2073,25 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-vla-schemas", editable = "vla/schemas" },
+]
+
+[[package]]
+name = "rva-interaction"
+version = "0.1.0"
+source = { editable = "interaction" }
+dependencies = [
+    { name = "loguru" },
+    { name = "pydantic" },
+    { name = "rva-pydantic" },
+    { name = "rva-schemas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru", specifier = ">=0.7" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "rva-pydantic", editable = "common/pydantic" },
+    { name = "rva-schemas", editable = "schemas" },
 ]
 
 [[package]]

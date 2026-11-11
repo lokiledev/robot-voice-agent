@@ -1,0 +1,22 @@
+[project]
+name = "rva-interaction"
+version = "0.1.0"
+description = "Where perception meets the dialogue: which face in view said each utterance"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "loguru>=0.7",
+  "pydantic>=2.11",
+  "rva-pydantic",
+  "rva-schemas",
+]
+
+[build-system]
+requires = [
+  "uv_build>=0.11,<0.12",
+]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+rva-pydantic = {workspace = true}
+rva-schemas = {workspace = true}

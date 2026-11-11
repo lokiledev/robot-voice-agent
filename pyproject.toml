@@ -48,6 +48,7 @@ rva-attention = {workspace = true}
 rva-app = {workspace = true}
 rva-body-client = {workspace = true}
 rva-body-schemas = {workspace = true}
+rva-interaction = {workspace = true}
 rva-llm = {workspace = true}
 rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}
@@ -79,6 +80,7 @@ members = [
   "body/schemas",
   "common/observability",
   "common/pydantic",
+  "interaction",
   "llm",
   "multimodal",
   "schemas",

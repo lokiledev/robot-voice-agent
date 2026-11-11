@@ -12,6 +12,7 @@ dependencies = [
   "rva-agent",
   "rva-attention",
   "rva-body-client",
+  "rva-interaction",
   "rva-llm",
   "rva-multimodal",
   "rva-observability",
@@ -36,6 +37,7 @@ build-backend = "uv_build"
 rva-agent = {workspace = true}
 rva-attention = {workspace = true}
 rva-body-client = {workspace = true}
+rva-interaction = {workspace = true}
 rva-llm = {workspace = true}
 rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}

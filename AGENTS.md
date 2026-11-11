@@ -34,6 +34,7 @@ The repository is one uv workspace. Each package lives in its domain directory w
 | `vision/faces` | `rva-vision-faces` | Camera, face detection, tracking and recognition, face features, skeletons, depth, face memory; implements `Vision` |
 | `vision/viewer` | `rva-vision-viewer` | Shows the camera as it is processed: the overlay, a Dear PyGui debug window and the RTSP stream; implements `Recorder` |
 | `attention` | `rva-attention` | Visual attention: scores the faces and hands in view and picks the one to attend to, as a 3D point |
+| `interaction` | `rva-interaction` | Where perception meets the dialogue: which face in view said each utterance; implements `UserInput` |
 | `multimodal` | `rva-multimodal` | Where camera and microphone meet: which face speaks, with Light-ASD; implements `SpeakerDetector` |
 | `ui` | `rva-ui` | Session web page: conversation, actions and camera, with typed input; implements `Recorder` and `UserInput` |
 | `app` | `rva-app` | CLI and composition root; the only package that imports implementations |

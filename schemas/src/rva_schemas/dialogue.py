@@ -4,6 +4,36 @@ from typing import Annotated, Literal
 from pydantic import Field, JsonValue
 
 from rva_pydantic import RVABaseModel
+from rva_schemas.vision import KnownPerson
+
+
+class SpeechSpan(RVABaseModel):
+    """When an utterance was spoken, to look up what was seen meanwhile.
+
+    In seconds of the monotonic clock the camera's frames are stamped with.
+    """
+
+    start: float
+    end: float
+    """When the speech ended, before the silence that ended the turn."""
+
+
+class SeenSpeaking(RVABaseModel):
+    """The face in view that said an utterance."""
+
+    kind: Literal["seen"] = "seen"
+    track_id: int
+    person: KnownPerson | None
+    """`None` for someone the robot does not know."""
+
+
+class NobodySeenSpeaking(RVABaseModel):
+    """No face in view was speaking while the utterance was heard."""
+
+    kind: Literal["unseen"] = "unseen"
+
+
+type UtteranceSpeaker = Annotated[SeenSpeaking | NobodySeenSpeaking, Field(discriminator="kind")]
 
 
 class UserUtterance(RVABaseModel):
@@ -12,6 +42,11 @@ class UserUtterance(RVABaseModel):
     text: str
     started_at: datetime
     ended_at: datetime
+    speech: SpeechSpan | None
+    """`None` for a typed line."""
+    speaker: UtteranceSpeaker | None
+    """Who said it, where the camera and the microphone were put together; `None` where they
+    were not, and for a typed line."""
 
 
 class Spoken(RVABaseModel):

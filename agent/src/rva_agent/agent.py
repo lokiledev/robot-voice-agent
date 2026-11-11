@@ -26,13 +26,16 @@ from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.vision import Vision
 from rva_schemas.dialogue import (
     AssistantMessage,
+    NobodySeenSpeaking,
     RobotEventMessage,
+    SeenSpeaking,
     Spoken,
     TextDelta,
     ToolCall,
     ToolResultMessage,
     UserMessage,
     UserUtterance,
+    UtteranceSpeaker,
 )
 from rva_schemas.profile import Admins, Profile
 from rva_schemas.record import (
@@ -44,7 +47,7 @@ from rva_schemas.record import (
     ToolInvocation,
     UserLine,
 )
-from rva_schemas.vision import FaceAppeared, FaceEvent, FaceLeft, TrackedFace
+from rva_schemas.vision import FaceAppeared, FaceEvent, FaceLeft
 from rva_vla_schemas.abc.client import VlaClient
 from rva_vla_schemas.task import Task, TaskCancelled, TaskFailed, TaskRunning, TaskSucceeded
 
@@ -166,11 +169,11 @@ class Agent:
                 self._inbox.task_done()
 
     async def _on_utterance(self, utterance: UserUtterance) -> None:
-        nearest = self._nearest_face()
+        speaker = self._speaker_of(utterance)
         self._recorder.record(
-            UserLine(text=utterance.text, speaker=_speaker(nearest, self._permission))
+            UserLine(text=utterance.text, speaker=_speaker(speaker, self._permission))
         )
-        self._history.append(UserMessage(content=self._attributed(utterance.text, nearest)))
+        self._history.append(UserMessage(content=self._attributed(utterance.text, speaker)))
         # Muting is matched in code rather than left to the LLM: it must work every time.
         if self._muted and _mentions(utterance.text, self._config.unmute_phrases):
             await self._unmute()
@@ -231,18 +234,28 @@ class Agent:
             case _:
                 await self._respond()
 
-    def _nearest_face(self) -> TrackedFace | None:
-        """The face in front of the robot, taken as whoever speaks; `None` without a camera too."""
+    def _speaker_of(self, utterance: UserUtterance) -> UtteranceSpeaker | None:
+        """Who said `utterance`; `None` with nobody in view to have said it, or no camera.
+
+        The face seen speaking it, where the camera and the microphone were put together.
+        Otherwise, and for a typed line, the face in front of the robot now.
+        """
+        if utterance.speaker is not None:
+            return utterance.speaker
         if self._vision is None:
             return None
-        return next((face for face in self._vision.faces() if face.nearest), None)
+        nearest = next((face for face in self._vision.faces() if face.nearest), None)
+        return (
+            None
+            if nearest is None
+            else SeenSpeaking(track_id=nearest.track_id, person=nearest.person)
+        )
 
-    def _attributed(self, text: str, nearest: TrackedFace | None) -> str:
+    def _attributed(self, text: str, speaker: UtteranceSpeaker | None) -> str:
         """`text` prefixed with who said it and with what the body is busy with, if anything.
 
-        Who said it is `nearest`, the face in front of the robot at that moment. Without these, the LLM
-        keeps answering whoever spoke last after someone else steps in front, and promises an action
-        before finding out the body is busy.
+        Without these, the LLM keeps answering whoever spoke last after someone else speaks, and
+        promises an action before finding out the body is busy.
         """
         task = self._supervisor.active
         busy = task.instruction if task is not None else self._moving()
@@ -253,11 +266,16 @@ class Agent:
             text = f"{text} (You are muted: answer with no words, only with tools if needed.)"
         if self._vision is None:
             return text
-        if nearest is None:
-            return f"[nobody in view] {text}"
-        if nearest.person is None:
-            return f"[unknown person, track {nearest.track_id}] {text}"
-        return f"[{nearest.person.name}, track {nearest.track_id}] {text}"
+        match speaker:
+            case None:
+                return f"[nobody in view] {text}"
+            case NobodySeenSpeaking():
+                return f"[someone out of view] {text}"
+            case SeenSpeaking(person=person):
+                who = "unknown person" if person is None else person.name
+                return f"[{who}, track {speaker.track_id}] {text}"
+            case _:
+                assert_never(speaker)
 
     def _moving(self) -> str | None:
         """What the body is doing besides a VLA task, if anything."""
@@ -422,15 +440,18 @@ def _describe_motion_end(motion: Motion) -> str:
             assert_never(motion.status)
 
 
-def _speaker(face: TrackedFace | None, permission: ActionPermission) -> Speaker | None:
-    if face is None:
-        return None
-    person = face.person
-    return Speaker(
-        track_id=face.track_id,
-        person=person,
-        operator=person is not None and permission.is_operator(person.user_id),
-    )
+def _speaker(speaker: UtteranceSpeaker | None, permission: ActionPermission) -> Speaker | None:
+    match speaker:
+        case None | NobodySeenSpeaking():
+            return None
+        case SeenSpeaking(person=person):
+            return Speaker(
+                track_id=speaker.track_id,
+                person=person,
+                operator=person is not None and permission.is_operator(person.user_id),
+            )
+        case _:
+            assert_never(speaker)
 
 
 def _describe_face(event: FaceAppeared | FaceLeft, permission: ActionPermission) -> str:
