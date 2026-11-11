@@ -598,7 +598,8 @@ targets.
   the camera pipeline uses too. Genesis' viewer, with `--viewer`, does not pace the steps itself:
   two pacings would fall behind real time.
 
-`rva-robot-kinematics` turns a head pose into the angles of the body's yaw and the six motors.
+`rva-robot-kinematics` turns a head pose into the angles of the body's yaw and the six motors,
+and back.
 A pose is that of the MJCF's `head` site in the robot's base frame (the MJCF's root, on the table
 top: x forward, z up), with roll, pitch and yaw as Pollen's SDK composes them; with every joint at
 zero, the head is upright 0.1496 m above the table, and Pollen holds it at 0.177 m.
@@ -615,6 +616,11 @@ zero, the head is upright 0.1496 m above the table, and Pollen holds it at 0.177
   while the head looks around in front of it.
 - **Out of reach is refused**, rather than clamped: a rod its arm cannot reach, or a motor or the
   body beyond its range, raises.
+- **Back by Newton.** The head's pose from the joints' angles has no closed form: Newton's method
+  moves the head until each rod's anchor is at rod length from its arm's tip, from the last
+  estimate (three steps, about 0.1 ms) or from the rest pose turned with the body (six, 0.2 ms).
+  Its steps are capped, so as not to jump to another of the poses the angles fit, which the robot
+  cannot be assembled in. Angles no pose fits raise, where Pollen's returns its last iterate.
 
 `lune robot` drives the joints with sliders and shows the head camera, to check the simulation by
 hand.

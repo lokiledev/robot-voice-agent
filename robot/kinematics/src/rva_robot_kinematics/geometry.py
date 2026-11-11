@@ -46,6 +46,8 @@ class HeadGeometry(RVABaseModel, arbitrary_types_allowed=True):
     about the frame's z axis."""
     body_range: tuple[float, float]
     """Lowest and highest angle of the body joint, in radians."""
+    head: npt.NDArray[np.float64]
+    """4×4 pose of the head frame, the `head` site, in the body's frame with every joint at zero."""
     arm_length: float
     """From a motor's axis to the ball joint at its arm's tip, in meters."""
     rod_length: float
@@ -114,6 +116,7 @@ def read_head_geometry(mjcf: Path) -> HeadGeometry:
         body_joint=_BODY_JOINT,
         body=rest[body],
         body_range=_range(body_joint),
+        head=head_at_rest,
         arm_length=arm_lengths[0],
         rod_length=rod_lengths[0],
         legs=tuple(legs),

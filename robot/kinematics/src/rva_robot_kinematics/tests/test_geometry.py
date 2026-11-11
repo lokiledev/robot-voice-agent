@@ -14,6 +14,11 @@ def test_reads_the_stewart_platform_of_reachy_mini() -> None:
 
     assert geometry.body_joint == "yaw_body"
     assert geometry.body_range == pytest.approx((-2.792527, 2.792527))
+    # The body's frame is turned a quarter turn right of the base's: the head, upright, a quarter
+    # turn left of it.
+    assert geometry.head == pytest.approx(
+        np.array(((0, -1, 0, 0), (1, 0, 0, 0), (0, 0, 1, 0.114771), (0, 0, 0, 1))), abs=2e-6
+    )
     assert geometry.arm_length == pytest.approx(0.04)
     assert geometry.rod_length == pytest.approx(0.085)
     legs = geometry.legs

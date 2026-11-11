@@ -101,6 +101,12 @@ def test_the_head_goes_where_asked(
     assert _positions(_still_body(robot.geometry).solve(head, joints["yaw_body"])) == pytest.approx(
         {name: joints[name] for name in _positions(command)}, abs=0.002
     )
+    # And back: the angles they reached put the head where Genesis has it, to its constraints' slack.
+    estimate = kinematics.forward(joints, guess=None)
+    assert (estimate.x, estimate.y, estimate.z) == pytest.approx((head.x, head.y, head.z), abs=1e-4)
+    assert (estimate.roll, estimate.pitch, estimate.yaw) == pytest.approx(
+        (head.roll, head.pitch, head.yaw), abs=math.radians(0.1)
+    )
 
 
 def _still_body(geometry: HeadGeometry) -> HeadKinematics:

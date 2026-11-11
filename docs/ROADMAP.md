@@ -41,10 +41,10 @@ what exists and why.
 
 - **Visual servoing.** A controller that keeps a point in space, the attention's target, in the
   middle of the head camera, from its position and velocity, knowing nothing of the attention.
-  `rva-robot-kinematics` gives the motors' angles for a head pose; the head's pose from the
-  joints' (forward kinematics, for the camera's pose) is still missing. In the simulation, the
-  head's yaw strays by a few degrees when the platform turns it near Pollen's 65° from the body:
-  the motors' small errors weigh more there.
+  `rva-robot-kinematics` gives the motors' angles for a head pose, and the head's pose from the
+  joints' (forward kinematics, for the camera's pose). In the simulation, the head's yaw strays by
+  a few degrees when the platform turns it near Pollen's 65° from the body: the motors' small
+  errors weigh more there.
 - **The camera's pose is not published**: the controller will need where the camera is in the
   robot's base frame. The simulation knows it (the MJCF's mount), and could publish the head pose
   as ground truth too. Its intrinsics are in the profile, computed from the MJCF's field of view.

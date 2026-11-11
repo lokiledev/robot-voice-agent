@@ -1,7 +1,9 @@
-"""Expected angles are those of Pollen's analytical kinematics.
+"""Expected angles and poses are those of Pollen's kinematics.
 
 That is `reachy-mini-rust-kinematics` 1.0.3 with the `kinematics_data.json` of `reachy-mini`
-1.14.0, given the same poses less 0.177 m in z, its convention.
+1.14.0, given the same poses less 0.177 m in z, its convention. Its forward kinematics stop once
+the rods are within a micrometer of their length, and its geometry differs from the MJCF's by as
+much: poses agree to 2e-5.
 """
 
 import math
@@ -10,7 +12,11 @@ from pathlib import Path
 import pytest
 
 from rva_robot_kinematics.geometry import read_head_geometry
-from rva_robot_kinematics.head import HeadKinematics, UnreachableHeadPoseError
+from rva_robot_kinematics.head import (
+    HeadKinematics,
+    HeadPoseNotFoundError,
+    UnreachableHeadPoseError,
+)
 from rva_robot_schemas.head import HeadPose
 from rva_robot_schemas.joints import JointCommand
 
@@ -31,6 +37,14 @@ def _pose(x: float, y: float, z: float, roll: float, pitch: float, yaw: float) -
         pitch=math.radians(pitch),
         yaw=math.radians(yaw),
     )
+
+
+def _joints(body: float, *motors: float) -> dict[str, float]:
+    return dict(zip(JOINTS, (body, *motors), strict=True))
+
+
+def _components(pose: HeadPose) -> tuple[float, ...]:
+    return (pose.x, pose.y, pose.z, pose.roll, pose.pitch, pose.yaw)
 
 
 def _angles(command: JointCommand) -> tuple[float, ...]:
@@ -175,3 +189,127 @@ def test_a_pose_that_would_turn_the_body_beyond_its_range_is_refused() -> None:
 
     with pytest.raises(UnreachableHeadPoseError, match="needs the body beyond its range"):
         stiff.solve(behind, body_yaw=0.0)
+
+
+ROUND_TRIPS = [
+    pytest.param(_pose(0.0, 0.0, NEUTRAL, 0.0, 0.0, 0.0), 0.0, id="neutral"),
+    pytest.param(_pose(0.0, 0.0, NEUTRAL + 0.01, 0.0, 0.0, 0.0), 0.0, id="lifted by 1 cm"),
+    pytest.param(_pose(0.0, 0.0, NEUTRAL, 0.0, 15.0, 0.0), 0.0, id="looking down"),
+    pytest.param(_pose(0.0, 0.0, NEUTRAL, 0.0, -15.0, 0.0), 0.0, id="looking up"),
+    pytest.param(_pose(0.0, 0.0, NEUTRAL, 10.0, 0.0, 0.0), 0.0, id="tilted"),
+    pytest.param(_pose(0.0, 0.0, NEUTRAL, 0.0, 0.0, 30.0), 0.0, id="turned left"),
+    pytest.param(_pose(0.005, -0.004, 0.18, 5.0, -10.0, 20.0), 0.0, id="all at once"),
+    pytest.param(
+        _pose(0.005, -0.004, 0.18, 5.0, -10.0, 20.0),
+        math.radians(-10),
+        id="all at once, the body turned right",
+    ),
+    pytest.param(_pose(0.0, 0.0, NEUTRAL, 0.0, 0.0, 100.0), 0.0, id="65° from the body"),
+]
+
+
+@pytest.mark.parametrize(("target", "body_yaw"), ROUND_TRIPS)
+def test_the_joints_angles_give_back_the_pose(target: HeadPose, body_yaw: float) -> None:
+    positions = {t.name: t.position for t in KINEMATICS.solve(target, body_yaw).targets}
+
+    estimate = KINEMATICS.forward(positions, guess=None)
+
+    assert _components(estimate) == pytest.approx(_components(target), abs=1e-6)
+
+
+@pytest.mark.parametrize(("target", "body_yaw"), ROUND_TRIPS)
+def test_the_pose_is_found_from_the_last_estimate(target: HeadPose, body_yaw: float) -> None:
+    positions = {t.name: t.position for t in KINEMATICS.solve(target, body_yaw).targets}
+    # 10 ms earlier, the head moving at 10 cm/s and 60°/s.
+    last = target.model_copy(
+        update={
+            "x": target.x - 0.001,
+            "roll": target.roll - math.radians(0.6),
+            "yaw": target.yaw - math.radians(0.6),
+        }
+    )
+
+    estimate = KINEMATICS.forward(positions, guess=last)
+
+    assert _components(estimate) == pytest.approx(_components(target), abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("positions", "expected"),
+    [
+        pytest.param(
+            _joints(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            _pose(0.0, 0.0, 0.149571, roll=0.0, pitch=0.0, yaw=0.0),
+            id="every joint at zero",
+        ),
+        pytest.param(
+            _joints(0.0, 0.7, -0.5, 0.6, -0.7, 0.5, -0.6),
+            HeadPose(
+                x=-0.0094033,
+                y=0.0059002,
+                z=0.1750662,
+                roll=0.0670831,
+                pitch=0.1065753,
+                yaw=0.0041098,
+            ),
+            id="leaning back",
+        ),
+        pytest.param(
+            _joints(0.3, 0.9, -0.4, 0.3, -0.8, 0.7, -0.2),
+            HeadPose(
+                x=-0.0135823,
+                y=0.0317354,
+                z=0.1651068,
+                roll=0.3724947,
+                pitch=0.1506167,
+                yaw=0.5687264,
+            ),
+            id="tilted and turned left",
+        ),
+        pytest.param(
+            _joints(-1.0, 0.5, -0.9, 0.8, -0.4, 0.6, -0.75),
+            HeadPose(
+                x=-0.0133186,
+                y=-0.0185677,
+                z=0.1752230,
+                roll=-0.0521919,
+                pitch=-0.0872922,
+                yaw=-1.0894942,
+            ),
+            id="the body turned right",
+        ),
+    ],
+)
+def test_matches_pollens_forward_kinematics(
+    positions: dict[str, float], expected: HeadPose
+) -> None:
+    estimate = KINEMATICS.forward(positions, guess=None)
+
+    assert _components(estimate) == pytest.approx(_components(expected), abs=2e-5)
+
+
+def test_the_yaw_stays_within_half_a_turn() -> None:
+    # The body at 150° and the head 40° further: 190°, that is -170°.
+    behind = _pose(0.0, 0.0, NEUTRAL, roll=0.0, pitch=0.0, yaw=-170.0)
+    positions = {t.name: t.position for t in KINEMATICS.solve(behind, math.radians(150)).targets}
+
+    estimate = KINEMATICS.forward(positions, guess=None)
+
+    assert estimate.yaw == pytest.approx(math.radians(-170.0))
+
+
+def test_angles_no_pose_fits_are_refused() -> None:
+    # One arm raised to 74° while the others rest: no pose of the head is at rod length from all
+    # six arms' tips.
+    one_arm_up = _joints(0.0, 1.3, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+    with pytest.raises(HeadPoseNotFoundError, match="No head pose fits the joints within 20 steps"):
+        KINEMATICS.forward(one_arm_up, guess=None)
+
+
+def test_a_missing_joint_is_refused() -> None:
+    positions = _joints(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    del positions["stewart_4"]
+
+    with pytest.raises(KeyError, match="stewart_4"):
+        KINEMATICS.forward(positions, guess=None)
