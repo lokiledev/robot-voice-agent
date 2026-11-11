@@ -129,6 +129,8 @@ class Agent:
         self._greeted: Final[set[int]] = set()
         # The track of whoever stopped listening in the middle of a reply, until they are back.
         self._cut_short_for: int | None = None
+        # Who they are, if known: out of view and back, they are on a new track.
+        self._cut_short_person: UUID | None = None
 
     async def run(self) -> None:
         """Converse until the user input ends, then finish the turns already queued."""
@@ -252,8 +254,8 @@ class Agent:
 
     async def _on_engaged(self, event: Engaged) -> None:
         who = _describe_person(event.track_id, event.person, self._permission)
-        if self._cut_short_for == event.track_id:
-            self._cut_short_for = None
+        if self._was_cut_short_for(event):
+            self._cut_short_for = self._cut_short_person = None
             self._history.append(
                 RobotEventMessage(
                     content=f"{who} is listening to you again. You had stopped in the middle of"
@@ -278,9 +280,17 @@ class Agent:
         )
         await self._respond(event.track_id)
 
+    def _was_cut_short_for(self, event: Engaged) -> bool:
+        """Whether the reply that stopped in the middle was to whoever engages now."""
+        if event.track_id == self._cut_short_for:
+            return True
+        return event.person is not None and event.person.user_id == self._cut_short_person
+
     def _on_disengaged(self, event: Disengaged) -> None:
         if event.person is not None:
             self._disengaged_at[event.person.user_id] = time.monotonic()
+            if event.track_id == self._cut_short_for:
+                self._cut_short_person = event.person.user_id
         who = _name(event.track_id, event.person)
         what = "left" if event.left else "is no longer paying attention to you"
         self._history.append(RobotEventMessage(content=f"{who} {what}."))

@@ -433,6 +433,40 @@ async def test_a_reply_stops_when_its_listener_turns_away_and_is_picked_up_when_
     )
 
 
+async def test_a_reply_cut_short_is_picked_up_when_its_listener_is_back_on_another_track() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Once upon a time. There was a robot.")],
+            [TextDelta(text="So, there was a robot.")],
+        ]
+    )
+    user, recorder = QueueUserInput(), ListRecorder()
+    engagement = FakeEngagement([7])
+    speech = RecordingSpeech(interrupt_after=None)
+
+    def walk_away(sentence: str) -> None:
+        if sentence == "Once upon a time.":
+            engagement.show(Disengaged(track_id=7, person=person("Alice"), left=True))
+
+    speech.after_sentence = walk_away
+    running = _running(llm, user, speech, recorder, FakeVision([]), engagement)
+
+    user.say_as("A story?", SeenSpeaking(track_id=7, person=person("Alice"), to_robot=True))
+    await speech.wait_for("Once upon a time.")
+    # Out of view and back, Alice is on a new track.
+    engagement.show(Engaged(track_id=8, person=person("Alice")))
+    await speech.wait_for("So, there was a robot.")
+    user.leave()
+    await running
+
+    assert speech.said == ["Once upon a time.", "So, there was a robot."]
+    assert llm.requests[1][-1] == RobotEventMessage(
+        content=f"Alice (track 8, user {ALICE_ID}, one of your operators) is listening to you"
+        " again. You had stopped in the middle of your answer: pick it up if it still matters,"
+        " briefly."
+    )
+
+
 async def test_a_stop_word_cuts_off_the_reply_being_said() -> None:
     llm = ScriptedLanguageModel([[TextDelta(text="Hello.")], [TextDelta(text="Okay.")]])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
