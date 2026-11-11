@@ -56,7 +56,7 @@ vision:
     iou_threshold: 0.3
     reid_threshold: 0.5
     confirm_after_s: 0.5
-    leave_after_s: 3.0
+    leave_after_s: 2.0
     embed_every_s: 1.0
     embeddings_per_track: 5
   matching:
