@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 
 from rva_robot_client.client import RobotClientConfig, RobotUnavailableError, open_robot
-from rva_robot_client.head import head_targets, open_head_sender
+from rva_robot_client.head import gaze_targets, head_targets, open_gaze_sender, open_head_sender
 from rva_robot_schemas.camera import CameraFrame
-from rva_robot_schemas.head import HeadPose
+from rva_robot_schemas.head import GazeTarget, HeadPose
 from rva_robot_schemas.joints import JointCommand, JointReading, JointState, JointTarget
 from rva_robot_sim.bus import RobotBus
 
@@ -118,3 +118,20 @@ async def test_head_poses_reach_the_controller_latest_first(namespace: str) -> N
 
     assert received == latest
     assert open_head_sender(namespace, "test_ui") is None
+
+
+async def test_gaze_targets_reach_the_controller_latest_first(namespace: str) -> None:
+    assert open_gaze_sender(namespace, "test_attention") is None
+    first = GazeTarget(timestamp=10.0, x=0.1, y=0.0, z=1.0)
+    latest = GazeTarget(timestamp=10.1, x=0.2, y=-0.1, z=1.1)
+
+    async with gaze_targets(namespace) as targets:
+        sender = open_gaze_sender(namespace, "test_attention")
+        assert sender is not None
+        sender.send(first)
+        sender.send(latest)
+
+        received = await asyncio.wait_for(anext(targets), timeout=5)
+
+    assert received == latest
+    assert open_gaze_sender(namespace, "test_attention") is None

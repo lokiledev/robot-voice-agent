@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from rva_robot_sim.people import AvatarsConfig, PlacedPerson, install_avatar, yaw_deg
+from rva_robot_sim.people import AvatarsConfig, install_avatar, yaw_deg
 
 COMMIT = "0943055db6ec570bcef9f2c8b41c9e5467c808f9"
 RAW = f"/microsoft/Microsoft-Rocketbox/{COMMIT}/Assets/Avatars/Adults/Female_Adult_01"
@@ -27,9 +27,7 @@ TEXTURES = (
 def test_people_face_the_robot_unless_turned(
     position: tuple[float, float], turned_deg: float, yaw: float
 ) -> None:
-    person = PlacedPerson(avatar="Adults/Female_Adult_01", position=position, turned_deg=turned_deg)
-
-    assert yaw_deg(person) % 360 == pytest.approx(yaw)
+    assert yaw_deg(position, turned_deg) % 360 == pytest.approx(yaw)
 
 
 def _github() -> httpx.Client:

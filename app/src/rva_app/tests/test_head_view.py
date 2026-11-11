@@ -1,10 +1,8 @@
-import math
 from pathlib import Path
 
 import numpy as np
 
-from rva_app.head_view import pose_matrix, read_meshes
-from rva_robot_schemas.head import HeadPose
+from rva_app.head_view import read_meshes
 
 # Reachy Mini's MJCF, cut down to a mesh on each part, the head's site and an antenna.
 MJCF = """
@@ -57,14 +55,3 @@ def test_meshes_are_grouped_by_the_part_they_move_with(tmp_path: Path) -> None:
     np.testing.assert_allclose(robot.meshes[3].pose[:3, 3], (0.0, 0.03, 0.06))
     np.testing.assert_allclose(robot.body[:3, 3], (0.0, 0.0, 0.0348))
     np.testing.assert_allclose(robot.head_site[:3, 3], (0.01, 0.0, 0.02))
-
-
-def test_a_head_pose_turns_by_yaw_then_pitch_then_roll() -> None:
-    pose = HeadPose(x=0.0, y=0.0, z=0.15, roll=0.0, pitch=math.radians(90), yaw=math.radians(90))
-
-    matrix = pose_matrix(pose)
-
-    # Turned left a quarter, then looking down: its x axis points at the floor.
-    np.testing.assert_allclose(matrix[:3, 0], (0.0, 0.0, -1.0), atol=1e-12)
-    np.testing.assert_allclose(matrix[:3, 1], (-1.0, 0.0, 0.0), atol=1e-12)
-    np.testing.assert_allclose(matrix[:3, 3], (0.0, 0.0, 0.15))

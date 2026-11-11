@@ -351,8 +351,8 @@ flowchart LR
 
 ### Visual attention
 
-Which face or hand in view the robot attends to, as a point in the camera's frame, for the gaze
-and, later, the head and body through IK. It is a package of its own, `rva-attention`, fed by the
+Which face or hand in view the robot attends to, as a point in the camera's frame, which the head
+controller turns the head to (see the robot's section) when the profile has one. It is a package of its own, `rva-attention`, fed by the
 vision loop and never importing it: one observation per frame, the people in view with the
 frame's time and the main user's track, over a queue that keeps only the latest frame. Every
 dynamic runs on the frames' times, so a recorded sequence gives the same states back, and the
@@ -562,6 +562,8 @@ targets.
 | `camera` | Published by the robot, 30 Hz | The head camera's BGR frame, 1280×720, after a small binary header |
 | `joint_command` | Mailbox of the robot | Position targets for some joints, as JSON; the others keep theirs |
 | `head_target` | Mailbox of the head controller | A head pose, as JSON; the controller takes the latest |
+| `gaze_target` | Mailbox of the head controller | A point in the head camera's frame and when it was seen, as JSON; the controller takes the latest |
+| `person_pose` | Mailbox of the simulation's own node, `sim` | Where one of the simulated people stands, as JSON |
 
 - **The MJCF, not the URDF.** Reachy Mini's head sits on a Stewart platform: six motors whose rods
   close on the head. The MJCF closes those loops with equality constraints, which Genesis
@@ -585,7 +587,11 @@ targets.
   pinned commit and baked once by headless Blender into a static GLB, since Genesis cannot read
   their FBX: the most detailed mesh, without its skeleton, in its A-pose. RenderPeople's scans look
   more real, but their terms forbid computer vision use without written consent; Objaverse's
-  scans each need their own fixes.
+  scans each need their own fixes. They are the simulation's NPCs: the `npc` CLI moves them
+  while it runs, through the `person_pose` mailbox of the simulation's own node, without loading
+  Genesis. `npc walk` paces one sideways across the robot's view, back and forth at a steady
+  speed, to watch the head follow. The roadmap has the layers the simulation is to be split into:
+  scene, robots, NPCs and scenarios.
 - **A room around them.** With Nyx, an HDRI from [Poly Haven](https://polyhaven.com/hdris) (CC0)
   is seen around the world and lights it, with a sun for shadows; downloaded on first use and
   checked against Poly Haven's MD5.
@@ -635,6 +641,22 @@ sender can tell whether it runs. `lune` starts it after the simulation when the 
 the meshes of the base, of the body turned by its yaw, and of the head where forward kinematics
 finds it from each joint state, warm-started from the last estimate, with the head's estimated
 pose and its target as axes. The Stewart platform's arms and rods are not drawn.
+
+It also points the head camera at the gaze targets of its `gaze_target` mailbox: the attention's
+target, which `lune see`, `lune run` and the other commands that attend send with the time the
+frame was taken, whenever the controller runs. A target is a point in the camera's frame, seen a
+moment ago from wherever the head was then: the controller keeps two seconds of head poses, by
+forward kinematics of each joint state, places the point in the base frame from the pose nearest
+the frame's time, and only then aims. So the head's own motion since the frame does not move the
+point, and the loop does not chase its own lag. The aim keeps the head at the profile's
+`gaze_position` and level, and solves its pitch and yaw for the camera's axis, read from the
+MJCF's `camera_optical` site, to pass through the point; the camera sits 7 cm off the head's
+centre, so a few rounds from where the last put it converge. Targets out of reach are left out,
+logged once until they come back. The viewer shows the target's point too.
+
+In the simulation, with someone pacing 0.8 m each side of the robot's axis at 1.1 m, the head
+follows her bearing to a degree once its lag is taken out, a quarter to a third of a second: the
+camera pipeline's latency and the motors'. Nothing smooths or anticipates yet.
 
 `lune robot` drives the joints with sliders, or the head's pose through `lune head` when it runs,
 and shows the head camera, to check the simulation and the controller by hand.

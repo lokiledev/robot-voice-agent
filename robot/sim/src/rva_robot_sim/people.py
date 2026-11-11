@@ -76,11 +76,16 @@ class PlacedPerson(RVABaseModel):
     above; 0 faces it."""
 
 
-def yaw_deg(person: PlacedPerson) -> float:
-    """The rotation about the vertical of a baked avatar, which faces -y, for `person`."""
-    x, y = person.position
+def yaw_deg(position: tuple[float, float], turned_deg: float) -> float:
+    """The rotation about the vertical of a baked avatar, which faces -y, placed as given.
+
+    Args:
+        position: Where they stand, as `PlacedPerson.position`.
+        turned_deg: How far they are turned from facing the robot, as `PlacedPerson.turned_deg`.
+    """
+    x, y = position
     towards_robot = math.degrees(math.atan2(-y, -x))
-    return towards_robot + 90.0 + person.turned_deg
+    return towards_robot + 90.0 + turned_deg
 
 
 def install_avatar(config: AvatarsConfig, avatar: str, client: httpx.Client) -> Path:

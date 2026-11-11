@@ -157,7 +157,8 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
 | `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
-| `lune head --profile config/reachy_mini_sim` | The head controller: puts the simulated head at the poses it is sent; `--viewer` shows in rerun the robot as its joints put it, with the head's estimated pose and its target; start `lune-sim` first |
+| `lune head --profile config/reachy_mini_sim` | The head controller: puts the simulated head at the poses it is sent, and points its camera at the attention's target when `lune see` or the agent runs; `--viewer` shows in rerun the robot as its joints put it, with the head's estimated pose, its target and the gaze target's point; start `lune-sim` first |
+| `npc walk` | Paces one of the simulated people sideways across the robot's view, back and forth (`--half-width`, `--speed`), to watch the head follow them with `lune head` and `lune see`; Ctrl+C puts them back; start `lune-sim` first |
 | `lune robot --profile config/reachy_mini_sim` | Drives the simulated robot's joints, or its head through `lune head`, with sliders, and shows its head camera; start `lune-sim` first |
 | `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |

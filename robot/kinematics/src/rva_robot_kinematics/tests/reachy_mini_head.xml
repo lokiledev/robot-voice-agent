@@ -1,8 +1,8 @@
 <!--
   The kinematic tree of Reachy Mini's MJCF, by Pollen Robotics under Apache-2.0, from the
   reachy-mini 1.14.0 wheel the simulation downloads: its bodies, the joints of the body's yaw and
-  of the Stewart platform, and the sites closing the platform's loops. Meshes, inertia, collisions,
-  the camera and the antennas are left out.
+  of the Stewart platform, the sites closing the platform's loops, and the camera's optical frame.
+  Meshes, inertia, collisions, the camera itself and the antennas are left out.
 -->
 <mujoco model="reachy_mini">
   <worldbody>
@@ -55,6 +55,7 @@
               <site name="closing_3_2" pos="-0.0189403 0.0208215 0.050171" quat="0.199279 0.740682 -0.458499 0.44884" />
               <site name="closing_4_2" pos="-0.0214133 0.0278259 0.0383042" quat="0.199279 0.740682 -0.458499 0.44884" />
               <site name="closing_5_2" pos="-0.00708235 0.0120716 0.000342873" quat="0.0270842 -0.96349 -0.261035 -0.0530577" />
+              <site name="camera_optical" pos="-0.0321159 -0.05047 0.00257878" quat="0.44884 0.458499 0.740682 -0.199279" />
               <site name="head" pos="-0.00611127 0.00370522 0.0291364" quat="0.465151 0.724371 -0.182968 -0.474809" />
             </body>
           </body>

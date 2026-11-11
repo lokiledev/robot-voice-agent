@@ -81,7 +81,7 @@ class _Driver:
     def __init__(self, robot: RobotClient, namespace: str, state: JointState) -> None:
         self._robot: Final = robot
         self._namespace: Final = namespace
-        self._head: HeadSender | None = None
+        self._head: HeadSender[HeadPose] | None = None
         """Opened once the head controller runs."""
         self._state = state
         self.targets: Final = {joint.name: joint.position for joint in state.joints}

@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final, assert_never
@@ -16,6 +17,7 @@ from rva_robot_schemas.camera import CameraFrame
 from rva_robot_schemas.joints import JointCommand, JointReading, JointState
 from rva_robot_sim.config import CameraRenderer, NyxRenderer, Rasterizer
 from rva_robot_sim.mjcf import CameraMount, read_facts
+from rva_robot_sim.npc import PersonPose
 from rva_robot_sim.people import PlacedPerson, yaw_deg
 
 _TABLE_SIZE: Final = (0.6, 1.0)
@@ -32,6 +34,10 @@ _FAR_M: Final = 50.0
 
 
 class UnknownJointError(ValueError):
+    pass
+
+
+class UnknownPersonError(ValueError):
     pass
 
 
@@ -85,17 +91,19 @@ class ReachyMiniScene:
             ),
             surface=gs.surfaces.Default(color=_TABLE_COLOR),
         )
-        for avatar, person in people:
-            # Seen, not touched: the robot cannot reach them.
+        # Seen, not touched: the robot cannot reach them. Fixed, they stay where they are put.
+        self._people: Final = [
             self._scene.add_entity(
                 gs.morphs.Mesh(
                     file=str(avatar),
                     pos=(*person.position, 0.0),
-                    euler=(0.0, 0.0, yaw_deg(person)),
+                    euler=(0.0, 0.0, yaw_deg(person.position, person.turned_deg)),
                     fixed=True,
                     collision=False,
                 )
             )
+            for avatar, person in people
+        ]
         self._robot: Final = self._scene.add_entity(
             gs.morphs.MJCF(file=str(mjcf), pos=(0.0, 0.0, table_height))
         )
@@ -130,6 +138,21 @@ class ReachyMiniScene:
             index = self._names.index(target.name)
             self._targets[index] = np.clip(target.position, self._lower[index], self._upper[index])
         self._robot.control_dofs_position(self._targets, self._dofs)
+
+    def place(self, pose: PersonPose) -> None:
+        """Move one of the people.
+
+        Raises:
+            UnknownPersonError: If there is no such person.
+        """
+        if not 0 <= pose.person < len(self._people):
+            raise UnknownPersonError(
+                f"No person {pose.person}; there are {len(self._people)}, from 0"
+            )
+        person = self._people[pose.person]
+        half_yaw = math.radians(yaw_deg(pose.position, pose.turned_deg)) / 2
+        person.set_pos((*pose.position, 0.0), relative=False)
+        person.set_quat((math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)), relative=False)
 
     def joint_state(self, timestamp: float) -> JointState:
         positions = self._robot.get_dofs_position(self._dofs).numpy()

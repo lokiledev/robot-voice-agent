@@ -39,16 +39,35 @@ what exists and why.
 
 ## Robot body
 
-- **Visual servoing.** A controller that keeps a point in space, the attention's target, in the
-  middle of the head camera, from its position and velocity, knowing nothing of the attention.
-  `rva-robot-kinematics` gives the motors' angles for a head pose, and the head's pose from the
-  joints' (forward kinematics, for the camera's pose). In the simulation, the head's yaw strays by
-  a few degrees when the platform turns it near Pollen's 65° from the body: the motors' small
-  errors weigh more there.
-- **The camera's pose is not published**: the controller will need where the camera is in the
-  robot's base frame. The simulation knows it (the MJCF's mount), and could publish the head pose
-  as ground truth too. Its intrinsics are in the profile, computed from the MJCF's field of view.
-- **The simulated people stand still, in an A-pose.** Idle motion, walking in and out of view,
+- **The head follows the attention's target late**, by a quarter to a third of a second in the
+  simulation (`npc walk`): the camera pipeline's latency, then the motors'. Each target is placed
+  from where the head was when its frame was taken, so the lag does not make it oscillate, but
+  nothing anticipates: the target's velocity in the base frame, over the last frames, would let
+  the controller aim where it will be. Raw targets, sent each frame, also jitter with the face
+  mesh; a filter would go with the prediction.
+- **A frame's time is taken once it is read**, not when it was taken: the pipeline reads the
+  latest frame, up to a frame period old, so a moving head places its targets a little off. The
+  robot stamps its frames; `FrameSource.read` could pass the stamp on.
+- **The head's yaw strays** by a few degrees in the simulation when the platform turns it near
+  Pollen's 65° from the body: the motors' small errors weigh more there. The profile keeps 30°.
+- **The camera's pose is computed, not measured**: the controller has it by forward kinematics and
+  the MJCF's `camera_optical` site. The simulation knows the real one and could publish the head
+  pose as ground truth to check it. The intrinsics are in the profile, from the MJCF's field of
+  view.
+- **The simulation in four layers**, to be kept apart as it grows:
+  - *Describing a scene*: which robots, assets and HDRI to load, at which pose, at the start.
+    Today `sim.yaml` (`SimConfig`), with one Reachy Mini on a fixed table.
+  - *Controlling the robots*: bridging their sensors and actuators with outside controllers. Today
+    `RobotBus` and `serve`, over the robot's kickmsg topics.
+  - *Controlling the NPCs*: today `rva_robot_sim.npc`, which places people through the
+    `person_pose` mailbox of the simulation's `sim` node, and its `npc` CLI. People can only be
+    moved yet, not animated, made to speak or to look somewhere.
+  - *Executing a scenario*: a script of what the NPCs do, say and look at, and their animations,
+    over time, to test the interactive loops (attention, visual servoing, engagement, the
+    dialogue) by hand and in integration tests. None yet: `npc walk` is a first one, written by
+    hand.
+- **The simulated people glide, in an A-pose.** `npc walk` slides one sideways, turned to the
+  robot, without moving a limb. Idle motion, walking in and out of view,
   turning to the robot and a talking mouth would exercise tracking, engagement and the active
   speaker: [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md) proposes how, with Rocketbox's own clips
   skinned in numpy and a patch to Nyx.
@@ -60,8 +79,9 @@ what exists and why.
   `config/reachy_mini_sim/runtime.yaml` once the avatar's mouth moves** (see
   [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)): until then nothing tells whether Reachy was spoken
   to, and anyone's voice may interrupt it.
-- **Reachy's gestures and gaze go to the mock's body API**, not to the simulated head: the head
-  controller and a body client over kickmsg are to replace it.
+- **Reachy's gestures and the agent's gaze go to the mock's body API**, not to the simulated
+  head, which follows the attention alone: a body client over kickmsg is to replace it, and to
+  decide with the attention who has the head.
 - **The head controller goes straight to each pose** it is sent, with no trajectory or speed
   limit, and does not notice a robot that stopped until its commands pile up.
 - **A restarted simulation** replaces its topics: clients of the old one stop hearing from it and

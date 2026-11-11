@@ -70,7 +70,7 @@ class HeadKinematics:
                 reach its rod at any angle, or a motor would turn beyond its range.
         """
         yaw = self._body_yaw(target.yaw, body_yaw)
-        head = _rotation_z(-yaw) @ self._body_inverse @ _transform(target)
+        head = _rotation_z(-yaw) @ self._body_inverse @ pose_matrix(target)
         angles = (
             self._arm_angle(leg, motor_inverse, head)
             for leg, motor_inverse in zip(self._geometry.legs, self._motor_inverses, strict=True)
@@ -119,7 +119,7 @@ class HeadKinematics:
         head = (
             self._geometry.head
             if guess is None
-            else _rotation_z(-yaw) @ self._body_inverse @ _transform(guess)
+            else _rotation_z(-yaw) @ self._body_inverse @ pose_matrix(guess)
         )
         rotation, translation = head[:3, :3], head[:3, 3]
         rod = self._geometry.rod_length
@@ -198,7 +198,8 @@ class HeadKinematics:
         return angle
 
 
-def _transform(pose: HeadPose) -> npt.NDArray[np.float64]:
+def pose_matrix(pose: HeadPose) -> npt.NDArray[np.float64]:
+    """The 4×4 pose of the head frame in the base frame."""
     cos_pitch, sin_pitch = math.cos(pose.pitch), math.sin(pose.pitch)
     cos_roll, sin_roll = math.cos(pose.roll), math.sin(pose.roll)
     pitch = np.array(((cos_pitch, 0, sin_pitch), (0, 1, 0), (-sin_pitch, 0, cos_pitch)))

@@ -21,6 +21,7 @@ from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig, load_admins
+from rva_app.gaze import GazeOut, gaze_out
 from rva_app.head import control_head
 from rva_app.page import MergedInput, Recorders, serve_page
 from rva_app.robot import drive_robot
@@ -491,6 +492,7 @@ async def _listen(
             vision,
             monitor,
             config.attention,
+            gaze_out(config),
             interaction,
             recorder,
         )
@@ -637,7 +639,15 @@ async def _run_agent(
     )
     await agent.warm_up()
     logger.info("{} is up", profile.character.name)
-    await _with_vision(agent.run(), vision, monitor, config.attention, interaction, recorder)
+    await _with_vision(
+        agent.run(),
+        vision,
+        monitor,
+        config.attention,
+        gaze_out(config),
+        interaction,
+        recorder,
+    )
 
 
 async def _one(text: str) -> AsyncGenerator[str]:
@@ -847,7 +857,7 @@ async def _see(
             group = await stack.enter_async_context(asyncio.TaskGroup())
             tasks = [
                 group.create_task(_name_nearest_face(vision, keys)),
-                group.create_task(_attend(vision, config.attention, recorder)),
+                group.create_task(_attend(vision, config.attention, gaze_out(config), recorder)),
                 group.create_task(closed.wait()),
                 # People engaging and disengaging are logged, and their scores recorded.
                 group.create_task(_interact(vision, interaction)),
@@ -895,13 +905,17 @@ def _monitor(
     )
 
 
-async def _attend(vision: FaceVision, config: VisualAttentionConfig, recorder: Recorder) -> None:
-    """Attend to what the camera sees, until cancelled: nothing takes the target yet.
+async def _attend(
+    vision: FaceVision, config: VisualAttentionConfig, gaze: GazeOut | None, recorder: Recorder
+) -> None:
+    """Attend to what the camera sees, until cancelled, sending each target to `gaze` if any.
 
     Each state is recorded, so whatever shows the camera marks the target.
     """
     async with vision.observations() as observations:
-        await _drain(follow(observations, VisualAttention(config), recorder))
+        async for state in follow(observations, VisualAttention(config), recorder):
+            if gaze is not None:
+                gaze.send(state)
 
 
 async def _interact(vision: FaceVision, interaction: Interaction) -> None:
@@ -1026,12 +1040,14 @@ async def _with_vision(
     vision: FaceVision | None,
     monitor: CameraMonitor | None,
     attention: VisualAttentionConfig,
+    gaze: GazeOut | None,
     interaction: Interaction | None,
     recorder: Recorder,
 ) -> None:
     """Run `main` while the camera is watched, shown and attended to.
 
-    With an `interaction`, it is shown what the camera sees meanwhile.
+    With `gaze`, the head looks at the attention's target; with an `interaction`, it is shown what
+    the camera sees meanwhile.
 
     A camera failure stops `main`; closing the window only closes it.
     """
@@ -1041,7 +1057,7 @@ async def _with_vision(
     try:
         async with asyncio.TaskGroup() as group:
             seeing = group.create_task(vision.run())
-            watching = [group.create_task(_attend(vision, attention, recorder))]
+            watching = [group.create_task(_attend(vision, attention, gaze, recorder))]
             if interaction is not None:
                 watching.append(group.create_task(_interact(vision, interaction)))
             await main

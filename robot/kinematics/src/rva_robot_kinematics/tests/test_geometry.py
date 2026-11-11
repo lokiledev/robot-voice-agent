@@ -68,6 +68,16 @@ def test_reads_the_stewart_platform_of_reachy_mini() -> None:
     )
 
 
+def test_the_camera_looks_along_the_heads_x_axis_from_above_its_front() -> None:
+    geometry = read_head_geometry(MJCF)
+
+    # The image's right is the head's right (-y), its down the head's down (-z), its axis the
+    # head's x: 40 mm ahead of the head frame and 52 mm above it.
+    assert geometry.camera == pytest.approx(
+        np.array(((0, 0, 1, 0.0395), (-1, 0, 0, 0), (0, -1, 0, 0.0525), (0, 0, 0, 1))), abs=2e-6
+    )
+
+
 def test_a_frame_oriented_otherwise_than_by_a_quaternion_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "reachy_mini.xml"
     path.write_text(

@@ -12,6 +12,8 @@ from rva_pydantic import RVABaseModel
 
 HEAD_SITE: Final = "head"
 """The site whose pose a head pose gives."""
+_CAMERA_SITE: Final = "camera_optical"
+"""The head camera's optical frame, as OpenCV has it, rather than MuJoCo's camera frame."""
 _BODY_JOINT: Final = "yaw_body"
 _MOTORS: Final = tuple(f"stewart_{motor}" for motor in range(1, 7))
 _ROTATIONS: Final = ("axisangle", "euler", "xyaxes", "zaxis")
@@ -48,6 +50,9 @@ class HeadGeometry(RVABaseModel, arbitrary_types_allowed=True):
     """Lowest and highest angle of the body joint, in radians."""
     head: npt.NDArray[np.float64]
     """4×4 pose of the head frame, the `head` site, in the body's frame with every joint at zero."""
+    camera: npt.NDArray[np.float64]
+    """4×4 pose of the head camera's optical frame in the head frame: x towards the right of the
+    image, y down and z forward along its axis, as OpenCV has it."""
     arm_length: float
     """From a motor's axis to the ball joint at its arm's tip, in meters."""
     rod_length: float
@@ -63,11 +68,12 @@ def read_head_geometry(mjcf: Path) -> HeadGeometry:
     at zero closes these loops; it tells which way each arm is bent.
 
     Raises:
-        ValueError: If the MJCF lacks the body joint, a motor or the head site, or builds them in a
-            way this reader does not follow: frames oriented otherwise than by quaternions, motors
-            not mounted on the turning body, joints offset from their body's origin or turning
-            about another axis than z, arms or rods of different lengths, or loops the pose with
-            every joint at zero does not close.
+        ValueError: If the MJCF lacks the body joint, a motor, the head site or the camera's
+            optical site, or builds them in a way this reader does not follow: a camera off the
+            head's body, frames oriented otherwise than by quaternions, motors not mounted on the
+            turning body, joints offset from their body's origin or turning about another axis
+            than z, arms or rods of different lengths, or loops the pose with every joint at zero
+            does not close.
     """
     root = ET.parse(mjcf).getroot()
     parents = {child: parent for parent in root.iter() for child in parent}
@@ -77,6 +83,9 @@ def read_head_geometry(mjcf: Path) -> HeadGeometry:
     head_site = _named(root, "site", HEAD_SITE)
     head_link = parents[head_site]
     head_in_link = _local(head_site)
+    camera_site = _named(root, "site", _CAMERA_SITE)
+    if parents[camera_site] is not head_link:
+        raise ValueError(f"{_CAMERA_SITE} is not on the body the {HEAD_SITE} site is on")
     head_at_rest = np.linalg.inv(rest[body]) @ rest[head_site]
     connections = _connections(root)
     legs = []
@@ -117,6 +126,7 @@ def read_head_geometry(mjcf: Path) -> HeadGeometry:
         body=rest[body],
         body_range=_range(body_joint),
         head=head_at_rest,
+        camera=np.linalg.inv(head_in_link) @ _local(camera_site),
         arm_length=arm_lengths[0],
         rod_length=rod_lengths[0],
         legs=tuple(legs),

@@ -9,6 +9,7 @@ much: poses agree to 2e-5.
 import math
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from rva_robot_kinematics.geometry import read_head_geometry
@@ -16,6 +17,7 @@ from rva_robot_kinematics.head import (
     HeadKinematics,
     HeadPoseNotFoundError,
     UnreachableHeadPoseError,
+    pose_matrix,
 )
 from rva_robot_schemas.head import HeadPose
 from rva_robot_schemas.joints import JointCommand
@@ -313,3 +315,14 @@ def test_a_missing_joint_is_refused() -> None:
 
     with pytest.raises(KeyError, match="stewart_4"):
         KINEMATICS.forward(positions, guess=None)
+
+
+def test_a_head_pose_turns_by_yaw_then_pitch_then_roll() -> None:
+    pose = HeadPose(x=0.0, y=0.0, z=0.15, roll=0.0, pitch=math.radians(90), yaw=math.radians(90))
+
+    matrix = pose_matrix(pose)
+
+    # Turned left a quarter, then looking down: its x axis points at the floor.
+    np.testing.assert_allclose(matrix[:3, 0], (0.0, 0.0, -1.0), atol=1e-12)
+    np.testing.assert_allclose(matrix[:3, 1], (-1.0, 0.0, 0.0), atol=1e-12)
+    np.testing.assert_allclose(matrix[:3, 3], (0.0, 0.0, 0.15))

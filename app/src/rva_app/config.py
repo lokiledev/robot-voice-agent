@@ -34,6 +34,10 @@ class HeadControllerConfig(RVABaseModel):
     max_head_yaw_deg: float
     """How far the head may turn from the body before the body follows, in degrees. Pollen's
     SDK allows 65, where the simulated head strays by a few degrees."""
+    gaze_position: tuple[float, float, float]
+    """Where the head frame stays while the head looks at the gaze targets it is sent, in the
+    robot's base frame, in meters: only its pitch and yaw change. Pollen's SDK holds it at
+    (0, 0, 0.177), which leaves the platform room to turn the head."""
 
 
 class RuntimeConfig(RVABaseModel):

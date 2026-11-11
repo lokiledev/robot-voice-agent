@@ -12,7 +12,8 @@ from rva_pydantic import load_yaml
 from rva_robot_schemas.joints import JointCommand, JointTarget
 from rva_robot_sim.config import Rasterizer, SimConfig
 from rva_robot_sim.description import install_reachy_mini
-from rva_robot_sim.scene import ReachyMiniScene, UnknownJointError
+from rva_robot_sim.npc import PersonPose
+from rva_robot_sim.scene import ReachyMiniScene, UnknownJointError, UnknownPersonError
 
 SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
 
@@ -76,3 +77,10 @@ def test_a_command_naming_an_unknown_joint_is_refused_whole(scene: ReachyMiniSce
 
     antenna = next(j for j in scene.joint_state(timestamp=0.0).joints if j.name == "right_antenna")
     assert antenna.position == pytest.approx(0.0, abs=0.02)
+
+
+@pytest.mark.download
+@pytest.mark.timeout(600)
+def test_a_person_who_is_not_there_cannot_be_moved(scene: ReachyMiniScene) -> None:
+    with pytest.raises(UnknownPersonError, match="No person 0; there are 0"):
+        scene.place(PersonPose(person=0, position=(1.0, 0.0), turned_deg=0.0))

@@ -38,12 +38,15 @@ robot:
   connect_timeout_s: 5
   silence_timeout_s: 2
 
-# `lune head`: drives the head to the poses it is sent, e.g. by `lune robot`.
+# `lune head`: drives the head to the poses it is sent, e.g. by `lune robot`, and points its
+# camera at the gaze targets it is sent: the attention's, by `lune see`, `lune run`...
 head_controller:
   description:  # The same as in sim.yaml.
     version: 1.14.0
     directory: ~/.cache/robot-voice-agent/reachy_mini
   max_head_yaw_deg: 30
+  # Where the head stays while it looks around, in meters: Pollen's neutral pose.
+  gaze_position: [0.0, 0.0, 0.177]
 
 vision:
   device:

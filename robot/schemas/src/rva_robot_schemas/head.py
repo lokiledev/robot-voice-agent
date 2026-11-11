@@ -26,3 +26,21 @@ class HeadPose(RVABaseModel):
     """In radians; positive looks down."""
     yaw: float
     """In radians; positive turns to the left."""
+
+
+class GazeTarget(RVABaseModel):
+    """A point for the head camera to look at, as the camera saw it.
+
+    The head controller places it from where the head was when the frame was taken, so that a
+    point seen while the head moved is not misplaced by the time it arrives.
+    """
+
+    timestamp: float
+    """When the frame the point was seen in was taken, in seconds of `time.monotonic()`, the clock
+    the joint states are stamped with."""
+    x: float
+    """In meters, towards the right of the image, in the camera's optical frame as OpenCV has it."""
+    y: float
+    """In meters, down the image."""
+    z: float
+    """In meters, forward along the camera's axis."""

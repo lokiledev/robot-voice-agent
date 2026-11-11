@@ -10,6 +10,7 @@ import numpy.typing as npt
 import rerun as rr
 
 from rva_pydantic import RVABaseModel
+from rva_robot_kinematics.head import pose_matrix
 from rva_robot_schemas.head import HeadPose
 
 _BASE: Final = "body_foot_3dprint"
@@ -96,17 +97,10 @@ class HeadView:
         rr.set_time("time", duration=timestamp)
         rr.log(f"{_ROOT}/head_target", _transform(pose_matrix(target)), rr.TransformAxes3D(0.08))
 
-
-def pose_matrix(pose: HeadPose) -> npt.NDArray[np.float64]:
-    """The 4×4 pose of the head site in the base's frame."""
-    cos_pitch, sin_pitch = math.cos(pose.pitch), math.sin(pose.pitch)
-    cos_roll, sin_roll = math.cos(pose.roll), math.sin(pose.roll)
-    pitch = np.array(((cos_pitch, 0, sin_pitch), (0, 1, 0), (-sin_pitch, 0, cos_pitch)))
-    roll = np.array(((1, 0, 0), (0, cos_roll, -sin_roll), (0, sin_roll, cos_roll)))
-    matrix = _rotation_z(pose.yaw)
-    matrix[:3, :3] = matrix[:3, :3] @ pitch @ roll
-    matrix[:3, 3] = (pose.x, pose.y, pose.z)
-    return matrix
+    def show_gaze(self, timestamp: float, point: npt.NDArray[np.float64], target: HeadPose) -> None:
+        """Show a gaze target's point, in the base frame, and the head pose that looks at it."""
+        self.show_target(timestamp, target)
+        rr.log(f"{_ROOT}/gaze_target", rr.Points3D([point], radii=0.02))
 
 
 def _geoms(

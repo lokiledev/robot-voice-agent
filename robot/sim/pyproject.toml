@@ -34,3 +34,4 @@ rva-robot-schemas = {workspace = true}
 
 [project.scripts]
 lune-sim = "rva_robot_sim.cli:app"
+npc = "rva_robot_sim.npc_cli:app"
