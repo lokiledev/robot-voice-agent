@@ -482,7 +482,10 @@ second one is refused rather than queued:
 
 - **Operators** are the admins, listed in a file of the machine, and the people an operator
   authorized by voice. They are only obeyed while the camera recognizes them as the face in
-  front. The tools check this themselves, so a slip of the LLM cannot bypass it. Without a camera
+  front, but what they started runs to its end: in the turn that answers the end of a task or a
+  walk, the next step may start whoever is in front, or nobody, since only an operator could
+  have had the first one started. The tools check this themselves, so a slip of the LLM cannot
+  bypass it. Without a camera
   nobody can be recognized, so anyone may make the robot act.
 - **What must always work is handled in code.** "Stop" stops the body, and "stop talking" mutes
   Lune until an operator lets it talk again, without asking the LLM: as a tool, muting failed

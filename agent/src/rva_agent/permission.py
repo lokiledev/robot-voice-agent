@@ -1,3 +1,5 @@
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Final
 from uuid import UUID
 
@@ -10,14 +12,15 @@ class ActionPermission:
     """Who may make the robot act, and authorize or revoke others: operators.
 
     Operators are the admins, listed in a file of the machine, and the people an operator
-    authorized. They
-    are only obeyed while the camera recognizes them as the nearest face. Without a camera nobody
-    can be recognized, so anyone may make the robot act.
+    authorized. They are only obeyed while the camera recognizes them as the nearest face, but
+    what they started runs to its end: the robot may go on with it once they are out of view.
+    Without a camera nobody can be recognized, so anyone may make the robot act.
     """
 
     def __init__(self, vision: Vision | None, admins: Admins) -> None:
         self._vision: Final = vision
         self._admins: Final = admins
+        self._going_on = False
 
     def is_admin(self, user_id: UUID) -> bool:
         return user_id in self._admins.user_ids
@@ -31,9 +34,25 @@ class ActionPermission:
         granted = frozenset[UUID]() if self._vision is None else self._vision.granted_operators()
         return self._admins.user_ids | granted
 
+    @contextmanager
+    def going_on(self) -> Generator[None]:
+        """While the robot answers the end of an action that an operator had it start.
+
+        Its next step is theirs too, wherever they are by now: an operator starts a plan, and
+        need not stay in view until its last step.
+        """
+        self._going_on = True
+        try:
+            yield
+        finally:
+            self._going_on = False
+
     def refusal(self) -> str | None:
-        """Why the person in front of the robot may not make it act, or None if they may."""
-        if self._vision is None:
+        """Why the robot may not act now, or None if it may.
+
+        It may for the operator in front of it, and to go on with what an operator started.
+        """
+        if self._vision is None or self._going_on:
             return None
         requester = self.operator_in_front()
         return requester if isinstance(requester, str) else None

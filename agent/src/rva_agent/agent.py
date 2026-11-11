@@ -253,7 +253,9 @@ class Agent:
                 # Someone asked for it, the user already knows.
                 pass
             case TaskSucceeded() | TaskFailed():
-                await self._respond(None)
+                # Only an operator could have it started: so may its next step be.
+                with self._permission.going_on():
+                    await self._respond(None)
             case TaskRunning():
                 raise AssertionError(f"Task {task.id} reported as ended while running")
             case _:
@@ -321,8 +323,15 @@ class Agent:
                 pass
             case TaskSucceeded(), PlayAnimation():
                 pass
-            case _:
+            case _, PlayAnimation():
+                # Anyone may ask for a gesture: its failure opens nothing more to them.
                 await self._respond(None)
+            case _, GoToLocation() | GoToHuman():
+                # Only an operator could have it started: so may its next step be.
+                with self._permission.going_on():
+                    await self._respond(None)
+            case _:
+                assert_never(motion.action)
 
     def _speaker_of(self, utterance: UserUtterance) -> UtteranceSpeaker | None:
         """Who said `utterance`; `None` with nobody in view to have said it, or no camera.

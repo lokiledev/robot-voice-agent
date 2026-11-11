@@ -22,6 +22,7 @@ from rva_agent.tests.fakes import (
 )
 from rva_schemas.dialogue import TextDelta, ToolCall, ToolResultMessage
 from rva_schemas.profile import Admins
+from rva_schemas.record import ToolInvocation
 from rva_schemas.vision import BoundingBox, KnownPerson, TrackedFace
 from rva_vla_mock.body import BodyMock
 from rva_vla_mock.policies import TerminalPolicy
@@ -366,3 +367,69 @@ async def test_anyone_may_mute_but_only_an_operator_unmutes() -> None:
     await running
 
     assert speech.said == ["Okay.", "I can talk again."]
+
+
+def test_the_robot_may_go_on_with_what_an_operator_started_whoever_is_in_front() -> None:
+    permission = ActionPermission(FakeVision([]), ADMINS)
+
+    with permission.going_on():
+        assert permission.refusal() is None
+    assert permission.refusal() == "Nobody is in front of you."
+
+
+async def test_a_plan_an_operator_started_goes_on_once_they_are_out_of_view() -> None:
+    def start(call_id: str, instruction: str) -> ToolCall:
+        return ToolCall(
+            id=call_id, name="start_task", arguments=json.dumps({"instruction": instruction})
+        )
+
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Gathering the cables first."), start("call_1", "gather the cables")],
+            [TextDelta(text="Now I put them away."), start("call_2", "put the cables away")],
+            [TextDelta(text="All tidy.")],
+        ]
+    )
+    commands = asyncio.Queue[str]()
+    vla = TaskRunner(TerminalPolicy(commands, fallback=None))
+    vision = FakeVision([_face(1, person("Alice"), nearest=True)])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        Agent(
+            llm=llm,
+            vla=vla,
+            body=idle_body(vla),
+            user_input=user,
+            speech=speech,
+            recorder=recorder,
+            vision=vision,
+            engagement=None,
+            profile=PROFILE,
+            admins=ADMINS,
+            config=AgentConfig(
+                max_history_messages=40,
+                max_tool_rounds=3,
+                stop_words=frozenset({"stop"}),
+                mute_phrases=frozenset({"stop talking", "be quiet"}),
+                unmute_phrases=frozenset({"you can talk", "talk again"}),
+                regreet_after_s=60,
+            ),
+        ).run()
+    )
+
+    user.say("Tidy up the workbench.")
+    await speech.wait_for("Gathering the cables first.")
+    # Alice walks away while the first step runs, then it succeeds.
+    vision.set_faces([])
+    commands.put_nowait("s")
+    await speech.wait_for("Now I put them away.")
+    commands.put_nowait("s")
+    await speech.wait_for("All tidy.")
+    user.leave()
+    await running
+
+    assert [
+        json.loads(entry.result)["status"]
+        for entry in recorder.entries
+        if isinstance(entry, ToolInvocation)
+    ] == ["started", "started"]

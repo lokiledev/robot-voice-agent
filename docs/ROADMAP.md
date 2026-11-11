@@ -3,14 +3,6 @@
 What is known to be missing or weak, and what was decided about it. See `ARCHITECTURE.md` for
 what exists and why.
 
-## Decided, not built
-
-- **A task started for an operator runs to its end.** An operator starts a plan; they need not
-  stay in view while it runs. Today each step is allowed only while an operator is the person in
-  front, so a plan of several steps stops with "Nobody is in front of you" once they walk away.
-  The steps the robot starts on its own, in reply to the end of the previous one, should inherit
-  the permission of whoever asked for the plan.
-
 ## Interaction
 
 - **Whether an utterance is said to the robot** is the weakest judgement. With several people
@@ -39,6 +31,9 @@ what exists and why.
 - **The head does not favour the person the robot talks with**: the attention scores them like
   anyone else.
 - **Permissions look at the face in front**, not at the face seen saying the request.
+- **A plan going on can take up what a stranger asked meanwhile.** The next step of an
+  operator's plan may start with nobody in front. The LLM chooses that step, with all it heard
+  in mind: a request it declined to someone else during the plan is not kept from it by code.
 - **Voices out of view are ignored.** A microphone array that tells where a sound comes from
   (ReSpeaker) is planned, to place speakers the camera does not see.
 
