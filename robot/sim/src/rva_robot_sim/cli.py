@@ -1,3 +1,4 @@
+import logging
 import signal
 from pathlib import Path
 from typing import Annotated, assert_never
@@ -51,6 +52,7 @@ def main(
         hdri = _hdri(config.camera_renderer, client)
     # One environment steps faster on the CPU than it takes to launch kernels on a GPU.
     gs.init(backend=backend.cpu, logging_level="warning")
+    logging.getLogger("genesis").addFilter(_without_get_trimesh)
     logger.info("Building the scene from {}", mjcf)
     scene = ReachyMiniScene(
         mjcf, config.table_height, people, config.camera_renderer, hdri, config.physics_dt, viewer
@@ -75,3 +77,12 @@ def _hdri(renderer: CameraRenderer, client: httpx.Client) -> Path | None:
             return None
         case _:
             assert_never(renderer)
+
+
+def _without_get_trimesh(record: logging.LogRecord) -> bool:
+    """Leaves out Genesis' warning that `get_trimesh` is deprecated.
+
+    The Nyx plugin calls it for every mesh it exports, a hundred and fifty times a start; the fix
+    belongs in the plugin.
+    """
+    return "'get_trimesh' is deprecated" not in record.getMessage()

@@ -11,6 +11,7 @@ dependencies = [
   "loguru>=0.7",
   "numpy>=2.0",
   "opencv-python>=4.10",
+  "rerun-sdk>=0.24",
   "rva-agent",
   "rva-attention",
   "rva-body-client",
@@ -20,7 +21,9 @@ dependencies = [
   "rva-observability",
   "rva-pydantic",
   "rva-robot-client",
+  "rva-robot-kinematics",
   "rva-robot-schemas",
+  "rva-robot-sim",
   "rva-schemas",
   "rva-ui",
   "rva-vla-client",
@@ -47,7 +50,9 @@ rva-multimodal = {workspace = true}
 rva-observability = {workspace = true}
 rva-pydantic = {workspace = true}
 rva-robot-client = {workspace = true}
+rva-robot-kinematics = {workspace = true}
 rva-robot-schemas = {workspace = true}
+rva-robot-sim = {workspace = true}
 rva-schemas = {workspace = true}
 rva-ui = {workspace = true}
 rva-vla-client = {workspace = true}

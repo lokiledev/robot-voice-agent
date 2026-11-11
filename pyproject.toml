@@ -8,8 +8,6 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
   "rva-app",
-  # Not used by the app yet; listed so that the workspace installs it.
-  "rva-robot-kinematics",
   "rva-robot-sim",
   "rva-vla-mock",
 ]

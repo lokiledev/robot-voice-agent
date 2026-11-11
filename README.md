@@ -126,7 +126,7 @@ its head and antennas, and sees people standing in front of it through its head 
 uv run lune --profile config/reachy_mini_sim
 ```
 
-It starts the simulation with the other servers. The simulation's camera is path traced by Nyx,
+It starts the simulation and the head controller with the other servers. The simulation's camera is path traced by Nyx,
 which needs an NVIDIA GPU with ray tracing; set `camera_renderer` to `kind: rasterizer` in
 `config/reachy_mini_sim/sim.yaml` without one. The people are Rocketbox avatars that
 [Blender](https://www.blender.org) bakes once on first use: set `avatars.blender` in `sim.yaml` to
@@ -152,7 +152,8 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
 | `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
-| `lune robot` | Drives the simulated robot's joints with sliders and shows its head camera; start `lune-sim` first |
+| `lune head --profile config/reachy_mini_sim` | The head controller: puts the simulated head at the poses it is sent; `--viewer` shows in rerun the robot as its joints put it, with the head's estimated pose and its target; start `lune-sim` first |
+| `lune robot --profile config/reachy_mini_sim` | Drives the simulated robot's joints, or its head through `lune head`, with sliders, and shows its head camera; start `lune-sim` first |
 | `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
 | `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot; `--replay clip.mp4` watches and hears a video file instead, `--show` opens the camera window |

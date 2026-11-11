@@ -559,6 +559,7 @@ targets.
 | `joint_state` | Published by the robot, 100 Hz | Position and velocity of each actuated joint, as JSON |
 | `camera` | Published by the robot, 30 Hz | The head camera's BGR frame, 1280×720, after a small binary header |
 | `joint_command` | Mailbox of the robot | Position targets for some joints, as JSON; the others keep theirs |
+| `head_target` | Mailbox of the head controller | A head pose, as JSON; the controller takes the latest |
 
 - **The MJCF, not the URDF.** Reachy Mini's head sits on a Stewart platform: six motors whose rods
   close on the head. The MJCF closes those loops with equality constraints, which Genesis
@@ -622,8 +623,19 @@ zero, the head is upright 0.1496 m above the table, and Pollen holds it at 0.177
   Its steps are capped, so as not to jump to another of the poses the angles fit, which the robot
   cannot be assembled in. Angles no pose fits raise, where Pollen's returns its last iterate.
 
-`lune robot` drives the joints with sliders and shows the head camera, to check the simulation by
-hand.
+The head controller puts the head where it is told. `HeadController` is the controller alone, a
+target in and the joints' targets out, keeping the body's yaw it last commanded; it does no input
+or output, so it could run inside the simulation's loop. For now `lune head` runs it in a process
+of its own: it takes head poses from the `head_target` mailbox of its kickmsg node, sends the
+joints' targets to the robot, and logs and leaves out the poses out of reach. Like the robot, it
+creates its mailbox when it starts and removes it when stopped, Ctrl+C or terminated, so that a
+sender can tell whether it runs. `lune` starts it after the simulation when the profile has one. With `--viewer` it shows in rerun the robot as its joints put it:
+the meshes of the base, of the body turned by its yaw, and of the head where forward kinematics
+finds it from each joint state, warm-started from the last estimate, with the head's estimated
+pose and its target as axes. The Stewart platform's arms and rods are not drawn.
+
+`lune robot` drives the joints with sliders, or the head's pose through `lune head` when it runs,
+and shows the head camera, to check the simulation and the controller by hand.
 
 #### Reachy Mini as the robot
 
@@ -638,7 +650,8 @@ Its camera is the robot's: `vision.camera.source` is `kind: robot`, and the pipe
 head camera's frames over kickmsg instead of a V4L2 device, with the simulated camera's exact
 intrinsics. Its field of view is wider than the webcam's, so faces count from 0.06 of the frame
 height rather than 0.12: the same 1.8 m. `lune --profile config/reachy_mini_sim` starts the
-simulation with the other servers, and waits until it serves its topics.
+simulation with the other servers, and waits until it serves its topics, then the head
+controller.
 
 ## A turn, end to end
 

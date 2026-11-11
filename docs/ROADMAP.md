@@ -50,7 +50,8 @@ what exists and why.
   as ground truth too. Its intrinsics are in the profile, computed from the MJCF's field of view.
 - **The simulated people stand still, in an A-pose.** Idle motion, walking in and out of view,
   turning to the robot and a talking mouth would exercise tracking, engagement and the active
-  speaker; how to animate them is being looked into.
+  speaker: [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md) proposes how, with Rocketbox's own clips
+  skinned in numpy and a patch to Nyx.
 - **Onboarding in the simulation.** The agent does not know the simulated people, so meeting the
   first user and making an admin does not work as with a real face: the avatars are strangers, and
   the Reachy profile shares the face database and the admins file with the default profile, so
@@ -58,6 +59,8 @@ what exists and why.
   simulation's own, and a way to make an avatar known, or an admin, without the camera ritual.
 - **Reachy's gestures and gaze go to the mock's body API**, not to the simulated head: the head
   controller and a body client over kickmsg are to replace it.
+- **The head controller goes straight to each pose** it is sent, with no trajectory or speed
+  limit, and does not notice a robot that stopped until its commands pile up.
 - **A restarted simulation** replaces its topics: clients of the old one stop hearing from it and
   raise once silent too long, rather than reopening the new ones. Restart them with it.
 - **The real Reachy Mini** needs a bridge from Pollen's daemon to the same topics, so that the

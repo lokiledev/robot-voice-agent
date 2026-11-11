@@ -8,7 +8,7 @@ import pytest
 
 from rva_app.servers import (
     HttpProbe,
-    RobotProbe,
+    MailboxProbe,
     Server,
     ServersUnavailableError,
     is_ready,
@@ -52,7 +52,11 @@ async def test_lists_every_missing_server_with_how_to_start_it() -> None:
         probe=HttpProbe(url=f"http://127.0.0.1:{vla_port}", ready_when="answers"),
         how_to_start="run B",
     )
-    robot = Server(name="Robot", probe=RobotProbe(namespace="nobody_here"), how_to_start="run C")
+    robot = Server(
+        name="Robot",
+        probe=MailboxProbe(namespace="nobody_here", node="robot", mailbox="joint_command"),
+        how_to_start="run C",
+    )
 
     with pytest.raises(ServersUnavailableError) as error:
         await require_servers(llm, vla, robot)
@@ -118,7 +122,11 @@ async def test_a_loading_server_answers_but_is_not_ready_to_succeed() -> None:
 
 
 async def test_a_robot_is_ready_while_it_serves_its_topics(namespace: str) -> None:
-    server = Server(name="Robot", probe=RobotProbe(namespace=namespace), how_to_start="")
+    server = Server(
+        name="Robot",
+        probe=MailboxProbe(namespace=namespace, node="robot", mailbox="joint_command"),
+        how_to_start="",
+    )
 
     before = await is_ready(server)
     bus = RobotBus(namespace, (4, 2))

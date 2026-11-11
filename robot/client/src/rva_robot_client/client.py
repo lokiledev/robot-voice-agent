@@ -69,7 +69,7 @@ class RobotClient:
     ) -> AsyncGenerator[T]:
         heard = time.monotonic()
         while True:
-            message = await asyncio.to_thread(lambda: _receive_latest(subscriber, decode))
+            message = await asyncio.to_thread(lambda: receive_latest(subscriber, decode))
             if message is not None:
                 heard = time.monotonic()
                 yield message
@@ -99,9 +99,17 @@ async def open_robot(config: RobotClientConfig, name: str) -> AsyncGenerator[Rob
     yield RobotClient(node, commands, config.silence_timeout_s)
 
 
-def robot_is_up(namespace: str) -> bool:
-    """Whether a robot serves its topics in `namespace` now, without waiting."""
-    return _open_mailbox(kickmsg.Node("lune_probe", namespace)) is not None
+def mailbox_exists(namespace: str, node: str, mailbox: str) -> bool:
+    """Whether `node` serves `mailbox` in `namespace` now, without waiting.
+
+    The robot creates its command mailbox last, and the head controller its target mailbox first:
+    either is there exactly while its process serves.
+    """
+    try:
+        kickmsg.Node("lune_probe", namespace).open_mailbox(node, mailbox)
+    except RuntimeError:
+        return False
+    return True
 
 
 class RobotCamera:
@@ -140,7 +148,7 @@ class RobotCamera:
             RuntimeError: If the frame does not have the size asked for.
         """
         heard = time.monotonic()
-        while (frame := _receive_latest(self._subscriber, decode_frame)) is None:
+        while (frame := receive_latest(self._subscriber, decode_frame)) is None:
             if time.monotonic() - heard > self._silence_s:
                 raise RobotUnavailableError(
                     f"No frame from the robot's camera for {self._silence_s} s"
@@ -174,7 +182,7 @@ def _not_up(config: RobotClientConfig) -> RobotUnavailableError:
     )
 
 
-def _receive_latest[T](
+def receive_latest[T](
     subscriber: kickmsg.Subscriber, decode: Callable[[memoryview], T]
 ) -> T | None:
     """The newest message waiting, or the next within `_POLL_S`; `None` if none comes.

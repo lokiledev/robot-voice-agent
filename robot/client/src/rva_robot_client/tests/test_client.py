@@ -9,7 +9,9 @@ import numpy as np
 import pytest
 
 from rva_robot_client.client import RobotClientConfig, RobotUnavailableError, open_robot
+from rva_robot_client.head import head_targets, open_head_sender
 from rva_robot_schemas.camera import CameraFrame
+from rva_robot_schemas.head import HeadPose
 from rva_robot_schemas.joints import JointCommand, JointReading, JointState, JointTarget
 from rva_robot_sim.bus import RobotBus
 
@@ -99,3 +101,20 @@ async def test_invalid_commands_are_left_out(namespace: str) -> None:
         bus.close()
 
     assert commands == [JointCommand(targets=())]
+
+
+async def test_head_poses_reach_the_controller_latest_first(namespace: str) -> None:
+    assert open_head_sender(namespace, "test_ui") is None
+    first = HeadPose(x=0.0, y=0.0, z=0.15, roll=0.0, pitch=0.1, yaw=0.0)
+    latest = HeadPose(x=0.0, y=0.0, z=0.16, roll=0.0, pitch=0.0, yaw=0.5)
+
+    async with head_targets(namespace) as poses:
+        sender = open_head_sender(namespace, "test_ui")
+        assert sender is not None
+        sender.send(first)
+        sender.send(latest)
+
+        received = await asyncio.wait_for(anext(poses), timeout=5)
+
+    assert received == latest
+    assert open_head_sender(namespace, "test_ui") is None

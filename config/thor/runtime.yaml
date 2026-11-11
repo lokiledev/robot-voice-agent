@@ -35,6 +35,7 @@ body:
 
 # Joints and head camera over kickmsg: see config/reachy_mini_sim.
 robot: null
+head_controller: null
 
 vision:
   device:

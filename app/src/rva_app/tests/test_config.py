@@ -81,3 +81,14 @@ def test_a_camera_of_the_robot_needs_a_robot() -> None:
 
     with pytest.raises(ValueError, match="there is no robot"):
         RuntimeConfig.model_validate({**config.model_dump(), "robot": None})
+
+
+def test_a_head_controller_needs_a_robot() -> None:
+    reachy = RuntimeConfig.load(_REPOSITORY / "config" / "reachy_mini_sim")
+    default = RuntimeConfig.load(_REPOSITORY / "config" / "default")
+    assert reachy.head_controller is not None
+
+    with pytest.raises(ValueError, match="no robot for it to drive"):
+        RuntimeConfig.model_validate(
+            {**default.model_dump(), "head_controller": reachy.head_controller.model_dump()}
+        )

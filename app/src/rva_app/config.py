@@ -14,6 +14,7 @@ from rva_multimodal.config import ActiveSpeakerConfig
 from rva_observability.session import ObservabilityConfig
 from rva_pydantic import RVABaseModel, load_yaml
 from rva_robot_client.client import RobotClientConfig
+from rva_robot_sim.config import ReachyMiniDescriptionConfig
 from rva_schemas.profile import Admins
 from rva_ui.media import MediaServerConfig
 from rva_ui.server import UiConfig
@@ -23,6 +24,16 @@ from rva_vla_client.client import HttpVlaClientConfig
 from rva_voice_asr.parakeet import ParakeetConfig
 from rva_voice_audio.config import AudioConfig
 from rva_voice_tts.kokoro import KokoroConfig
+
+
+class HeadControllerConfig(RVABaseModel):
+    """Reachy Mini's head controller, which puts the head where it is told."""
+
+    description: ReachyMiniDescriptionConfig
+    """The MJCF the head's geometry is read from: the simulation's, downloaded on first use."""
+    max_head_yaw_deg: float
+    """How far the head may turn from the body before the body follows, in degrees. Pollen's
+    SDK allows 65, where the simulated head strays by a few degrees."""
 
 
 class RuntimeConfig(RVABaseModel):
@@ -36,6 +47,8 @@ class RuntimeConfig(RVABaseModel):
     robot: RobotClientConfig | None
     """The robot's joints and head camera, for now of the simulation `lune-sim` runs; `None`
     without a robot body."""
+    head_controller: HeadControllerConfig | None
+    """`lune head`, which drives the robot's head to the poses it is sent; `None` without one."""
     audio: AudioConfig
     asr: ParakeetConfig
     tts: KokoroConfig
@@ -56,9 +69,11 @@ class RuntimeConfig(RVABaseModel):
     observability: ObservabilityConfig
 
     @model_validator(mode="after")
-    def _robot_for_its_camera(self) -> Self:
+    def _robot_for_its_camera_and_head(self) -> Self:
         if isinstance(self.vision.camera.source, RobotSource) and self.robot is None:
             raise ValueError("vision.camera.source is the robot's, but there is no robot")
+        if self.head_controller is not None and self.robot is None:
+            raise ValueError("There is a head controller, but no robot for it to drive")
         return self
 
     @classmethod

@@ -38,6 +38,13 @@ robot:
   connect_timeout_s: 5
   silence_timeout_s: 2
 
+# `lune head`: drives the head to the poses it is sent, e.g. by `lune robot`.
+head_controller:
+  description:  # The same as in sim.yaml.
+    version: 1.14.0
+    directory: ~/.cache/robot-voice-agent/reachy_mini
+  max_head_yaw_deg: 30
+
 vision:
   device:
     kind: tensorrt

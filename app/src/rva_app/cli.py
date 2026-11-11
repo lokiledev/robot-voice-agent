@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import os
+import signal
 import sys
 import threading
 import time
@@ -20,9 +21,16 @@ from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig, load_admins
+from rva_app.head import control_head
 from rva_app.page import MergedInput, Recorders, serve_page
 from rva_app.robot import drive_robot
-from rva_app.servers import HttpProbe, RobotProbe, Server, ServersUnavailableError, require_servers
+from rva_app.servers import (
+    HttpProbe,
+    MailboxProbe,
+    Server,
+    ServersUnavailableError,
+    require_servers,
+)
 from rva_app.services import Service, ServiceFailedError, services_running
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
 from rva_app.voice import open_voice_input, open_voice_output, replayed_voice_input, robot_speech
@@ -37,7 +45,8 @@ from rva_llm.server import llama_server_command
 from rva_multimodal.config import ActiveSpeakerConfig
 from rva_multimodal.light_asd import open_light_asd
 from rva_observability.session import latest_recording, start_session
-from rva_robot_client.client import RobotCamera, RobotClientConfig
+from rva_robot_client.client import RobotCamera, RobotClientConfig, RobotUnavailableError
+from rva_robot_schemas.topics import HEAD_CONTROLLER_NODE, HEAD_TARGET, JOINT_COMMAND, ROBOT_NODE
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
@@ -243,7 +252,7 @@ def run(
 def _run(main: Coroutine[object, object, None]) -> None:
     try:
         asyncio.run(main)
-    except (ServersUnavailableError, ServiceFailedError) as error:
+    except (ServersUnavailableError, ServiceFailedError, RobotUnavailableError) as error:
         sys.stderr.write(f"{error}\n")
         raise SystemExit(1) from error
 
@@ -266,7 +275,10 @@ async def _up(
 
 
 def _services(config: RuntimeConfig, profile_dir: Path, camera: bool) -> list[Service]:
-    """The servers `lune` runs: MediaMTX only for the camera, the simulation for a robot."""
+    """The servers `lune` runs.
+
+    MediaMTX only for the camera, the simulation for a robot, and its head controller if it has one.
+    """
     llm = config.llm_server
     robot = urlsplit(str(config.vla.base_url))
     assert robot.hostname is not None and robot.port is not None, "validated as an HTTP URL"
@@ -314,6 +326,19 @@ def _services(config: RuntimeConfig, profile_dir: Path, camera: bool) -> list[Se
                 # The robot's description downloads and Genesis compiles its kernels, the first
                 # time.
                 startup_s=300,
+            )
+        )
+    if config.head_controller is not None:
+        assert config.robot is not None, "validated with the runtime config"
+        lune = Path(sys.executable).with_name("lune")
+        services.append(
+            Service(
+                # Started after the robot, which it drives: services start one after the other.
+                server=_head_controller_server(config.robot),
+                command=lambda: [str(lune), "head", "--profile", str(profile_dir)],
+                environment={},
+                directory=None,
+                startup_s=60,
             )
         )
     return services
@@ -382,8 +407,18 @@ def _camera_servers(config: RuntimeConfig) -> list[Server]:
 def _robot_server(config: RobotClientConfig) -> Server:
     return Server(
         name="Robot",
-        probe=RobotProbe(namespace=config.namespace),
+        probe=MailboxProbe(namespace=config.namespace, node=ROBOT_NODE, mailbox=JOINT_COMMAND),
         how_to_start="start the simulation with `uv run lune-sim --profile <profile>`",
+    )
+
+
+def _head_controller_server(config: RobotClientConfig) -> Server:
+    return Server(
+        name="Head controller",
+        probe=MailboxProbe(
+            namespace=config.namespace, node=HEAD_CONTROLLER_NODE, mailbox=HEAD_TARGET
+        ),
+        how_to_start="start it with `uv run lune head --profile <profile>`",
     )
 
 
@@ -713,6 +748,26 @@ def robot(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
     if robot is None:
         raise SystemExit(f"{profile / 'runtime.yaml'} has no robot")
     _run(drive_robot(robot))
+
+
+@app.command
+def head(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+    """Run the head controller: put the robot's head at the poses it is sent, e.g. by `lune robot`.
+
+    Start the simulated robot first with `uv run lune-sim`. Ctrl+C stops it.
+
+    Args:
+        profile: Robot profile directory.
+        viewer: Show in rerun the robot as its joints put it, the head's estimated pose and the
+            targets.
+    """
+    config = RuntimeConfig.load(profile)
+    if config.head_controller is None or config.robot is None:
+        raise SystemExit(f"{profile / 'runtime.yaml'} has no head controller")
+    # Stopped like Ctrl+C when terminated, as a launcher does, so its mailbox is removed too: a
+    # mailbox left behind would pass for a running controller.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    _run(control_head(config.head_controller, config.robot, viewer))
 
 
 @app.command

@@ -5,7 +5,7 @@ import httpx
 from pydantic import Field
 
 from rva_pydantic import RVABaseModel
-from rva_robot_client.client import robot_is_up
+from rva_robot_client.client import mailbox_exists
 
 
 class HttpProbe(RVABaseModel):
@@ -17,16 +17,19 @@ class HttpProbe(RVABaseModel):
     for a health check that fails while the server is still loading."""
 
 
-class RobotProbe(RVABaseModel):
-    """A robot serving its kickmsg topics."""
+class MailboxProbe(RVABaseModel):
+    """A process serving a kickmsg mailbox, as the robot and the head controller do."""
 
-    kind: Literal["robot"] = "robot"
+    kind: Literal["mailbox"] = "mailbox"
     namespace: str
+    node: str
+    """The node that owns the mailbox."""
+    mailbox: str
 
 
 class Server(RVABaseModel):
     name: str
-    probe: Annotated[HttpProbe | RobotProbe, Field(discriminator="kind")]
+    probe: Annotated[HttpProbe | MailboxProbe, Field(discriminator="kind")]
     how_to_start: str
 
 
@@ -54,8 +57,11 @@ async def is_ready(server: Server) -> bool:
     match server.probe:
         case HttpProbe():
             return await _answers(server.probe)
-        case RobotProbe():
-            return await asyncio.to_thread(robot_is_up, server.probe.namespace)
+        case MailboxProbe():
+            probe = server.probe
+            return await asyncio.to_thread(
+                mailbox_exists, probe.namespace, probe.node, probe.mailbox
+            )
         case _:
             assert_never(server.probe)
 
@@ -81,7 +87,7 @@ def _where(server: Server) -> str:
     match server.probe:
         case HttpProbe():
             return f"at {server.probe.url}"
-        case RobotProbe():
+        case MailboxProbe():
             return f"in kickmsg namespace {server.probe.namespace!r}"
         case _:
             assert_never(server.probe)

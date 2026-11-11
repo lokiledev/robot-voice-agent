@@ -16,3 +16,6 @@ admins.yaml
 # MediaMTX's self-signed certificate, should it run from the source tree.
 auto.crt
 auto.key
+
+# Nyx, the simulated camera's renderer, caches its scenes where it runs.
+__nyx_cache__/
