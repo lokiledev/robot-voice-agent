@@ -1,6 +1,6 @@
 import threading
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +10,7 @@ import numpy.typing as npt
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.audio import AudioClip
+from rva_schemas.dialogue import SpeechSpan
 from rva_voice_asr.parakeet import ParakeetConfig, ParakeetRecognizer
 from rva_voice_audio.config import AudioConfig
 from rva_voice_audio.devices import Microphone, Speaker
@@ -32,6 +33,7 @@ async def open_voice_input(
     robot_speech: RobotSpeech,
     on_speech_start: Callable[[], None],
     may_interrupt: Callable[[], bool],
+    split: Callable[[SpeechSpan], Sequence[SpeechSpan]],
     speaker: SpeakerDetector | None,
 ) -> AsyncGenerator[VoiceInput]:
     recognizer = await _recognizer(asr)
@@ -46,6 +48,7 @@ async def open_voice_input(
             robot_speech,
             on_speech_start,
             may_interrupt,
+            split,
         )
 
 
@@ -57,6 +60,7 @@ async def replayed_voice_input(
     recorder: Recorder,
     robot_speech: RobotSpeech,
     on_speech_start: Callable[[], None],
+    split: Callable[[SpeechSpan], Sequence[SpeechSpan]],
     speaker: SpeakerDetector | None,
 ) -> VoiceInput:
     """The voice input hearing a recording's sound in place of the microphone.
@@ -79,6 +83,7 @@ async def replayed_voice_input(
         robot_speech,
         on_speech_start,
         lambda: True,
+        split,
     )
 
 
@@ -100,6 +105,7 @@ def _voice_input(
     robot_speech: RobotSpeech,
     on_speech_start: Callable[[], None],
     may_interrupt: Callable[[], bool],
+    split: Callable[[SpeechSpan], Sequence[SpeechSpan]],
 ) -> VoiceInput:
     return VoiceInput(
         frames=frames,
@@ -110,6 +116,7 @@ def _voice_input(
         robot_speech=robot_speech,
         on_speech_start=on_speech_start,
         may_interrupt=may_interrupt,
+        split=split,
     )
 
 

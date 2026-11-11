@@ -168,6 +168,9 @@ interaction:
   # words count against the speaker, so it is well below 1. Without an active speaker, every
   # utterance is the face in front's, said to the robot.
   min_speaking_share: 0.3
+  # A turn is cut where the face speaking changes, into pieces no shorter than this: a word
+  # thrown in while someone else talks stays in their piece.
+  min_segment_s: 1.0
   # An utterance is said to the robot when its speaker looked at it for this share of it: hardly
   # any for someone engaged, trusted unless they face someone else throughout; most of it for
   # anyone else, who is engaged from then on.
@@ -222,6 +225,8 @@ audio:
     pre_roll_ms: 300
     turn_check_silence_ms: 200
     max_silence_ms: 1500
+    # People talking on without a pause: the turn is cut here, within what the ASR engine takes.
+    max_turn_ms: 20000
     turn_complete_threshold: 0.5
 
 asr:

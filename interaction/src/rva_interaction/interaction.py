@@ -10,7 +10,7 @@ from rva_interaction.engagement import EngagementTracker
 from rva_interaction.gaze import GazeHistory
 from rva_interaction.speakers import SpeakerAttribution
 from rva_schemas.abc.recorder import Recorder
-from rva_schemas.dialogue import NobodySeenSpeaking, SeenSpeaking, UserUtterance
+from rva_schemas.dialogue import NobodySeenSpeaking, SeenSpeaking, SpeechSpan, UserUtterance
 from rva_schemas.interaction import EngagementEvent, EngagementState
 from rva_schemas.observation import VisualObservation
 
@@ -40,7 +40,9 @@ class Interaction:
         self._speakers: Final = (
             None
             if score_delay_s is None
-            else SpeakerAttribution(config.history_s, config.min_speaking_share, score_delay_s)
+            else SpeakerAttribution(
+                config.history_s, config.min_speaking_share, config.min_segment_s, score_delay_s
+            )
         )
         self._speaking: frozenset[int] = frozenset()
         """The tracks seen speaking in the last frame."""
@@ -90,6 +92,13 @@ class Interaction:
                 return not engaged or bool(engaged & self._speaking)
             case _:
                 assert_never(self._config.barge_in)
+
+    def split(self, speech: SpeechSpan) -> tuple[SpeechSpan, ...]:
+        """`speech` cut where the face speaking changes, into pieces that cover it in order.
+
+        One piece without an active speaker.
+        """
+        return (speech,) if self._speakers is None else self._speakers.segments(speech)
 
     def hear(self, utterance: UserUtterance) -> UserUtterance:
         """`utterance` with who said it and whether to the robot, if it was spoken.

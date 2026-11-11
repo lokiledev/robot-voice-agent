@@ -44,6 +44,7 @@ from rva_schemas.dialogue import (
     Message,
     NobodySeenSpeaking,
     SeenSpeaking,
+    SpeechSpan,
     SystemMessage,
     TextDelta,
     ToolCall,
@@ -382,22 +383,28 @@ async def _listen(
         raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no active_speaker to tell who speaks")
     active_speaker = config.active_speaker if camera else None
     speaker = await _speaker(active_speaker)
+    interaction = (
+        None
+        if active_speaker is None
+        else Interaction(config.interaction, active_speaker.delay_s, recorder)
+    )
+    split = _whole if interaction is None else interaction.split
     # A replayed file's sound starts with its first image.
     started = threading.Event()
     async with contextlib.AsyncExitStack() as stack:
         voice = (
             await stack.enter_async_context(
                 open_voice_input(
-                    config.audio, config.asr, recorder, silent, _heard, _anyone, speaker
+                    config.audio, config.asr, recorder, silent, _heard, _anyone, split, speaker
                 )
             )
             if replay is None
             else await replayed_voice_input(
-                replay, started, config.audio, config.asr, recorder, silent, _heard, speaker
+                replay, started, config.audio, config.asr, recorder, silent, _heard, split, speaker
             )
         )
         write("Listening. Ctrl+C to stop.\n")
-        if active_speaker is None:
+        if interaction is None:
             await _print_heard(voice)
             return
         vision = await asyncio.to_thread(
@@ -409,7 +416,6 @@ async def _listen(
             speaker=speaker,
             replay=None if replay is None else (replay, started),
         )
-        interaction = Interaction(config.interaction, active_speaker.delay_s, recorder)
         await _with_vision(
             _print_heard(AttributedInput(voice, interaction)),
             vision,
@@ -422,6 +428,11 @@ async def _listen(
 
 def _heard() -> None:
     write("… ")
+
+
+def _whole(speech: SpeechSpan) -> tuple[SpeechSpan, ...]:
+    """A turn in one piece, where nothing tells who speaks."""
+    return (speech,)
 
 
 def _anyone() -> bool:
@@ -509,6 +520,7 @@ async def _run_voice_agent(
                 speaking,
                 speech.interrupt,
                 _anyone if interaction is None or delay_s is None else interaction.may_interrupt,
+                _whole if interaction is None else interaction.split,
                 speaker,
             ) as voice,
         ):

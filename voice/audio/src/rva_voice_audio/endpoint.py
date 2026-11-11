@@ -32,7 +32,8 @@ class Endpointer:
 
     A turn starts after `min_speech_ms` of speech, or `barge_in_min_speech_ms` of clearer speech while
     the robot speaks. It ends when smart-turn, asked after
-    `turn_check_silence_ms` of silence, says the user is done, or after `max_silence_ms` of silence.
+    `turn_check_silence_ms` of silence, says the user is done, or after `max_silence_ms` of silence,
+    or once it is `max_turn_ms` long.
     """
 
     def __init__(self, config: EndpointConfig, turn_complete: Callable[[Audio], float]) -> None:
@@ -42,6 +43,7 @@ class Endpointer:
         self._barge_in_min_speech: Final = _frames(config.barge_in_min_speech_ms)
         self._turn_check: Final = _frames(config.turn_check_silence_ms)
         self._max_silence: Final = _frames(config.max_silence_ms)
+        self._max_turn: Final = _frames(config.max_turn_ms)
         self._pre_roll: Final = _frames(config.pre_roll_ms)
         self._recent: Final = deque[Audio](
             maxlen=self._pre_roll + max(self._min_speech, self._barge_in_min_speech)
@@ -81,7 +83,7 @@ class Endpointer:
         if probability >= self._config.silence_threshold:
             self._silence_run = 0
             self._checked = False
-            return None
+            return self._end(turn) if len(turn) >= self._max_turn else None
         self._silence_run += 1
         if self._silence_run == self._turn_check and not self._checked:
             self._checked = True

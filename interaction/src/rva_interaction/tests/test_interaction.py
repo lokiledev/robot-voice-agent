@@ -18,6 +18,7 @@ def config(barge_in: Literal["anyone", "engaged"]) -> InteractionConfig:
         eye_contact_deg=15.0,
         history_s=30.0,
         min_speaking_share=0.3,
+        min_segment_s=1.0,
         engaged_min_gaze=0.1,
         bystander_min_gaze=0.5,
         barge_in=barge_in,

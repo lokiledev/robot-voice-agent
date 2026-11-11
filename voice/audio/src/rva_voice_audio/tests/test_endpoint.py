@@ -15,6 +15,7 @@ CONFIG = EndpointConfig(
     pre_roll_ms=64,
     turn_check_silence_ms=224,
     max_silence_ms=1500,
+    max_turn_ms=20000,
     turn_complete_threshold=0.5,
 )
 

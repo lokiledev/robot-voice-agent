@@ -27,6 +27,7 @@ ENDPOINT = EndpointConfig(
     pre_roll_ms=300,
     turn_check_silence_ms=200,
     max_silence_ms=1500,
+    max_turn_ms=20000,
     turn_complete_threshold=0.5,
 )
 
@@ -77,6 +78,7 @@ async def test_synthesized_request_is_heard_back() -> None:
         robot_speech=RobotSpeech(echo_window_s=2, clock=time.monotonic),
         on_speech_start=lambda: starts.append(None),
         may_interrupt=lambda: True,
+        split=lambda speech: (speech,),
     )
 
     utterances = [utterance.text async for utterance in voice.utterances()]

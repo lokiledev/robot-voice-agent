@@ -22,6 +22,9 @@ class EndpointConfig(RVABaseModel):
     """Silence after which smart-turn is asked whether the turn is over."""
     max_silence_ms: int = Field(gt=0)
     """Silence that ends the turn whatever smart-turn says."""
+    max_turn_ms: int = Field(gt=0)
+    """Length at which a turn ends though the speech goes on, as when people talk on without a
+    pause; what follows is the next turn."""
     turn_complete_threshold: float = Field(ge=0, le=1)
 
 

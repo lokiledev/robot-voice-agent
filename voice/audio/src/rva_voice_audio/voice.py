@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Final, assert_never
 
@@ -18,6 +18,7 @@ from rva_schemas.record import Measurement, RobotSentence
 from rva_voice_audio.devices import Speaker
 from rva_voice_audio.echo import RobotSpeech
 from rva_voice_audio.endpoint import Endpointer, SpeechStarted, TurnEnded
+from rva_voice_audio.pieces import cut
 from rva_voice_audio.vad import SAMPLE_RATE, SileroVad
 
 _tracer: Final = trace.get_tracer("rva_voice_audio")
@@ -36,6 +37,7 @@ class VoiceInput:
         robot_speech: RobotSpeech,
         on_speech_start: Callable[[], None],
         may_interrupt: Callable[[], bool],
+        split: Callable[[SpeechSpan], Sequence[SpeechSpan]],
     ) -> None:
         """Listen to a 16 kHz stream.
 
@@ -52,6 +54,8 @@ class VoiceInput:
             may_interrupt: Asked while the robot speaks whether the speech heard may stop it,
                 e.g. only once the person it talks with is seen speaking. Until it says so,
                 `on_speech_start` waits; the turn is recognized either way.
+            split: Cuts the span of a turn into the pieces that cover it in order, e.g. one per
+                speaker when several talked on without a pause; each is an utterance.
         """
         self._frames: Final = frames
         self._vad: Final = vad
@@ -61,6 +65,7 @@ class VoiceInput:
         self._robot_speech: Final = robot_speech
         self._on_speech_start: Final = on_speech_start
         self._may_interrupt: Final = may_interrupt
+        self._split: Final = split
 
     async def utterances(self) -> AsyncGenerator[UserUtterance]:
         started_at = datetime.now(UTC)
@@ -89,21 +94,25 @@ class VoiceInput:
                         start=heard_at - len(turn.audio) / SAMPLE_RATE,
                         end=heard_at - turn.silence_ms / 1000,
                     )
-                    with _tracer.start_as_current_span("asr"):
-                        text = await self._recognizer.transcribe(
-                            AudioClip(samples=turn.audio, sample_rate=SAMPLE_RATE)
+                    logger.debug("Turn ended after {} ms of silence", turn.silence_ms)
+                    for piece, audio in cut(turn.audio, speech, self._split(speech)):
+                        with _tracer.start_as_current_span("asr"):
+                            text = await self._recognizer.transcribe(
+                                AudioClip(samples=audio, sample_rate=SAMPLE_RATE)
+                            )
+                        logger.debug(
+                            "Heard from {:.2f} to {:.2f}: {!r}", piece.start, piece.end, text
                         )
-                    logger.debug("Turn ended after {} ms of silence: {!r}", turn.silence_ms, text)
-                    if self._robot_speech.is_echo(text):
-                        logger.info("Dropped {!r}: the robot's own voice", text)
-                    elif text:
-                        yield UserUtterance(
-                            text=text,
-                            started_at=started_at,
-                            ended_at=ended_at,
-                            speech=speech,
-                            speaker=None,
-                        )
+                        if self._robot_speech.is_echo(text):
+                            logger.info("Dropped {!r}: the robot's own voice", text)
+                        elif text:
+                            yield UserUtterance(
+                                text=text,
+                                started_at=started_at,
+                                ended_at=ended_at,
+                                speech=piece,
+                                speaker=None,
+                            )
                 case other:
                     assert_never(other)
 

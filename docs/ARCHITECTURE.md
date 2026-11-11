@@ -398,10 +398,20 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
 - **One clock.** The voice input stamps each utterance with when its speech started and ended on
   the monotonic clock the frames are stamped with: back from the frame that ended the turn by the
   length of its audio, and by the silence that ended it.
-- **Who said it.** For each frame, the faces the active speaker saw speaking are kept, at the
-  moment it scored, 0.12 s before the frame, for the last 30 s. An utterance is said by the face
-  seen speaking in the largest share of its frames, if that is at least 0.3: pauses between
-  words count against the speaker. Otherwise nobody in view said it.
+- **Who said it.** For each frame, the face the active speaker saw speaking is kept, at the
+  moment it scored, 0.12 s before the frame, for the last 30 s. When it saw several, only the
+  one it was surest of: it often sees a listener speak too, nodding or smiling along. In a
+  replayed interview, two faces were each seen speaking in over half of the same frames. An
+  utterance is said by the face seen speaking in the largest share of its frames, if that is at
+  least 0.3: pauses between words count against the speaker. Otherwise nobody in view said it.
+- **One speaker per utterance.** People who talk on without a pause make one turn for the
+  endpointer: in that interview, 70 s with three voices, which no single face said. So a turn is
+  cut where the face speaking changes, and each piece is recognized and judged as an utterance
+  of its own. A stretch under a second, a word thrown in, stays in the piece before it, and
+  pauses stay with whoever spoke before them. The change is seen to a fraction of a second
+  only, so the audio is cut at the quietest 20 ms within a quarter second of it, between two
+  words. A turn also ends at 20 s whatever is said, within what the ASR engine takes; the
+  speech that follows is the next turn.
 - **Whether to the robot.** By the share of the utterance its speaker looked at the robot:
   someone engaged is trusted unless they faced someone else throughout (under 0.1); anyone else
   must look at it for most of it (0.5), and is engaged from then on. What is not said to the

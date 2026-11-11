@@ -50,6 +50,9 @@ class InteractionConfig(RVABaseModel):
     min_speaking_share: float = Field(gt=0, le=1)
     """Share of an utterance's frames a face must be seen speaking in to have said it. Pauses
     between words count against it, so it sits well below 1."""
+    min_segment_s: float = Field(gt=0)
+    """The shortest piece a turn is cut into where the face speaking changes; a shorter stretch
+    of someone else speaking, a word thrown in, stays in the piece around it."""
     engaged_min_gaze: float = Field(ge=0, le=1)
     """Share of an utterance an engaged speaker must look at the robot for it to be said to the
     robot. Low: they are trusted unless they face someone else throughout."""
