@@ -102,6 +102,7 @@ class EngagementTracker:
             track_id=seen.track_id,
             closeness=closeness,
             staying=staying,
+            looking=looking,
             attending=attending,
             score=person.score,
             engaged=person.engaged,

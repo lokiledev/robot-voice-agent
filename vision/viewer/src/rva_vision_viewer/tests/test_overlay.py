@@ -37,7 +37,13 @@ def test_color_is_gray_until_announced_then_green_if_recognized_else_orange() ->
 
 def test_engagement_is_described_with_its_score() -> None:
     engaged = PersonEngagement(
-        track_id=1, closeness=1.0, staying=1.0, attending=True, score=0.874, engaged=True
+        track_id=1,
+        closeness=1.0,
+        staying=1.0,
+        looking=True,
+        attending=True,
+        score=0.874,
+        engaged=True,
     )
 
     assert describe_engagement(engaged) == "engaged 0.87"

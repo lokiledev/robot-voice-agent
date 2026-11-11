@@ -2,7 +2,7 @@ import math
 import textwrap
 from collections.abc import Mapping
 from itertools import pairwise
-from typing import Final
+from typing import Final, NamedTuple
 
 import cv2
 import numpy as np
@@ -59,35 +59,51 @@ _IRISES: Final = (468, 473)
 """Centers of the irises in the face mesh."""
 
 
+class OverlayOptions(NamedTuple):
+    """What is drawn over the camera image besides each person's box, name and words."""
+
+    bodies: bool
+    """The skeletons, without their hands."""
+    hands: bool
+    faces: bool
+    """The outline of the eyes and lips, the irises and the gaze."""
+    engagement: bool
+    """Each person's engagement score, and a doubled box around an engaged one."""
+
+
+EVERYTHING: Final = OverlayOptions(bodies=True, hands=True, faces=True, engagement=True)
+
+
 def draw(
     frame: Image,
     people: PeopleInView,
     timings: VisionTimings,
     attention: AttentionTarget | None,
     engagement: Mapping[int, PersonEngagement],
+    options: OverlayOptions,
 ) -> None:
     """Draw the people and what was seen of them, the timings, and the user's last sentence.
 
-    `people` is in the frame's pixels. Each person gets their box, label, face features and
-    skeleton, and what they said hangs under their box. Skeletons without a face are drawn in
-    gray. `attention` is the point attended to, marked where the camera's intrinsics put it in
+    `people` is in the frame's pixels. Each person gets their box and label, what they said
+    under their box, and what `options` asks for of their face, skeleton and hands. Skeletons
+    without a face are drawn in gray. `attention` is the point attended to, marked where the camera's intrinsics put it in
     the frame, if they are known. `engagement` is how much each person pays attention to the
     robot, by track id: its score is on their label, and an engaged person's box is doubled.
     """
     scale = frame.shape[0] / 540
     thickness = max(1, round(2 * scale))
     for body in people.unmatched_bodies:
-        _draw_body(frame, body, _UNCONFIRMED, thickness)
+        _draw_body(frame, body, _UNCONFIRMED, thickness, options)
     for person in people.people:
         box = person.box
         x, y = round(box.x), round(box.y)
         right, bottom = round(box.x + box.width), round(box.y + box.height)
         color = color_of(person)
         if person.body is not None:
-            _draw_body(frame, person.body, color, thickness)
+            _draw_body(frame, person.body, color, thickness, options)
         cv2.rectangle(frame, (x, y), (right, bottom), color, thickness)
         lines = [label(person)]
-        engaging = engagement.get(person.track_id)
+        engaging = engagement.get(person.track_id) if options.engagement else None
         if engaging is not None:
             lines.append(describe_engagement(engaging))
             if engaging.engaged:
@@ -96,9 +112,8 @@ def draw(
                 cv2.rectangle(
                     frame, (x + gap, y + gap), (right - gap, bottom - gap), color, thickness
                 )
-        if person.face is not None:
+        if person.face is not None and options.faces:
             _draw_face(frame, person.face, box.width, color, thickness)
-            lines.append(describe(person.face))
         for index, line in enumerate(reversed(lines)):
             cv2.putText(
                 frame,
@@ -177,15 +192,6 @@ def _draw_attention(
         cv2.circle(frame, _point(*gaze), pupil, _ATTENTION, -1)
 
 
-def describe(face: FaceFeatures) -> str:
-    """Eye and mouth openness, gaze and expression, in a line."""
-    return (
-        f"eyes {face.left_eye_open:.2f} {face.right_eye_open:.2f}  mouth {face.mouth_open:.2f}  "
-        f"gaze {face.gaze.yaw:+.0f} {face.gaze.pitch:+.0f}  "
-        f"{face.expression} {face.expression_score:.2f}"
-    )
-
-
 def describe_engagement(engagement: PersonEngagement) -> str:
     """Whether a person is engaged, with their score."""
     return f"{'engaged' if engagement.engaged else 'not engaged'} {engagement.score:.2f}"
@@ -243,9 +249,18 @@ def _draw_speech(
         )
 
 
-def _draw_body(frame: Image, body: Body, color: tuple[int, int, int], thickness: int) -> None:
+def _draw_body(
+    frame: Image,
+    body: Body,
+    color: tuple[int, int, int],
+    thickness: int,
+    options: OverlayOptions,
+) -> None:
     """Draw the body in the track's color, and each finger of the hands in a color of its own."""
-    _draw_bones(frame, body.keypoints, BODY_CONNECTIONS, color, thickness)
+    if options.bodies:
+        _draw_bones(frame, body.keypoints, BODY_CONNECTIONS, color, thickness)
+    if not options.hands:
+        return
     for hand, colors in (
         (body.left_hand, _LEFT_FINGER_COLORS),
         (body.right_hand, _RIGHT_FINGER_COLORS),

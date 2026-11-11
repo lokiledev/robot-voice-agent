@@ -1,10 +1,10 @@
 from collections.abc import Callable
 from typing import Final
 
-from rva_schemas.attention import AttentionState, AttentionTarget
+from rva_schemas.attention import AttentionState
 from rva_schemas.interaction import EngagementState, PersonEngagement
 from rva_schemas.record import LiveFrame, Record
-from rva_vision_viewer.overlay import draw
+from rva_vision_viewer.overlay import EVERYTHING, draw
 from rva_vision_viewer.stream import RtspPublisher, VideoStreamConfig
 from rva_vision_viewer.window import DebugWindow
 
@@ -39,7 +39,7 @@ class CameraMonitor:
         self._on_key: Final = on_key
         self._window: DebugWindow | None = None
         self._publisher: RtspPublisher | None = None
-        self._attention: AttentionTarget | None = None
+        self._attention: AttentionState | None = None
         self._engagement: dict[int, PersonEngagement] = {}
         """By track id; empty until an engagement is recorded, from any thread."""
 
@@ -48,7 +48,7 @@ class CameraMonitor:
             case LiveFrame():
                 self._show(entry)
             case AttentionState():
-                self._attention = entry.target
+                self._attention = entry
             case EngagementState():
                 self._engagement = {person.track_id: person for person in entry.people}
             case _:
@@ -56,24 +56,28 @@ class CameraMonitor:
 
     def _show(self, live: LiveFrame) -> None:
         engagement = self._engagement
-        draw(live.frame, live.people, live.timings, self._attention, engagement)
+        if self._window_size is not None and self._window is None:
+            self._window = DebugWindow(*self._window_size)
+        # The window's checkboxes choose what is drawn, for the stream too.
+        options = EVERYTHING if self._window is None else self._window.options()
+        attention = self._attention
+        target = None if attention is None else attention.target
+        draw(live.frame, live.people, live.timings, target, engagement, options)
         if self._stream is not None and self._publisher is None:
             height, width = live.frame.shape[:2]
             self._publisher = RtspPublisher(self._stream, width, height)
         if self._publisher is not None:
             self._publisher.send(live.frame)
-        if self._window_size is None:
-            return
         if self._window is None:
-            self._window = DebugWindow(*self._window_size)
-        main_user = live.main_user
-        engaged = (
-            main_user is not None
-            and main_user.track_id in engagement
-            and engagement[main_user.track_id].engaged
-        )
+            return
         key = self._window.show(
-            live.frame, live.people, live.depth, main_user, live.timings, engaged=engaged
+            live.frame,
+            live.people,
+            live.depth,
+            live.main_user,
+            live.timings,
+            engagement,
+            attention,
         )
         if key == "q":
             # Closed by the user: it stays closed while the camera goes on.

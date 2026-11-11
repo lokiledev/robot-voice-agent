@@ -326,11 +326,18 @@ flowchart LR
   the monitor to draw. Live frames come in the camera's thread, which the window lives in; the
   window opens with the first frame and, closed, stays closed while the camera goes on.
 - **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
-  with the overlay, and beside it each person's eyes, mouth, gaze, expression and skeleton, with
-  a plot of how open each mouth has been. Right of the camera, its depth, with the distance under the
-  mouse and whether the camera is calibrated. Underneath, a timeline of the main user's signals,
-  one lane each, the last 30 s: eye contact, lips moving, speaking and engaged. It lives in the viewer package, which the camera pipeline
-  never imports, so the pipeline runs without it, as on the robot.
+  with the overlay and, right of it, its depth, with the distance under the mouse and whether
+  the camera is calibrated, and under the depth the attention: the score of every face and
+  hand that could be attended to over the last 30 s, a curve each, the one attended to marked
+  in the legend. Then the timings and checkboxes for what is drawn over the camera:
+  skeletons, hands, faces (the outline of the eyes and lips, the irises and the gaze) and
+  engagement; they hold for the stream too. Underneath, across the window, a row per person in
+  view, for as long as their track lasts: their gaze, expression, skeleton and engagement in
+  words, a timeline of the last 30 s with a lane each for looking at the robot, speaking and
+  engaged and their engagement score as a line, and a plot of how open their eyes and mouth
+  have been. The rows share their time axis, so who speaks when reads down them. The numbers of
+  the face are no longer written over the image. It lives in the viewer package, which the
+  camera pipeline never imports, so the pipeline runs without it, as on the robot.
 - **One tree per person.** Each frame records every track with its person, face features,
   skeleton and hands: drawn over the camera image, and in rerun under `camera/people/<track>`,
   with eyes, mouth, gaze and the active speaker's score plotted under `people/<track>`. In 3D,
@@ -428,8 +435,7 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
   operator, whoever spoke.
 - **Recorded** every frame: each person's score under `engagement/track_<n>/score`, and the
   events. The camera monitor writes each person's score on their label and doubles the box of
-  an engaged one, in the window and the stream; the window's timeline has a lane for whether
-  the main user is engaged. `lune see` and `lune sense` log people engaging and disengaging; `lune listen --camera`
+  an engaged one, in the window and the stream; the window plots it per person. `lune see` and `lune sense` log people engaging and disengaging; `lune listen --camera`
   prints each turn with who said it and whether to the robot.
 - **Replayed from a video file**, with `lune listen --replay`: the file's frames stand in for
   the camera, fitted into its size, and its sound, decoded by ffmpeg, for the microphone. Both

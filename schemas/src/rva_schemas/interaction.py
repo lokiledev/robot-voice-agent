@@ -35,6 +35,8 @@ class PersonEngagement(RVABaseModel):
     """1 within reach of a conversation, 0 from the configured distance on."""
     staying: float
     """1 standing still, 0 from a walking pace on."""
+    looking: bool
+    """Whether their gaze is on the robot."""
     attending: bool
     """Whether they look at the robot or, once engaged, speak."""
     score: float

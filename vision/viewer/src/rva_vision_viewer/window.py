@@ -1,33 +1,47 @@
 import string
 import time
 from collections import deque
-from typing import Final
+from collections.abc import Mapping
+from typing import Final, assert_never
 
 import cv2
 import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
 
+from rva_schemas.attention import AttentionEntity, AttentionState, FaceEntity, HandEntity
+from rva_schemas.interaction import PersonEngagement
 from rva_schemas.record import PeopleInView, TrackedPerson
-from rva_schemas.vision import Body, DepthMap, FaceFeatures, Hand, Keypoint, MainUser, VisionTimings
+from rva_schemas.vision import Body, DepthMap, Hand, Keypoint, MainUser, VisionTimings
+from rva_vision_viewer.overlay import OverlayOptions
 
 _TITLE: Final = "lune see"
 _PANEL_WIDTH: Final = 320
 _MARGIN: Final = 40
 """Room taken around the image and the panel by the window's padding."""
-_PLOT_S: Final = 10.0
-"""How much of each mouth's history is plotted."""
 _DEPTH_SCALE: Final = 0.5
 """Size of the depth image, relative to the camera's."""
 _MAX_DEPTH_M: Final = 4.0
 """Depth at the far end of the colormap; farther is drawn the same."""
 _PROBE_RADIUS: Final = 2
 """Half the side of the square of depth pixels whose median is shown, in pixels."""
-_TIMELINE_S: Final = 30.0
-"""How much of the main user's signals the timeline shows."""
-_TIMELINE_HEIGHT: Final = 120
+_HISTORY_S: Final = 30.0
+"""How much of each person's signals and openness is plotted."""
+_ROW_HEIGHT: Final = 130
+"""Height of a person's row of plots, under the camera."""
+_ROWS_SHOWN: Final = 3
+"""How many people's rows fit under the camera before they scroll."""
+_ABOUT_WIDTH: Final = 300
+"""Width of what is written about a person, left of their plots."""
+_OPENNESS_WIDTH: Final = 520
 _LANE_HEIGHT: Final = 0.8
 """Height of a signal when on, in lanes: the gap keeps lanes apart."""
+_SCORE: Final = "engagement"
+"""The lane of the engagement score, a line from 0 at its bottom to 1 at its top."""
+_OPENNESS: Final = ("left eye", "right eye", "mouth")
+_PROBE_HEIGHT: Final = 30
+"""Room the depth's caption takes between the depth and the attention's plot."""
+_MIN_ATTENTION_HEIGHT: Final = 80
 # RGB
 _KNOWN: Final = (80, 200, 80)
 _UNKNOWN: Final = (255, 165, 0)
@@ -40,11 +54,14 @@ _KEYS: Final = {
 class DebugWindow:
     """A Dear PyGui window showing the camera pipeline, for debugging.
 
-    The camera image, and beside it each person in view with their eyes, mouth, gaze, expression
-    and skeleton, and a plot of how open their mouths have been. Right of the camera image, its depth
-    once some is given, with the distance under the mouse. Underneath, a timeline of the main user's
-    signals, e.g. eye contact, one lane each. Lives in the thread that creates it, which also shows
-    the frames and closes it.
+    The camera image and, right of it, its depth once some is given, with the distance under the
+    mouse, and under it the attention: the score of every face and hand that could be attended
+    to, a curve each, the one attended to marked. Then the timings and checkboxes for what is
+    drawn over the camera image. Underneath,
+    across the window, a row per person in view: their gaze, expression and skeleton, a timeline
+    of their signals, e.g. whether they look at the robot, one lane each, and a plot of how open
+    their eyes and mouth have been. The rows share their time axis, so who speaks when reads
+    down them. Lives in the thread that creates it, which also shows the frames and closes it.
     """
 
     def __init__(self, width: int, height: int) -> None:
@@ -54,10 +71,7 @@ class DebugWindow:
         self._depth_size: Final = (round(width * _DEPTH_SCALE), round(height * _DEPTH_SCALE))
         self._depth_image: Final = np.zeros((*reversed(self._depth_size), 3), np.float32)
         self._keys: Final = deque[str]()
-        self._mouths: Final[dict[int, deque[tuple[float, float]]]] = {}
-        self._series: Final[dict[int, int | str]] = {}
-        self._signals: Final[dict[str, deque[tuple[float, bool]]]] = {}
-        self._lanes: Final[dict[str, int | str]] = {}
+        self._panels: Final[dict[int, _PersonPanel]] = {}
         self._start: Final = time.monotonic()
         dpg.create_context()
         # Callbacks run when `show` asks, in this thread, rather than in one of Dear PyGui's.
@@ -80,33 +94,44 @@ class DebugWindow:
         with dpg.window() as root:
             with dpg.group(horizontal=True):
                 self._picture: Final = dpg.add_image(self._texture)
-                with dpg.group(show=False) as depth_view:
-                    self._depth_view: Final = depth_view
-                    self._depth_picture: Final = dpg.add_image(self._depth_texture)
-                    self._probe: Final = dpg.add_text(wrap=0)
-                # A negative height leaves that much room below, for the timeline.
-                with dpg.child_window(width=_PANEL_WIDTH, height=-_TIMELINE_HEIGHT - _MARGIN // 4):
+                with dpg.group():
+                    with dpg.group(show=False) as depth_view:
+                        self._depth_view: Final = depth_view
+                        self._depth_picture: Final = dpg.add_image(self._depth_texture)
+                        self._probe: Final = dpg.add_text(wrap=0)
+                    self._attention: Final = _AttentionPlot()
+                with dpg.group(width=_PANEL_WIDTH):
                     self._timings: Final = dpg.add_text()
-                    self._main_user: Final = dpg.add_text(wrap=0)
-                    self._people: Final = dpg.add_group()
-                    with dpg.plot(label="Mouth open", height=220, width=-1):
-                        dpg.add_plot_legend()
-                        self._time_axis: Final = dpg.add_plot_axis(dpg.mvXAxis, label="s")
-                        self._mouth_axis: Final = dpg.add_plot_axis(dpg.mvYAxis)
-                        dpg.set_axis_limits(self._mouth_axis, 0, 1)
-            with dpg.plot(label="Main user", height=_TIMELINE_HEIGHT, width=-1):
-                self._timeline_axis: Final = dpg.add_plot_axis(dpg.mvXAxis, label="s")
-                self._lane_axis: Final = dpg.add_plot_axis(dpg.mvYAxis)
+                    dpg.add_text("Drawn over the camera:")
+                    self._bodies: Final = dpg.add_checkbox(label="skeletons", default_value=True)
+                    self._hands: Final = dpg.add_checkbox(label="hands", default_value=True)
+                    self._faces: Final = dpg.add_checkbox(label="faces", default_value=True)
+                    self._engagement: Final = dpg.add_checkbox(
+                        label="engagement", default_value=True
+                    )
+                    self._main_user: Final = dpg.add_text(wrap=_PANEL_WIDTH)
+                    self._unmatched: Final = dpg.add_text(color=_UNCONFIRMED)
+            with dpg.child_window(height=_ROW_HEIGHT, border=False) as people:
+                self._people: Final = people
         dpg.create_viewport(
             title=_TITLE,
             width=round(width * (1 + _DEPTH_SCALE)) + _PANEL_WIDTH + 2 * _MARGIN,
-            height=height + _TIMELINE_HEIGHT + _MARGIN,
+            height=height + _ROWS_SHOWN * _ROW_HEIGHT + _MARGIN,
             # Drawing must not wait for the screen: it would slow the camera pipeline down.
             vsync=False,
         )
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window(root, True)
+
+    def options(self) -> OverlayOptions:
+        """What the checkboxes ask to be drawn over the camera image."""
+        return OverlayOptions(
+            bodies=bool(dpg.get_value(self._bodies)),
+            hands=bool(dpg.get_value(self._hands)),
+            faces=bool(dpg.get_value(self._faces)),
+            engagement=bool(dpg.get_value(self._engagement)),
+        )
 
     def show(
         self,
@@ -115,33 +140,49 @@ class DebugWindow:
         depth: DepthMap | None,
         main_user: MainUser | None,
         timings: VisionTimings,
-        *,
-        engaged: bool,
+        engagement: Mapping[int, PersonEngagement],
+        attention: AttentionState | None,
     ) -> str | None:
+        """Show a frame, drawn over already, and what was seen in it.
+
+        `engagement` is how much each person pays attention to the robot, by track id, and
+        `attention` what could be attended to in the frame; `None` until some is known.
+
+        Returns:
+            A key pressed since the last frame, `q` once the window is closed, else `None`.
+        """
         if not dpg.is_dearpygui_running():
             return "q"
         small = cv2.resize(frame, self._size, interpolation=cv2.INTER_AREA)
         np.multiply(cv2.cvtColor(small, cv2.COLOR_BGR2RGB), np.float32(1 / 255), out=self._image)
         dpg.set_value(self._texture, self._image)
-        space_width = dpg.get_viewport_client_width() - _PANEL_WIDTH - _MARGIN
-        if depth is not None:
-            # The camera and its depth share the width, the depth at its smaller scale.
-            space_width = round((space_width - _MARGIN) / (1 + _DEPTH_SCALE))
-        space_height = dpg.get_viewport_client_height() - _TIMELINE_HEIGHT - _MARGIN
+        # The camera shares the width with the column of its depth and the attention, which is
+        # at the depth's smaller scale.
+        space_width = dpg.get_viewport_client_width() - _PANEL_WIDTH - 2 * _MARGIN
+        space_width = round(space_width / (1 + _DEPTH_SCALE))
+        # The people's rows take what they need under the camera, up to a few; more scroll.
+        rows_height = min(max(len(people.people), 1), _ROWS_SHOWN) * _ROW_HEIGHT
+        dpg.configure_item(self._people, height=rows_height)
+        space_height = dpg.get_viewport_client_height() - rows_height - _MARGIN
         width, height = fit(self._size, (space_width, space_height))
         dpg.configure_item(self._picture, width=width, height=height)
         dpg.configure_item(self._depth_view, show=depth is not None)
+        side_width, depth_height = round(width * _DEPTH_SCALE), round(height * _DEPTH_SCALE)
         if depth is not None:
-            self._show_depth(depth, (round(width * _DEPTH_SCALE), round(height * _DEPTH_SCALE)))
+            self._show_depth(depth, (side_width, depth_height))
+        # The attention takes what the depth leaves of the camera's height.
+        taken = 0 if depth is None else depth_height + _PROBE_HEIGHT
+        now = time.monotonic() - self._start
+        self._attention.update(
+            now, attention, (side_width, max(height - taken, _MIN_ATTENTION_HEIGHT))
+        )
         dpg.set_value(self._timings, describe_timings(timings))
-        self._show_people(people)
-        self._plot_mouths(people)
+        self._show_people(people, engagement)
         dpg.set_value(self._main_user, describe_main_user(main_user))
         dpg.configure_item(
             self._main_user,
             color=_KNOWN if main_user is not None and main_user.eye_contact else _UNCONFIRMED,
         )
-        self._plot_signals(signals(main_user, engaged=engaged))
         dpg.render_dearpygui_frame()
         dpg.run_callbacks(dpg.get_callback_queue())
         if not dpg.is_dearpygui_running():
@@ -178,101 +219,175 @@ class DebugWindow:
         )
         dpg.configure_item(self._probe, color=_KNOWN if depth.calibrated else _UNKNOWN)
 
-    def _show_people(self, people: PeopleInView) -> None:
-        dpg.delete_item(self._people, children_only=True)
-        for person in people.people:
-            dpg.add_separator(parent=self._people)
-            dpg.add_text(title(person), color=_color(person), parent=self._people, wrap=0)
-            if person.face is not None:
-                self._show_face(person.face)
-            if person.body is not None:
-                dpg.add_text(describe_body(person.body), parent=self._people)
-        if people.unmatched_bodies:
-            dpg.add_separator(parent=self._people)
-            dpg.add_text(
-                f"{len(people.unmatched_bodies)} skeletons without a face",
-                color=_UNCONFIRMED,
-                parent=self._people,
-            )
-
-    def _show_face(self, face: FaceFeatures) -> None:
-        for name, value in (
-            ("left eye", face.left_eye_open),
-            ("right eye", face.right_eye_open),
-            ("mouth", face.mouth_open),
-        ):
-            dpg.add_progress_bar(
-                default_value=value, overlay=f"{name} {value:.2f}", width=-1, parent=self._people
-            )
-        dpg.add_text(
-            f"gaze {face.gaze.yaw:+.0f} {face.gaze.pitch:+.0f} deg   "
-            f"{face.expression} {face.expression_score:.2f}",
-            parent=self._people,
-        )
-
-    def _plot_mouths(self, people: PeopleInView) -> None:
+    def _show_people(
+        self, people: PeopleInView, engagement: Mapping[int, PersonEngagement]
+    ) -> None:
+        """Bring each person's panel up to date, adding the newcomers' and removing the gone's."""
         now = time.monotonic() - self._start
         for person in people.people:
-            if person.face is not None:
-                self._mouths.setdefault(person.track_id, deque()).append(
-                    (now, person.face.mouth_open)
+            panel = self._panels.get(person.track_id)
+            if panel is None:
+                panel = self._panels[person.track_id] = _PersonPanel(self._people)
+            panel.update(now, person, engagement.get(person.track_id))
+        for track_id in self._panels.keys() - {person.track_id for person in people.people}:
+            self._panels.pop(track_id).delete()
+        count = len(people.unmatched_bodies)
+        dpg.set_value(self._unmatched, f"{count} skeletons without a face" if count else "")
+
+
+class _AttentionPlot:
+    """The score of everything that could be attended to, a curve each, over the last while."""
+
+    def __init__(self) -> None:
+        self._scores: Final[dict[str, deque[tuple[float, float]]]] = {}
+        self._lines: Final[dict[str, int | str]] = {}
+        with dpg.plot(label="Attention", height=_MIN_ATTENTION_HEIGHT) as plot:
+            self._plot: Final = plot
+            dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthWest)
+            self._time: Final = dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True)
+            self._axis: Final = dpg.add_plot_axis(dpg.mvYAxis)
+
+    def update(self, now: float, attention: AttentionState | None, size: tuple[int, int]) -> None:
+        """Add the candidates' scores; a candidate gone leaves once its curve has scrolled out."""
+        dpg.configure_item(self._plot, width=size[0], height=size[1])
+        candidates = () if attention is None else attention.candidates
+        target = None if attention is None or attention.target is None else attention.target.entity
+        for candidate in candidates:
+            name = candidate_name(candidate.entity)
+            self._scores.setdefault(name, deque()).append((now, candidate.score))
+        attended = None if target is None else candidate_name(target)
+        for name, history in list(self._scores.items()):
+            _trim(history, now)
+            if not history:
+                del self._scores[name]
+                dpg.delete_item(self._lines.pop(name))
+                continue
+            data = [[t for t, _ in history], [score for _, score in history]]
+            if name not in self._lines:
+                self._lines[name] = dpg.add_line_series(*data, parent=self._axis)
+            dpg.set_value(self._lines[name], data)
+            dpg.configure_item(self._lines[name], label=f"> {name}" if name == attended else name)
+        dpg.set_axis_limits(self._time, now - _HISTORY_S, now)
+        dpg.fit_axis_data(self._axis)
+
+
+class _PersonPanel:
+    """What the window shows of one person, for as long as they are tracked."""
+
+    def __init__(self, parent: int | str) -> None:
+        self._signals: Final[dict[str, deque[tuple[float, bool]]]] = {
+            name: deque() for name in signals(None, None)
+        }
+        self._score: Final = deque[tuple[float, float]]()
+        self._openness: Final = deque[tuple[float, tuple[float, float, float]]]()
+        lanes = [*self._signals, _SCORE]
+        with dpg.group(parent=parent, horizontal=True) as group:
+            self._group: Final = group
+            plots_height = _ROW_HEIGHT - 8
+            with dpg.child_window(width=_ABOUT_WIDTH, height=plots_height, border=False):
+                self._title: Final = dpg.add_text(wrap=0)
+                self._details: Final = dpg.add_text(wrap=0)
+            # A negative width leaves that much room on the right, for the other plot.
+            with dpg.plot(height=plots_height, width=-_OPENNESS_WIDTH - 16):
+                self._signals_time: Final = dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True)
+                axis = dpg.add_plot_axis(dpg.mvYAxis)
+                dpg.set_axis_ticks(
+                    axis, tuple((name, lane + _LANE_HEIGHT / 2) for lane, name in enumerate(lanes))
                 )
-        in_view = {person.track_id for person in people.people}
-        for track_id, history in list(self._mouths.items()):
-            while history and history[0][0] < now - _PLOT_S:
-                history.popleft()
-            if track_id in in_view and history:
-                times, values = [list(axis) for axis in zip(*history, strict=True)]
-                if track_id in self._series:
-                    dpg.set_value(self._series[track_id], [times, values])
-                else:
-                    self._series[track_id] = dpg.add_line_series(
-                        times, values, label=f"#{track_id}", parent=self._mouth_axis
-                    )
-                continue
-            del self._mouths[track_id]
-            if track_id in self._series:
-                dpg.delete_item(self._series.pop(track_id))
-        dpg.set_axis_limits(self._time_axis, now - _PLOT_S, now)
+                dpg.set_axis_limits(axis, -0.1, len(lanes))
+                self._lanes: Final = {
+                    name: dpg.add_shade_series([0.0], [float(lane)], y2=[float(lane)], parent=axis)
+                    for lane, name in enumerate(self._signals)
+                }
+                self._score_line: Final = dpg.add_line_series(
+                    [0.0], [float(len(self._signals))], parent=axis
+                )
+            with dpg.plot(height=plots_height, width=-1):
+                dpg.add_plot_legend(outside=True, location=dpg.mvPlot_Location_East)
+                self._openness_time: Final = dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True)
+                axis = dpg.add_plot_axis(dpg.mvYAxis)
+                dpg.set_axis_limits(axis, 0, 1)
+                self._openness_lines: Final = [
+                    dpg.add_line_series([0.0], [0.0], label=name, parent=axis) for name in _OPENNESS
+                ]
 
-    def _plot_signals(self, values: dict[str, bool]) -> None:
-        """Add a value to each signal's lane, shaded while on, and scroll the timeline."""
-        now = time.monotonic() - self._start
-        for name, value in values.items():
-            history = self._signals.setdefault(name, deque())
-            history.append((now, value))
-            while history[0][0] < now - _TIMELINE_S:
-                history.popleft()
-            lane = list(self._signals).index(name)
+    def update(
+        self, now: float, person: TrackedPerson, engagement: PersonEngagement | None
+    ) -> None:
+        dpg.set_value(self._title, title(person))
+        dpg.configure_item(self._title, color=_color(person))
+        dpg.set_value(self._details, describe_person(person, engagement))
+        for lane, (name, on) in enumerate(signals(person, engagement).items()):
+            history = self._signals[name]
+            history.append((now, on))
+            _trim(history, now)
             times = [t for t, _ in history]
-            tops = [lane + _LANE_HEIGHT * on for _, on in history]
-            if name in self._lanes:
-                dpg.set_value(self._lanes[name], [times, tops, [lane] * len(times)])
-                continue
-            self._lanes[name] = dpg.add_shade_series(
-                times, tops, y2=[lane] * len(times), parent=self._lane_axis
-            )
-            dpg.set_axis_ticks(
-                self._lane_axis,
-                tuple((label, index + _LANE_HEIGHT / 2) for index, label in enumerate(self._lanes)),
-            )
-            dpg.set_axis_limits(self._lane_axis, -0.1, len(self._lanes))
-        dpg.set_axis_limits(self._timeline_axis, now - _TIMELINE_S, now)
+            tops = [lane + _LANE_HEIGHT * value for _, value in history]
+            dpg.set_value(self._lanes[name], [times, tops, [float(lane)] * len(times)])
+        if engagement is not None:
+            self._score.append((now, engagement.score))
+        _trim(self._score, now)
+        bottom = len(self._signals)
+        dpg.set_value(
+            self._score_line,
+            [[t for t, _ in self._score], [bottom + _LANE_HEIGHT * v for _, v in self._score]],
+        )
+        if person.face is not None:
+            face = person.face
+            self._openness.append((now, (face.left_eye_open, face.right_eye_open, face.mouth_open)))
+        _trim(self._openness, now)
+        times = [t for t, _ in self._openness]
+        for index, line in enumerate(self._openness_lines):
+            dpg.set_value(line, [times, [values[index] for _, values in self._openness]])
+        for axis in (self._signals_time, self._openness_time):
+            dpg.set_axis_limits(axis, now - _HISTORY_S, now)
+
+    def delete(self) -> None:
+        dpg.delete_item(self._group)
 
 
-def signals(main_user: MainUser | None, *, engaged: bool) -> dict[str, bool]:
-    """The main user's signals shown on the timeline, each off while nobody is in view.
+def _trim[T](history: deque[tuple[float, T]], now: float) -> None:
+    while history and history[0][0] < now - _HISTORY_S:
+        history.popleft()
 
-    `engaged` is whether the main user pays attention to the robot.
-    """
+
+def signals(person: TrackedPerson | None, engagement: PersonEngagement | None) -> dict[str, bool]:
+    """A person's signals shown on their timeline; each off for nobody, or while unknown."""
     return {
-        "eye contact": main_user is not None and main_user.eye_contact,
-        "lips moving": main_user is not None and main_user.lips_moving,
-        "speaking": main_user is not None
-        and main_user.active_speaker is not None
-        and main_user.active_speaker.speaking,
-        "engaged": main_user is not None and engaged,
+        "looking": engagement is not None and engagement.looking,
+        "speaking": person is not None and person.speaker is not None and person.speaker.speaking,
+        "engaged": engagement is not None and engagement.engaged,
     }
+
+
+def candidate_name(entity: AttentionEntity) -> str:
+    """What a face or hand that could be attended to is called on the attention's plot."""
+    match entity:
+        case FaceEntity():
+            return f"face #{entity.track_id}"
+        case HandEntity():
+            return f"{entity.side} hand #{entity.track_id}"
+        case _:
+            assert_never(entity)
+
+
+def describe_person(person: TrackedPerson, engagement: PersonEngagement | None) -> str:
+    """A person's gaze and expression, their skeleton and their engagement, a line each."""
+    lines = []
+    if person.face is not None:
+        face = person.face
+        lines.append(
+            f"gaze {face.gaze.yaw:+.0f} {face.gaze.pitch:+.0f} deg   "
+            f"{face.expression} {face.expression_score:.2f}"
+        )
+    if person.body is not None:
+        lines.append(describe_body(person.body))
+    if engagement is not None:
+        lines.append(
+            f"engagement {engagement.score:.2f}: closeness {engagement.closeness:.2f}, "
+            f"staying {engagement.staying:.2f}"
+        )
+    return "\n".join(lines)
 
 
 def describe_main_user(main_user: MainUser | None) -> str:

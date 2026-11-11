@@ -2,6 +2,8 @@ from uuid import UUID
 
 import numpy as np
 
+from rva_schemas.attention import FaceEntity, HandEntity
+from rva_schemas.interaction import PersonEngagement
 from rva_schemas.record import TrackedPerson
 from rva_schemas.vision import (
     ActiveSpeaker,
@@ -14,10 +16,12 @@ from rva_schemas.vision import (
     MainUser,
 )
 from rva_vision_viewer.window import (
+    candidate_name,
     depth_at,
     describe_body,
     describe_depth,
     describe_main_user,
+    describe_person,
     fit,
     signals,
     title,
@@ -84,7 +88,7 @@ def test_describe_depth_says_whether_it_is_calibrated() -> None:
     )
 
 
-def test_the_main_user_is_described_and_their_signals_are_off_while_nobody_is_in_view() -> None:
+def test_the_main_user_is_described() -> None:
     user = MainUser(
         track_id=4,
         gaze_off_camera=6.4,
@@ -102,21 +106,51 @@ def test_the_main_user_is_described_and_their_signals_are_off_while_nobody_is_in
         "main user #4: eye contact, gaze 6 deg off; lips still, motion 0.041; no microphone"
     )
     assert describe_main_user(None) == "nobody in view"
-    assert signals(user, engaged=True) == {
-        "eye contact": True,
-        "lips moving": True,
+
+
+def _person(speaking: bool) -> TrackedPerson:
+    return TrackedPerson(
+        track_id=3,
+        box=BoundingBox(x=0, y=0, width=10, height=10),
+        person=None,
+        match_score=None,
+        confirmed=True,
+        said=None,
+        face=None,
+        body=None,
+        speaker=ActiveSpeaker(score=0.5, speaking=speaking),
+    )
+
+
+def test_a_persons_signals_are_off_for_nobody_and_while_their_engagement_is_unknown() -> None:
+    engaged = PersonEngagement(
+        track_id=3,
+        closeness=0.8,
+        staying=1.0,
+        looking=True,
+        attending=True,
+        score=0.874,
+        engaged=True,
+    )
+
+    assert signals(_person(speaking=True), engaged) == {
+        "looking": True,
         "speaking": True,
         "engaged": True,
     }
-    assert signals(unheard, engaged=False) == {
-        "eye contact": True,
-        "lips moving": False,
+    assert signals(_person(speaking=False), None) == {
+        "looking": False,
         "speaking": False,
         "engaged": False,
     }
-    assert signals(None, engaged=True) == {
-        "eye contact": False,
-        "lips moving": False,
-        "speaking": False,
-        "engaged": False,
-    }
+    assert signals(None, None) == {"looking": False, "speaking": False, "engaged": False}
+    assert (
+        describe_person(_person(speaking=True), engaged)
+        == "engagement 0.87: closeness 0.80, staying 1.00"
+    )
+    assert describe_person(_person(speaking=True), None) == ""
+
+
+def test_candidates_of_the_attention_are_named_by_what_they_are_and_whose() -> None:
+    assert candidate_name(FaceEntity(track_id=3, person=None)) == "face #3"
+    assert candidate_name(HandEntity(track_id=3, side="left")) == "left hand #3"
