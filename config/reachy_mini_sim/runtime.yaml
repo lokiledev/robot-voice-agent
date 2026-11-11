@@ -1,0 +1,252 @@
+agent:
+  max_history_messages: 60
+  max_tool_rounds: 4
+  stop_words: [stop, freeze, halt, stop stop, robot stop]
+  # Matched as whole words anywhere in what was said, without asking the LLM.
+  mute_phrases: [stop talking, stop speaking, be quiet, quiet please, shut up, don't talk, do not talk, stay quiet, silence please]
+  unmute_phrases: [you can talk, you can speak, start talking, start speaking, talk again, speak again]
+  regreet_after_s: 300
+
+llm:
+  base_url: http://127.0.0.1:8080/v1
+  model: qwen3.5-35b-a3b
+  temperature: 0.7
+  max_tokens: 400
+  chat_template_kwargs:
+    enable_thinking: false
+
+llm_server:
+  executable: ~/.local/src/llama.cpp/build/bin/llama-server
+  hf_repo: unsloth/Qwen3.5-35B-A3B-GGUF
+  hf_file: Qwen3.5-35B-A3B-Q4_K_M.gguf
+  host: 127.0.0.1
+  port: 8080
+  context_size: 16384
+  n_cpu_moe: 12
+  extra_args: [--flash-attn, "on", --parallel, "1"]
+
+vla:
+  base_url: http://127.0.0.1:8800
+
+# Walking, animations and gaze; the mock serves them next to the VLA.
+body:
+  base_url: http://127.0.0.1:8800
+
+# Joints and head camera over kickmsg, of the simulation `lune-sim` runs.
+robot:
+  namespace: rva  # Same as namespace in sim.yaml.
+  connect_timeout_s: 5
+  silence_timeout_s: 2
+
+vision:
+  device:
+    kind: tensorrt
+    engine_cache: ~/.cache/robot-voice-agent/tensorrt/vision
+  camera:
+    source:
+      kind: robot
+    width: 1280
+    height: 720
+    intrinsics: cameras/reachy_mini_sim.yaml
+  detector:
+    model:
+      repo: opencv/face_detection_yunet
+      file: face_detection_yunet_2023mar.onnx
+    score_threshold: 0.8
+    nms_threshold: 0.3
+  recognizer:
+    repo: opencv/face_recognition_sface
+    file: face_recognition_sface_2021dec.onnx
+  tracker:
+    # The head camera's 80 degree field of view makes faces small: 0.06 of the frame is a face
+    # about 1.8 m away, as 0.12 is with the C920 of the default profile.
+    min_face_height: 0.06
+    iou_threshold: 0.3
+    reid_threshold: 0.5
+    confirm_after_s: 0.5
+    leave_after_s: 2.0
+    embed_every_s: 1.0
+    embeddings_per_track: 5
+  matching:
+    threshold: 0.363
+    margin: 0.05
+  face_features:
+    landmarks:
+      repo: fernandotonon/QtMeshEditor-facemesh-onnx
+      file: face_landmarks.onnx
+    blendshapes:
+      repo: fernandotonon/QtMeshEditor-faceblendshapes-onnx
+      file: face_blendshapes.onnx
+    gaze:
+      repo: mlboydaisuke/L2CS-Gaze360-OpenVINO
+      file: gaze_fp16.onnx
+    expression:
+      repo: onnx-community/face-emotion-detection-ONNX
+      file: onnx/model_fp16.onnx
+    # The main user's gaze, closer to the camera than enter_deg, then until farther than leave_deg.
+    eye_contact:
+      window_s: 0.4
+      enter_deg: 12.0
+      leave_deg: 18.0
+    # The main user's lips, moving more than enter (the spread of their gap, over the mouth's
+    # width), then until they move less than leave.
+    lip_motion:
+      window_s: 0.4
+      enter: 0.03
+      leave: 0.015
+  body:
+    detector:
+      repo: yzd-v/DWPose
+      file: yolox_l.onnx
+    score_threshold: 0.5
+    nms_threshold: 0.45
+    pose:
+      repo: bukuroo/RTMW-ONNX
+      file: rtmw-l-256.onnx
+    keypoint_threshold: 0.3
+  depth:
+    model:
+      repo: Heliosoph/da3metric-large-onnx
+      file: model_fp16.onnx
+  database: ~/.local/share/robot-voice-agent/faces.sqlite3
+  max_embeddings_per_person: 10
+  # Used with --video: camera frames recorded with the session, to replay in rerun.
+  video:
+    width: 960
+    jpeg_quality: 80
+
+# User ids of the admins, kept on this machine like the face database they refer to.
+# Start from config/admins.example.yaml.
+# Used with --ui: the camera with the overlay, published to MediaMTX for the session page.
+stream:
+  url: rtsp://127.0.0.1:8554/lune
+  width: 960
+
+# Visual attention: which face or hand in view Lune attends to, as a point in the camera's frame.
+# A candidate's score is the weighted mean of its features times its habituation, from 0 to 1:
+# the weights only count relative to each other.
+attention:
+  weights:
+    closeness: 1.0
+    centrality: 0.5
+    speaking: 1.0
+    eye_contact: 0.7
+    moving: 1.0
+    known: 0.3
+    # A newcomer is worth a glance: as much as a face in front, for a second or two.
+    novelty: 1.0
+  far_m: 4.0
+  edge_deg: 45.0
+  eye_contact_deg: 20.0
+  moving_window_s: 0.3
+  speed_m_s: 0.5
+  novelty_decay_s: 1.5
+  # A face attended keeps 40% of its score after a while; a hand fades within seconds, so a wave
+  # draws the eye, then yields to its owner's face.
+  face: {floor: 0.4, decay_s: 15.0, recovery_s: 5.0}
+  hand: {floor: 0.1, decay_s: 1.5, recovery_s: 3.0}
+  margin: 0.055
+  min_dwell_s: 1.0
+  # A face the mesh or the depth misses for a frame has not left.
+  hold_s: 0.3
+  min_score: 0.036
+  lifetime_s: 2.0
+
+admins: ~/.config/robot-voice-agent/admins.yaml
+
+# Light-ASD: which face speaks, from its lips and the microphone together; null to leave it out.
+# Converted to ONNX on first use, which needs PyTorch once: `uv sync --group export`.
+active_speaker:
+  device: cuda
+  model_dir: ~/.cache/robot-voice-agent/models
+  # Each frame scores the last second, at the frame 0.12 s before the newest: Light-ASD reads
+  # both ways, and the newest frame, with nothing after it, scores low.
+  window_s: 1.0
+  delay_s: 0.12
+  enter: -1.0
+  leave: -1.3
+
+# Where perception meets the dialogue: who pays attention to the robot, which face said each
+# utterance and whether to the robot. None of it is tuned on recordings of several people yet.
+interaction:
+  # A gaze within this angle of the camera looks at the robot.
+  eye_contact_deg: 15.0
+  # Who spoke and looked is kept this long: longer than the longest utterance.
+  history_s: 30.0
+  # An utterance is said by the face the active speaker saw speaking in the largest share of its
+  # frames, if at least this; otherwise by nobody in view, and it is not heard. Pauses between
+  # words count against the speaker, so it is well below 1. Without an active speaker, every
+  # utterance is the face in front's, said to the robot.
+  min_speaking_share: 0.3
+  # A turn is cut where the face speaking changes, into pieces no shorter than this: a word
+  # thrown in while someone else talks stays in their piece.
+  min_segment_s: 1.0
+  # An utterance is said to the robot when its speaker looked at it for this share of it: hardly
+  # any for someone engaged, trusted unless they face someone else throughout; most of it for
+  # anyone else, who is engaged from then on.
+  # Someone engaged with no other face in view is trusted wherever they look.
+  engaged_min_gaze: 0.1
+  bystander_min_gaze: 0.5
+  # Whose speech stops the robot's: `engaged`, only an engaged person seen speaking (anyone while
+  # nobody is engaged), or `anyone`. A stop word stops it either way.
+  barge_in: engaged
+  # A person's score moves towards closeness x staying while they look at the robot, towards 0
+  # while they do not. Engaged from `enter`, when they are greeted, down to `leave`.
+  engagement:
+    # Closeness is 1 up to near_m and 0 from far_m: at 3 m it is 0.6, just enough.
+    near_m: 2.0
+    far_m: 4.5
+    # Staying is 1 standing still and 0 from walking_m_s, measured over moving_window_s.
+    moving_window_s: 0.5
+    walking_m_s: 1.0
+    # About 0.7 s of eye contact up close to engage; about 5 s looking away to disengage, as
+    # listeners look away now and then.
+    rise_s: 0.7
+    fall_s: 3.0
+    enter: 0.6
+    leave: 0.2
+    max_engaged: 3
+
+# The session page of `lune run --ui` and `lune text --ui`.
+ui:
+  host: 127.0.0.1
+  port: 8700
+  # MediaMTX's WebRTC page for stream.url.
+  video_page: http://127.0.0.1:8889/lune/
+
+# Run by `uv run lune` or `uv run lune serve-video`; downloaded on first use.
+media_server:
+  version: v1.21.2
+  directory: ~/.local/share/robot-voice-agent/mediamtx
+
+observability:
+  captures_dir: ~/Captures/robot-voice-agent
+
+audio:
+  # Echo-cancelled nodes from config/pipewire/60-rva-echo-cancel.conf; null for the system defaults.
+  input_device: rva_ec_source
+  output_device: rva_ec_sink
+  echo_window_ms: 2000
+  endpoint:
+    speech_threshold: 0.5
+    silence_threshold: 0.35
+    min_speech_ms: 200
+    barge_in_threshold: 0.8
+    barge_in_min_speech_ms: 400
+    pre_roll_ms: 300
+    turn_check_silence_ms: 200
+    max_silence_ms: 1500
+    # People talking on without a pause: the turn is cut here, within what the ASR engine takes.
+    max_turn_ms: 20000
+    turn_complete_threshold: 0.5
+
+asr:
+  engine_cache: ~/.cache/robot-voice-agent/tensorrt/parakeet
+  # Turns in a live conversation are short; longer ones still work, a little slower.
+  max_utterance_s: 20.0
+
+tts:
+  model_path: ~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx
+  voices_path: ~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin
+  voice: af_heart
+  speed: 1.0

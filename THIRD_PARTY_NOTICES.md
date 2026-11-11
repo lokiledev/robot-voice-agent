@@ -33,11 +33,22 @@ smart-turn expects.
 | [MediaMTX](https://github.com/bluenviron/mediamtx), downloaded from its GitHub releases on first use | Camera stream to the session page | MIT |
 | [FFmpeg](https://ffmpeg.org) | Encoding the camera stream; run as a separate process | LGPL-2.1-or-later or GPL-2.0-or-later, depending on the build |
 | [PipeWire](https://pipewire.org) echo-cancel module | Echo cancellation | MIT |
+| [Blender](https://www.blender.org), installed separately | Baking the simulation's avatars once; run as a separate process | GPL-2.0-or-later |
 
-## Robot description
+## Simulation assets
 
-Reachy Mini's MJCF and meshes, by Pollen Robotics, are unpacked from the `reachy-mini` wheel on
-PyPI on first use, under Apache-2.0. Only the description is kept; the package is not installed.
+Downloaded on first use, never part of the repository:
+
+| Asset | Used for | Authors | Downloaded from | License |
+|---|---|---|---|---|
+| Reachy Mini MJCF and meshes | The simulated robot | Pollen Robotics | the `reachy-mini` wheel on PyPI; the package is not installed | Apache-2.0 |
+| Rocketbox avatars | People in the simulation, baked to GLB | Microsoft (Mar Gonzalez-Franco et al.) | github.com/microsoft/Microsoft-Rocketbox, pinned commit | MIT |
+| HDRI panoramas | The room around the simulation, and its light | Poly Haven and its photographers | polyhaven.com | CC0 |
+
+The Rocketbox avatars are Copyright (c) Microsoft Corporation, under the MIT License: permission is
+granted, free of charge, to use, copy, modify and distribute them, provided this notice is kept;
+they come without warranty of any kind. The baked GLBs stay in the cache of the machine that made
+them.
 
 ## Python packages
 
@@ -64,8 +75,10 @@ Packages the agent runs with, by license (`uv export --no-dev` lists them with t
   nvidia-cudnn-cu13, nvidia-cufft, nvidia-curand, nvidia-nvjitlink, installed with onnxruntime-gpu.
 - **CeCILL-C:** kickmsg, the shared-memory transport to the robot. Used unmodified.
 
-The robot simulation (`lune-sim`) also runs with Genesis (`genesis-world`, Apache-2.0), PyTorch's
-CPU build (BSD-3-Clause) and their dependencies; `uv export --no-dev` lists them.
+The robot simulation (`lune-sim`) also runs with Genesis (`genesis-world`, Apache-2.0), its Nyx
+renderer (`gs-nyx`, `gs-nyx-plugin`, Apache-2.0), PyTorch's CUDA build (BSD-3-Clause, with
+NVIDIA's CUDA libraries under the CUDA EULA) and their dependencies; `uv export --no-dev` lists
+them.
 
 Development tools only (tests, linting, hooks): MIT for cfgv, deptry, executing, identify,
 iniconfig, inline-snapshot, platformdirs, pluggy, pre-commit, pytest, pytest-timeout,

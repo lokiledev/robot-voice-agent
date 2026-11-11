@@ -10,11 +10,11 @@ from genesis.constants import backend
 
 from rva_pydantic import load_yaml
 from rva_robot_schemas.joints import JointCommand, JointTarget
-from rva_robot_sim.config import SimConfig
+from rva_robot_sim.config import Rasterizer, SimConfig
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.scene import ReachyMiniScene, UnknownJointError
 
-SIM_YAML = Path(__file__).parents[5] / "config" / "default" / "sim.yaml"
+SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
 
 
 @pytest.fixture(scope="module")
@@ -23,7 +23,11 @@ def scene() -> ReachyMiniScene:
     with httpx.Client(follow_redirects=True, timeout=60) as client:
         mjcf = install_reachy_mini(config.description, client)
     gs.init(backend=backend.cpu, logging_level="warning")
-    return ReachyMiniScene(mjcf, config.table_height, config.physics_dt, viewer=False)
+    # Without people, which would only take downloads and Blender, and rasterized, which needs no
+    # ray-tracing GPU.
+    return ReachyMiniScene(
+        mjcf, config.table_height, (), Rasterizer(), None, config.physics_dt, viewer=False
+    )
 
 
 @pytest.mark.download

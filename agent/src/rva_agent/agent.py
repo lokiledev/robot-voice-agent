@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
@@ -106,21 +107,24 @@ class Agent:
         self._body: Final = BodySupervisor(body, recorder, self._inbox.put_nowait)
         self._permission: Final = ActionPermission(vision, admins)
         self._tools: Final = TaskTools(self._supervisor, self._moving, self._permission)
+        capabilities = profile.capabilities
         self._body_tools: Final = BodyTools(
             self._body,
             self._supervisor,
             self._permission,
             vision,
             tuple(place.name for place in profile.environment.places),
-            profile.capabilities.animations,
+            capabilities,
         )
         self._people: Final = None if vision is None else PeopleTools(vision, self._permission)
         self._muted = False
         self._tool_specs: Final = (
-            TaskTools.specs
+            # A robot without a VLA has no tasks to start.
+            (TaskTools.specs if capabilities.skills else ())
             + self._body_tools.specs
             + (() if self._people is None else PeopleTools.specs)
         )
+        self._tool_names: Final = frozenset(spec.name for spec in self._tool_specs)
         self._history: Final = History(
             render_system_prompt(profile, vision=vision is not None), config.max_history_messages
         )
@@ -465,6 +469,12 @@ class Agent:
         return lambda: listener in engagement.engaged()
 
     async def _call_tool(self, call: ToolCall) -> ToolResult:
+        if call.name not in self._tool_names:
+            # One of the tools this robot's body does not have, or none at all.
+            return ToolResult(
+                content=json.dumps({"error": f"There is no tool named {call.name}."}),
+                needs_reply=True,
+            )
         if self._people is not None and call.name in PeopleTools.names:
             return await self._people.call(call)
         if call.name in BodyTools.names:

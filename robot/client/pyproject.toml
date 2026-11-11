@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
   "kickmsg>=0.10",
+  "numpy>=2.0",
   "pydantic>=2.11",
   "rva-pydantic",
   "rva-robot-schemas",
@@ -13,7 +14,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "numpy>=2.0",
   "rva-robot-sim",
 ]
 

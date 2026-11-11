@@ -45,8 +45,12 @@ class Skill(RVABaseModel):
 
 
 class Capabilities(RVABaseModel):
+    body: str
+    """What the robot is, as it introduces itself, e.g. "a humanoid robot"."""
     skills: tuple[Skill, ...]
-    """What VLA tasks can do."""
+    """What VLA tasks can do; none for a robot without a VLA, which then has no task tools."""
+    walks: bool
+    """Whether it can walk to places and to people."""
     animations: tuple[str, ...]
     """Body animations that can be played, e.g. "wave_right_hand"."""
     constraints: tuple[str, ...]

@@ -1,0 +1,16 @@
+body: a small desktop robot, a head on a turning base with two antennas
+# No legs, no arms and no VLA: its head, its base and its antennas are all that move, so it has
+# no tasks to start and no walking.
+walks: false
+skills: []
+# Played with the play_animation tool; the first one is how it greets.
+animations:
+  - wiggle_antennas
+  - nod
+  - shake_head
+  - tilt_head
+  - look_around
+  - happy_dance
+constraints:
+  - Cannot pick up, carry, push or hand over anything, having no arms or hands.
+  - Cannot walk or leave the desk; only the head and the base turn.

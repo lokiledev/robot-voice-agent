@@ -1,43 +1,57 @@
 import threading
 import time
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
 
 import cv2
 import numpy as np
 
-from rva_vision_faces.config import CameraConfig
+from rva_vision_faces.config import CameraConfig, V4l2Source
 from rva_vision_faces.detector import Image
+
+
+class FrameSource(Protocol):
+    """Where the camera pipeline takes its frames from, in its own thread."""
+
+    def read(self) -> Image:
+        """The frame of the moment, BGR, blocking until there is one.
+
+        Raises:
+            RuntimeError: If the source stopped giving frames.
+        """
+        ...
+
+    def close(self) -> None: ...
 
 
 class Camera:
     """Frames from a V4L2 camera, in MJPG so that high resolutions keep their frame rate."""
 
-    def __init__(self, config: CameraConfig) -> None:
-        self._config: Final = config
-        self._capture: Final = cv2.VideoCapture(str(config.device), cv2.CAP_V4L2)
+    def __init__(self, source: V4l2Source, width: int, height: int) -> None:
+        self._source: Final = source
+        self._capture: Final = cv2.VideoCapture(str(source.device), cv2.CAP_V4L2)
         if not self._capture.isOpened():
-            raise RuntimeError(f"Cannot open camera {config.device}")
+            raise RuntimeError(f"Cannot open camera {source.device}")
         self._capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*"MJPG"))
-        self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, config.width)
-        self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, config.height)
-        self._capture.set(cv2.CAP_PROP_FPS, config.fps)
+        self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self._capture.set(cv2.CAP_PROP_FPS, source.fps)
         # Process the latest frame rather than one queued while the previous was processed.
         self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         size = (
             int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
             int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
         )
-        if size != (config.width, config.height):
+        if size != (width, height):
             self._capture.release()
             raise RuntimeError(
-                f"Camera {config.device} gives {size[0]}x{size[1]}, not {config.width}x{config.height}"
+                f"Camera {source.device} gives {size[0]}x{size[1]}, not {width}x{height}"
             )
 
     def read(self) -> Image:
         ok, frame = self._capture.read()
         if not ok:
-            raise RuntimeError(f"Camera {self._config.device} stopped giving frames")
+            raise RuntimeError(f"Camera {self._source.device} stopped giving frames")
         return np.asarray(frame, np.uint8)
 
     def close(self) -> None:

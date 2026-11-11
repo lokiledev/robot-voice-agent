@@ -35,12 +35,29 @@ class Cpu(RVABaseModel):
 type Device = Annotated[TensorRt | Cuda | Cpu, Field(discriminator="kind")]
 
 
-class CameraConfig(RVABaseModel):
+class V4l2Source(RVABaseModel):
+    kind: Literal["v4l2"] = "v4l2"
     device: Path
     """V4L2 device, e.g. `/dev/video0`."""
+    fps: int = Field(gt=0)
+
+
+class RobotSource(RVABaseModel):
+    """The robot's head camera, through the robot client of the runtime config.
+
+    The robot sets the frame rate.
+    """
+
+    kind: Literal["robot"] = "robot"
+
+
+type CameraSource = Annotated[V4l2Source | RobotSource, Field(discriminator="kind")]
+
+
+class CameraConfig(RVABaseModel):
+    source: CameraSource
     width: int = Field(gt=0)
     height: int = Field(gt=0)
-    fps: int = Field(gt=0)
     intrinsics: Path | None
     """YAML file of the camera's `CameraIntrinsics`, at any resolution of the frame's aspect ratio;
     relative to the profile. `None` when not even assumed ones are known."""

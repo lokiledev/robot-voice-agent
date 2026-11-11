@@ -1,0 +1,36 @@
+# `lune-sim`: a Reachy Mini on a table, simulated in Genesis.
+namespace: rva  # Same as robot.namespace in runtime.yaml.
+description:
+  version: 1.14.0
+  directory: ~/.cache/robot-voice-agent/reachy_mini
+# The head camera ends up about 1.25 m above the floor: a seated person's face, a little below a
+# standing one's.
+table_height: 1.1
+avatars:
+  commit: 0943055db6ec570bcef9f2c8b41c9e5467c808f9
+  directory: ~/.cache/robot-voice-agent/rocketbox
+  blender: /snap/bin/blender
+# Avatars are directories of Assets/Avatars in the Rocketbox repository: Adults/Female_Adult_01 to
+# 17, Adults/Male_Adult_01 to 21, Professions/... They stand in an A-pose.
+people:
+  # In front of the robot, facing it.
+  - avatar: Adults/Female_Adult_01
+    position: [1.1, 0.0]
+    turned_deg: 0
+  # Further away on its right, looking aside.
+  - avatar: Adults/Male_Adult_04
+    position: [1.9, -0.8]
+    turned_deg: 50
+physics_dt: 0.005
+state_rate: 100
+camera_fps: 30
+# Nyx needs an NVIDIA GPU with ray tracing; `kind: rasterizer` renders anywhere, flat.
+camera_renderer:
+  kind: nyx
+  samples_per_pixel: 16
+  environment:
+    name: artist_workshop  # Any of polyhaven.com/hdris
+    resolution: 2k
+    brightness: 1.0
+    rotation_deg: 0
+    directory: ~/.cache/robot-voice-agent/hdri

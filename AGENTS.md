@@ -27,7 +27,7 @@ The repository is one uv workspace. Each package lives in its domain directory w
 | `body/client` | `rva-body-client` | HTTP + WebSocket `BodyClient` |
 | `robot/schemas` | `rva-robot-schemas` | Joints and camera data model, wire format and kickmsg topic names |
 | `robot/client` | `rva-robot-client` | asyncio kickmsg client of the joints and head camera |
-| `robot/sim` | `rva-robot-sim` | Reachy Mini simulated in Genesis (CPU backend), serving the robot's topics |
+| `robot/sim` | `rva-robot-sim` | Reachy Mini simulated in Genesis (CPU physics, Nyx camera) with Rocketbox people, serving the robot's topics |
 | `schemas` | `rva-schemas` | Shared data model and interfaces (`abc/`) for agent, voice and LLM |
 | `agent` | `rva-agent` | Dialogue loop, tools, VLA task supervision |
 | `llm` | `rva-llm` | `LanguageModel` over an OpenAI-compatible server |

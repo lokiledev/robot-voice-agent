@@ -25,6 +25,7 @@ from rva_pydantic import RVABaseModel
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.vision import Vision
 from rva_schemas.dialogue import ToolCall, ToolSpec
+from rva_schemas.profile import Capabilities
 from rva_schemas.record import GazeUpdate, MotionUpdate
 from rva_schemas.vision import KnownPerson
 from rva_vla_schemas.task import FinalTaskStatus, TaskRunning
@@ -119,12 +120,14 @@ class NoArgs(RVABaseModel):
     pass
 
 
-_MOVING: Final = (
+_WALKING: Final = (
     ToolSpec(
         name="go_to_location",
         description="Walk to one of the places of the environment. Returns once you start walking; you are told when you arrive.",
         parameters=GoToLocationArgs.model_json_schema(),
     ),
+)
+_GESTURES: Final = (
     ToolSpec(
         name="stay",
         description="Stop a walk or a gesture under way. Only when asked to stop or to stay: standing still needs no call.",
@@ -136,12 +139,14 @@ _MOVING: Final = (
         parameters=PlayAnimationArgs.model_json_schema(),
     ),
 )
-_WITH_PEOPLE: Final = (
+_WALKING_TO_PEOPLE: Final = (
     ToolSpec(
         name="go_to_human",
         description="Walk to a person in view, by their user_id from who_is_here.",
         parameters=UserArgs.model_json_schema(),
     ),
+)
+_LOOKING: Final = (
     ToolSpec(
         name="look_at_user",
         description="Keep your head and body turned towards a person in view, without walking, by their user_id from who_is_here.",
@@ -162,7 +167,9 @@ class BodyTools:
     do not. Walking, animations and tasks share the body, so only one runs at a time.
     """
 
-    names: Final = frozenset(spec.name for spec in (*_MOVING, *_WITH_PEOPLE))
+    names: Final = frozenset(
+        spec.name for spec in (*_WALKING, *_GESTURES, *_WALKING_TO_PEOPLE, *_LOOKING)
+    )
 
     def __init__(
         self,
@@ -171,16 +178,19 @@ class BodyTools:
         permission: ActionPermission,
         vision: Vision | None,
         locations: tuple[str, ...],
-        animations: tuple[str, ...],
+        capabilities: Capabilities,
     ) -> None:
         self._body: Final = body
         self._tasks: Final = tasks
         self._permission: Final = permission
         self._vision: Final = vision
         self._locations: Final = locations
-        self._animations: Final = animations
+        self._animations: Final = capabilities.animations
+        walking = _WALKING if capabilities.walks else ()
         # Walking to or looking at someone needs to see them.
-        self.specs: Final = _MOVING + (() if vision is None else _WITH_PEOPLE)
+        with_people = (_WALKING_TO_PEOPLE if capabilities.walks else ()) + _LOOKING
+        self.specs: Final = walking + _GESTURES + (() if vision is None else with_people)
+        """The tools this body has; the agent offers no others."""
 
     async def call(self, call: ToolCall) -> ToolResult:
         """Run a tool call and return its result for the LLM; its mistakes are results too."""

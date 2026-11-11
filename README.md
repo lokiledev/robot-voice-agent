@@ -116,6 +116,22 @@ is left alone, so you can keep one running between sessions or watch it in a ter
 for instance the mock robot with `uv run lune-mock --interactive`, where typing `s`, `f
 <reason>` or `t` makes the running action succeed, fail or time out.
 
+### With a simulated Reachy Mini
+
+`config/reachy_mini_sim` is the profile of a Reachy Mini simulated in
+[Genesis](https://genesis-world.readthedocs.io): a small desktop robot that talks, gestures with
+its head and antennas, and sees people standing in front of it through its head camera.
+
+```bash
+uv run lune --profile config/reachy_mini_sim
+```
+
+It starts the simulation with the other servers. The simulation's camera is path traced by Nyx,
+which needs an NVIDIA GPU with ray tracing; set `camera_renderer` to `kind: rasterizer` in
+`config/reachy_mini_sim/sim.yaml` without one. The people are Rocketbox avatars that
+[Blender](https://www.blender.org) bakes once on first use: set `avatars.blender` in `sim.yaml` to
+its executable.
+
 ### Become an operator
 
 Lune talks with anyone but only acts for operators it recognizes. Make yourself an admin, an
@@ -135,8 +151,9 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune` | Everything: the servers below, then the voice agent with its session page |
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
-| `lune-sim` | A Reachy Mini on a table, simulated in Genesis, serving its joints and head camera; `--viewer` opens Genesis' viewer. Its description downloads on first use, and the first start compiles Genesis' kernels, about a minute |
+| `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
 | `lune robot` | Drives the simulated robot's joints with sliders and shows its head camera; start `lune-sim` first |
+| `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
 | `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot; `--replay clip.mp4` watches and hears a video file instead, `--show` opens the camera window |
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |

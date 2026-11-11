@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from typing import Final
 
 import kickmsg
+import numpy as np
+import numpy.typing as npt
 
 from rva_pydantic import RVABaseModel
 from rva_robot_schemas.camera import CameraFrame, decode_frame
@@ -90,19 +92,86 @@ async def open_robot(config: RobotClientConfig, name: str) -> AsyncGenerator[Rob
     """
     node = kickmsg.Node(name, config.namespace)
     deadline = time.monotonic() + config.connect_timeout_s
-    # The robot creates its mailbox last: once it is there, so is every topic.
-    while True:
-        try:
-            commands = node.open_mailbox(ROBOT_NODE, JOINT_COMMAND)
-            break
-        except RuntimeError as error:
-            if time.monotonic() > deadline:
-                raise RobotUnavailableError(
-                    f"No robot in kickmsg namespace {config.namespace!r} after"
-                    f" {config.connect_timeout_s} s; start the simulation with `uv run lune-sim`"
-                ) from error
-            await asyncio.sleep(_POLL_S)
+    while (commands := _open_mailbox(node)) is None:
+        if time.monotonic() > deadline:
+            raise _not_up(config)
+        await asyncio.sleep(_POLL_S)
     yield RobotClient(node, commands, config.silence_timeout_s)
+
+
+def robot_is_up(namespace: str) -> bool:
+    """Whether a robot serves its topics in `namespace` now, without waiting."""
+    return _open_mailbox(kickmsg.Node("lune_probe", namespace)) is not None
+
+
+class RobotCamera:
+    """The head camera's frames, read blocking, for a pipeline with a thread of its own.
+
+    Each read gives the latest frame, skipping those that came while the previous one was
+    processed, like a camera.
+    """
+
+    def __init__(self, config: RobotClientConfig, name: str, size: tuple[int, int]) -> None:
+        """Open the camera, waiting for the robot to be up.
+
+        Args:
+            config: Where the robot is.
+            name: The client's node name, as kickmsg's tools show it.
+            size: Width and height the frames must have.
+
+        Raises:
+            RobotUnavailableError: If the robot is not up within `config.connect_timeout_s`.
+        """
+        node = kickmsg.Node(name, config.namespace)
+        deadline = time.monotonic() + config.connect_timeout_s
+        while _open_mailbox(node) is None:
+            if time.monotonic() > deadline:
+                raise _not_up(config)
+            time.sleep(_POLL_S)
+        self._subscriber: Final = node.subscribe(CAMERA)
+        self._size: Final = size
+        self._silence_s: Final = config.silence_timeout_s
+
+    def read(self) -> npt.NDArray[np.uint8]:
+        """The latest frame, BGR.
+
+        Raises:
+            RobotUnavailableError: If the robot has been silent too long.
+            RuntimeError: If the frame does not have the size asked for.
+        """
+        heard = time.monotonic()
+        while (frame := _receive_latest(self._subscriber, decode_frame)) is None:
+            if time.monotonic() - heard > self._silence_s:
+                raise RobotUnavailableError(
+                    f"No frame from the robot's camera for {self._silence_s} s"
+                )
+        height, width, _ = frame.image.shape
+        if (width, height) != self._size:
+            raise RuntimeError(
+                f"The robot's camera gives {width}x{height}, not {self._size[0]}x{self._size[1]}"
+            )
+        return frame.image
+
+    def close(self) -> None:
+        """Nothing to release: the subscription ends with the object."""
+
+
+def _open_mailbox(node: kickmsg.Node) -> kickmsg.Publisher | None:
+    """The robot's command mailbox, or `None` if the robot is not up.
+
+    The robot creates its mailbox last: once it is there, so is every topic.
+    """
+    try:
+        return node.open_mailbox(ROBOT_NODE, JOINT_COMMAND)
+    except RuntimeError:
+        return None
+
+
+def _not_up(config: RobotClientConfig) -> RobotUnavailableError:
+    return RobotUnavailableError(
+        f"No robot in kickmsg namespace {config.namespace!r} after {config.connect_timeout_s} s;"
+        " start the simulation with `uv run lune-sim`"
+    )
 
 
 def _receive_latest[T](

@@ -22,7 +22,7 @@ from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig, load_admins
 from rva_app.page import MergedInput, Recorders, serve_page
 from rva_app.robot import drive_robot
-from rva_app.servers import Server, ServersUnavailableError, require_servers
+from rva_app.servers import HttpProbe, RobotProbe, Server, ServersUnavailableError, require_servers
 from rva_app.services import Service, ServiceFailedError, services_running
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
 from rva_app.voice import open_voice_input, open_voice_output, replayed_voice_input, robot_speech
@@ -37,6 +37,7 @@ from rva_llm.server import llama_server_command
 from rva_multimodal.config import ActiveSpeakerConfig
 from rva_multimodal.light_asd import open_light_asd
 from rva_observability.session import latest_recording, start_session
+from rva_robot_client.client import RobotCamera, RobotClientConfig
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
@@ -64,8 +65,8 @@ from rva_ui.media import (
     media_server_directory,
 )
 from rva_ui.server import UiServer
-from rva_vision_faces.camera import Camera, VideoFile
-from rva_vision_faces.config import FaceVisionConfig
+from rva_vision_faces.camera import Camera, FrameSource, VideoFile
+from rva_vision_faces.config import FaceVisionConfig, RobotSource, V4l2Source
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.vision import FaceVision
 from rva_vision_viewer.monitor import CameraMonitor
@@ -258,14 +259,14 @@ async def _up(
 ) -> None:
     config = RuntimeConfig.load(profile_dir)
     logs = config.observability.captures_dir.expanduser() / "servers"
-    async with services_running(_services(config, camera), logs):
+    async with services_running(_services(config, profile_dir, camera), logs):
         write(f"Session page: http://{config.ui.host}:{config.ui.port}\n")
         run_agent = _run_text_agent if text else _run_voice_agent
         await run_agent(profile_dir, viewer, camera, show, video, True, depth)
 
 
-def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
-    """The servers `lune` runs: MediaMTX only for the camera."""
+def _services(config: RuntimeConfig, profile_dir: Path, camera: bool) -> list[Service]:
+    """The servers `lune` runs: MediaMTX only for the camera, the simulation for a robot."""
     llm = config.llm_server
     robot = urlsplit(str(config.vla.base_url))
     assert robot.hostname is not None and robot.port is not None, "validated as an HTTP URL"
@@ -275,9 +276,8 @@ def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
             # Its health check fails until the model is loaded, unlike its other routes.
             server=Server(
                 name="LLM server",
-                url=f"http://{llm.host}:{llm.port}/health",
+                probe=HttpProbe(url=f"http://{llm.host}:{llm.port}/health", ready_when="succeeds"),
                 how_to_start="start it with `uv run lune serve-llm`",
-                ready_when="succeeds",
             ),
             command=lambda: llama_server_command(llm),
             environment={},
@@ -303,6 +303,19 @@ def _services(config: RuntimeConfig, camera: bool) -> list[Service]:
                 startup_s=30,
             )
         )
+    if config.robot is not None:
+        sim = Path(sys.executable).with_name("lune-sim")
+        services.append(
+            Service(
+                server=_robot_server(config.robot),
+                command=lambda: [str(sim), "--profile", str(profile_dir)],
+                environment={},
+                directory=None,
+                # The robot's description downloads and Genesis compiles its kernels, the first
+                # time.
+                startup_s=300,
+            )
+        )
     return services
 
 
@@ -314,44 +327,64 @@ def _media_server_executable(config: MediaServerConfig) -> Path:
 def _llm_server(config: RuntimeConfig) -> Server:
     return Server(
         name="LLM server",
-        url=f"{config.llm.base_url}",
+        probe=HttpProbe(url=f"{config.llm.base_url}", ready_when="answers"),
         how_to_start="start it with `uv run lune serve-llm`",
-        ready_when="answers",
     )
 
 
 def _vla_server(config: RuntimeConfig) -> Server:
     return Server(
         name="VLA",
-        url=f"{config.vla.base_url}",
+        probe=HttpProbe(url=f"{config.vla.base_url}", ready_when="answers"),
         how_to_start="start the mock with `uv run lune-mock --interactive`, or set vla.base_url in runtime.yaml",
-        ready_when="answers",
     )
 
 
 def _body_server(config: RuntimeConfig) -> Server:
     return Server(
         name="Body API",
-        url=f"{str(config.body.base_url).rstrip('/')}/body/state",
+        probe=HttpProbe(
+            url=f"{str(config.body.base_url).rstrip('/')}/body/state", ready_when="route_exists"
+        ),
         how_to_start="start the mock with `uv run lune-mock --interactive`; a mock started"
         " before the body API existed must be restarted",
-        ready_when="route_exists",
     )
 
 
 def _media_server(config: RuntimeConfig) -> Server:
     return Server(
         name="MediaMTX",
-        url=config.ui.video_page,
+        probe=HttpProbe(url=config.ui.video_page, ready_when="answers"),
         how_to_start="start it with `uv run lune serve-video`, or run with --no-camera",
-        ready_when="answers",
     )
 
 
-def _agent_servers(config: RuntimeConfig, streamed: bool) -> list[Server]:
+def _agent_servers(config: RuntimeConfig, camera: bool, streamed: bool) -> list[Server]:
     """The servers the agent needs; MediaMTX too if the camera is `streamed`."""
     servers = [_llm_server(config), _vla_server(config), _body_server(config)]
+    if camera:
+        servers += _camera_servers(config)
     return [*servers, _media_server(config)] if streamed else servers
+
+
+def _camera_servers(config: RuntimeConfig) -> list[Server]:
+    """The robot, if the camera is its own."""
+    match config.vision.camera.source:
+        case V4l2Source():
+            return []
+        case RobotSource():
+            assert config.robot is not None, "validated with the runtime config"
+            return [_robot_server(config.robot)]
+        case _:
+            assert_never(config.vision.camera.source)
+
+
+def _robot_server(config: RobotClientConfig) -> Server:
+    return Server(
+        name="Robot",
+        probe=RobotProbe(namespace=config.namespace),
+        how_to_start="start the simulation with `uv run lune-sim --profile <profile>`",
+    )
 
 
 def _page(
@@ -411,7 +444,7 @@ async def _listen(
             return
         vision = await asyncio.to_thread(
             _face_vision,
-            config.vision,
+            config,
             recorder,
             False,
             depth=True,
@@ -482,7 +515,7 @@ async def _run_voice_agent(
     depth: bool,
 ) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
-    await require_servers(*_agent_servers(config, streamed=ui and camera))
+    await require_servers(*_agent_servers(config, camera, streamed=ui and camera))
     session = start_session(config.observability, "voice", viewer=viewer, console_level="INFO")
     speaking = robot_speech(config.audio)
     async with (
@@ -496,7 +529,7 @@ async def _run_voice_agent(
         vision = (
             await asyncio.to_thread(
                 _face_vision,
-                config.vision,
+                config,
                 recorder,
                 video,
                 depth=depth,
@@ -636,7 +669,7 @@ async def _run_text_agent(
     depth: bool,
 ) -> None:
     profile, config = Profile.load(profile_dir), RuntimeConfig.load(profile_dir)
-    await require_servers(*_agent_servers(config, streamed=ui and camera))
+    await require_servers(*_agent_servers(config, camera, streamed=ui and camera))
     session = start_session(config.observability, "text", viewer=viewer, console_level="WARNING")
     async with (
         _page(config, ui, camera) as page,
@@ -647,7 +680,7 @@ async def _run_text_agent(
         recorder = _recorder(session, page, monitor)
         vision = (
             await asyncio.to_thread(
-                _face_vision, config.vision, recorder, video, depth=depth, speaker=None, replay=None
+                _face_vision, config, recorder, video, depth=depth, speaker=None, replay=None
             )
             if camera
             else None
@@ -676,7 +709,10 @@ def robot(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
     Args:
         profile: Robot profile directory.
     """
-    asyncio.run(drive_robot(RuntimeConfig.load(profile).robot))
+    robot = RuntimeConfig.load(profile).robot
+    if robot is None:
+        raise SystemExit(f"{profile / 'runtime.yaml'} has no robot")
+    _run(drive_robot(robot))
 
 
 @app.command
@@ -723,8 +759,7 @@ async def _see(
     listen: bool,
 ) -> None:
     config = RuntimeConfig.load(profile_dir)
-    if stream:
-        await require_servers(_media_server(config))
+    await require_servers(*_camera_servers(config), *([_media_server(config)] if stream else []))
     session = start_session(
         config.observability, "sense" if listen else "see", viewer=viewer, console_level="INFO"
     )
@@ -748,7 +783,7 @@ async def _see(
         recorder,
     )
     vision = await asyncio.to_thread(
-        _face_vision, config.vision, recorder, video, depth=depth, speaker=speaker, replay=None
+        _face_vision, config, recorder, video, depth=depth, speaker=speaker, replay=None
     )
     if stream:
         logger.info("Streaming the window to {}", config.ui.video_page)
@@ -857,7 +892,7 @@ async def _name_nearest_face(vision: FaceVision, keys: asyncio.Queue[str]) -> No
 
 
 def _face_vision(
-    config: FaceVisionConfig,
+    config: RuntimeConfig,
     recorder: Recorder,
     record_video: bool,
     *,
@@ -870,17 +905,32 @@ def _face_vision(
     With `replay`, it watches that video file in place of the camera, and sets the event as the
     file starts.
     """
-    camera = config.camera
+    vision = config.vision
     return FaceVision(
-        config if depth else config.model_copy(update={"depth": None}),
-        _face_database(config),
+        vision if depth else vision.model_copy(update={"depth": None}),
+        _face_database(vision),
         recorder=recorder,
         record_video=record_video,
         speaker=speaker,
-        open_camera=(lambda: Camera(camera))
-        if replay is None
-        else (lambda: VideoFile(replay[0], camera, replay[1])),
+        open_camera=_camera_opener(config, replay),
     )
+
+
+def _camera_opener(
+    config: RuntimeConfig, replay: tuple[Path, threading.Event] | None
+) -> Callable[[], FrameSource]:
+    camera = config.vision.camera
+    if replay is not None:
+        return lambda: VideoFile(replay[0], camera, replay[1])
+    match camera.source:
+        case V4l2Source() as source:
+            return lambda: Camera(source, camera.width, camera.height)
+        case RobotSource():
+            robot = config.robot
+            assert robot is not None, "validated with the runtime config"
+            return lambda: RobotCamera(robot, "lune_vision", (camera.width, camera.height))
+        case _:
+            assert_never(camera.source)
 
 
 def _captioned(user_input: UserInput, vision: FaceVision | None) -> UserInput:

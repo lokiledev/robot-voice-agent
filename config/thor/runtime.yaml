@@ -33,21 +33,20 @@ vla:
 body:
   base_url: http://127.0.0.1:8800
 
-# Joints and head camera over kickmsg; for now, of the simulation `lune-sim` runs.
-robot:
-  namespace: rva
-  connect_timeout_s: 5
-  silence_timeout_s: 2
+# Joints and head camera over kickmsg: see config/reachy_mini_sim.
+robot: null
 
 vision:
   device:
     kind: cuda
   camera:
-    # RealSense D455 colour stream, named by the robot's udev rules; YUYV only, up to 1280x800.
-    device: /dev/video-ego-rgb
+    source:
+      kind: v4l2
+      # RealSense D455 colour stream, named by the robot's udev rules; YUYV only, up to 1280x800.
+      device: /dev/video-ego-rgb
+      fps: 30
     width: 1280
     height: 720
-    fps: 30
     intrinsics: null  # Not calibrated yet; see config/default/cameras for the format.
   detector:
     model:

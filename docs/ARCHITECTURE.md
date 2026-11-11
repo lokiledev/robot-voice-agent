@@ -72,7 +72,7 @@ flowchart LR
 | Agent process | `lune run` (voice) or `lune text` (typing) | One asyncio loop; the camera has a thread of its own |
 | LLM server | `lune serve-llm` | OpenAI-compatible API; another model is a config change |
 | Robot API | `lune-mock` | Replace with the real robot's API |
-| Simulated robot | `lune-sim` | A Reachy Mini in Genesis: joints and head camera over kickmsg; not wired into the agent yet |
+| Simulated robot | `lune-sim` | A Reachy Mini in Genesis with people around: joints and head camera over kickmsg; the camera of the `reachy_mini_sim` profile |
 | MediaMTX | `lune serve-video` | Only for the camera on the session page; downloaded on first use |
 | Session page | `--ui`, then <http://127.0.0.1:8700> | Served by the agent process |
 | Local data | paths in `runtime.yaml` | Profile, admins, face database, recordings; all but the profile outside the source tree |
@@ -569,9 +569,22 @@ targets.
 - **The joints are the motors.** The nine actuated joints are exposed as they are: the body's yaw,
   the six Stewart motors and the two antennas. Turning a head pose into motor angles is the
   controller's job, not the simulation's.
-- **Genesis on the CPU.** For one environment, the CPU backend steps faster than the GPU launches
-  kernels; it keeps torch's CPU build too. A step takes about 0.15 ms; rendering the camera takes
-  most of the loop.
+- **Genesis on the CPU, the camera on the GPU.** For one environment, the CPU backend steps faster
+  than the GPU launches kernels: a step takes about 0.15 ms. The head camera is a sensor fixed to
+  the head's link, rendered by [Nyx](https://github.com/Genesis-Embodied-AI/nyx-for-genesis),
+  Genesis' path tracer, in about 4 ms at 1280×720, only when a frame is due. Nyx drives the GPU
+  through torch, which is why the workspace has torch's CUDA build. Genesis' rasterizer
+  (`kind: rasterizer` in `sim.yaml`) needs no ray-tracing GPU, for the tests and other machines.
+- **People to look at.** Microsoft's [Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox)
+  avatars, MIT-licensed, with photographed faces that the face detector takes: `sim.yaml` places
+  them, facing the robot or turned away. On first use each one is downloaded from GitHub at a
+  pinned commit and baked once by headless Blender into a static GLB, since Genesis cannot read
+  their FBX: the most detailed mesh, without its skeleton, in its A-pose. RenderPeople's scans look
+  more real, but their terms forbid computer vision use without written consent; Objaverse's
+  scans each need their own fixes.
+- **A room around them.** With Nyx, an HDRI from [Poly Haven](https://polyhaven.com/hdris) (CC0)
+  is seen around the world and lights it, with a sun for shadows; downloaded on first use and
+  checked against Poly Haven's MD5.
 - **kickmsg rather than zenoh.** Everything runs on one machine, and frames of 2.8 MB at 30 Hz are
   where shared memory pays: a reader maps the frame instead of receiving a copy over a socket,
   and there is no router to run. Zenoh would be the choice to reach the robot over a network.
@@ -586,6 +599,21 @@ targets.
 
 `lune robot` drives the joints with sliders and shows the head camera, to check the simulation by
 hand.
+
+#### Reachy Mini as the robot
+
+`config/reachy_mini_sim` is a profile of its own, since Reachy is not Lune: a small desktop robot
+with no arms, no legs and no VLA. Its capabilities say so (`walks: false`, no skills), and the
+agent offers only the tools a body has: without skills no task tools, without walking no
+`go_to_location` or `go_to_human`, and the system prompt leaves out what they would explain. A
+call to a tool the body does not have is refused. Its gestures and gaze still go to the body API
+of the mock, until the head controller drives the simulated head.
+
+Its camera is the robot's: `vision.camera.source` is `kind: robot`, and the pipeline reads the
+head camera's frames over kickmsg instead of a V4L2 device, with the simulated camera's exact
+intrinsics. Its field of view is wider than the webcam's, so faces count from 0.06 of the frame
+height rather than 0.12: the same 1.8 m. `lune --profile config/reachy_mini_sim` starts the
+simulation with the other servers, and waits until it serves its topics.
 
 ## A turn, end to end
 

@@ -5,9 +5,11 @@ import cv2
 import numpy as np
 
 from rva_vision_faces.camera import VideoFile, fit
-from rva_vision_faces.config import CameraConfig
+from rva_vision_faces.config import CameraConfig, V4l2Source
 
-CAMERA = CameraConfig(device=Path("/dev/video0"), width=64, height=36, fps=30, intrinsics=None)
+CAMERA = CameraConfig(
+    source=V4l2Source(device=Path("/dev/video0"), fps=30), width=64, height=36, intrinsics=None
+)
 
 
 def test_a_frame_of_another_shape_is_centered_on_black() -> None:

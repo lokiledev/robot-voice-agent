@@ -1,0 +1,10 @@
+# Reachy Mini's head camera as the simulation renders it: the MJCF's 1280x720 with an 80 degree
+# vertical field of view, square pixels and the principal point at the center, exactly.
+# fy = 360 / tan(40 deg).
+calibrated: true
+width: 1280
+height: 720
+fx: 429.03
+fy: 429.03
+cx: 639.5
+cy: 359.5

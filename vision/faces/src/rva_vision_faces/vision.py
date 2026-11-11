@@ -31,7 +31,7 @@ from rva_schemas.vision import (
 )
 from rva_vision_faces.attention import Attention
 from rva_vision_faces.body import POSE_ITEM, BodyEstimator, SteadyHands, attach_seen_first
-from rva_vision_faces.camera import Camera, VideoFile
+from rva_vision_faces.camera import FrameSource
 from rva_vision_faces.config import FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.depth import DepthEstimator
@@ -128,7 +128,7 @@ class FaceVision:
         recorder: Recorder,
         record_video: bool,
         speaker: SpeakerDetector | None,
-        open_camera: Callable[[], Camera | VideoFile],
+        open_camera: Callable[[], FrameSource],
     ) -> None:
         """Set up the pipeline; the camera and models open when `run` starts.
 
@@ -268,7 +268,7 @@ class FaceVision:
             if config.face_features is None
             else Attention(config.face_features.eye_contact, config.face_features.lip_motion)
         )
-        logger.info("Watching {} on {}", config.camera.device, config.device.kind)
+        logger.info("Watching the camera on {}", config.device.kind)
         timings = VisionTimings(
             fps=0.0,
             capture_ms=0.0,
@@ -307,7 +307,7 @@ class FaceVision:
 
     def _step(
         self,
-        camera: Camera | VideoFile,
+        camera: FrameSource,
         models: _Models,
         attention: Attention | None,
         loop: asyncio.AbstractEventLoop,

@@ -7,6 +7,8 @@ license = "Apache-2.0"
 dependencies = [
   "cyclopts>=4",
   "genesis-world>=1.4.6",
+  # Nyx renders the head camera; its wheels are for x86-64 only.
+  "gs-nyx-plugin>=0.1.10; platform_machine == 'x86_64'",
   "httpx>=0.28",
   "kickmsg>=0.10",
   "loguru>=0.7",
@@ -16,7 +18,7 @@ dependencies = [
   "pydantic>=2.11",
   "rva-pydantic",
   "rva-robot-schemas",
-  # Genesis imports torch without declaring it; the CPU build is enough for its CPU backend.
+  # Genesis imports torch without declaring it, and Nyx needs its CUDA build.
   "torch>=2.8",
 ]
 

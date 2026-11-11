@@ -67,12 +67,12 @@ rva-vision-viewer = {workspace = true}
 rva-voice-asr = {workspace = true}
 rva-voice-audio = {workspace = true}
 rva-voice-tts = {workspace = true}
-# Converts a checkpoint once, and runs Genesis' CPU backend: the CPU build spares the CUDA libraries.
-torch = {index = "pytorch-cpu"}
+# CUDA build: Nyx, the simulated camera's path tracer, renders on the GPU through it.
+torch = {index = "pytorch-cu130"}
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.uv.workspace]

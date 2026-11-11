@@ -1,10 +1,15 @@
+import math
 from pathlib import Path
 from uuid import UUID
 
+import pytest
+
 from rva_app.config import RuntimeConfig, load_admins
 from rva_pydantic import load_yaml
+from rva_robot_sim.config import SimConfig
 from rva_schemas.profile import Admins
 from rva_schemas.vision import CameraIntrinsics
+from rva_vision_faces.config import RobotSource
 
 _REPOSITORY = Path(__file__).parents[4]
 
@@ -54,3 +59,25 @@ def test_the_camera_intrinsics_are_found_next_to_the_profile_and_marked_assumed(
     intrinsics = load_yaml(CameraIntrinsics, config.vision.camera.intrinsics)
     assert not intrinsics.calibrated
     assert (intrinsics.width, intrinsics.height, intrinsics.fx) == (1920, 1080, 1360.0)
+
+
+def test_the_reachy_mini_profile_watches_the_simulated_head_camera() -> None:
+    profile = _REPOSITORY / "config" / "reachy_mini_sim"
+    config = RuntimeConfig.load(profile)
+    sim = load_yaml(SimConfig, profile / "sim.yaml")
+
+    assert config.vision.camera.source == RobotSource()
+    assert config.robot is not None
+    assert config.robot.namespace == sim.namespace
+    assert config.vision.camera.intrinsics is not None
+    intrinsics = load_yaml(CameraIntrinsics, config.vision.camera.intrinsics)
+    # The MJCF's 1280x720 at an 80 degree vertical field of view.
+    assert (intrinsics.width, intrinsics.height) == (config.vision.camera.width, 720)
+    assert intrinsics.fy == pytest.approx(360 / math.tan(math.radians(40)), abs=0.01)
+
+
+def test_a_camera_of_the_robot_needs_a_robot() -> None:
+    config = RuntimeConfig.load(_REPOSITORY / "config" / "reachy_mini_sim")
+
+    with pytest.raises(ValueError, match="there is no robot"):
+        RuntimeConfig.model_validate({**config.model_dump(), "robot": None})

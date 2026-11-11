@@ -117,6 +117,55 @@ async def test_answers_a_question() -> None:
     ]
 
 
+async def test_a_robot_without_legs_or_vla_has_only_gestures_and_its_gaze() -> None:
+    capabilities = PROFILE.capabilities.model_copy(update={"skills": (), "walks": False})
+    llm = ScriptedLanguageModel([[START_PICK_CUP], [TextDelta(text="I can't, no arms.")]])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("Pick up the red cup.")
+    user.leave()
+    vla = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
+
+    await Agent(
+        llm=llm,
+        vla=vla,
+        body=idle_body(vla),
+        user_input=user,
+        speech=speech,
+        recorder=recorder,
+        vision=FakeVision([]),
+        engagement=None,
+        profile=PROFILE.model_copy(update={"capabilities": capabilities}),
+        admins=ADMINS,
+        config=CONFIG,
+    ).run()
+
+    started, *dialogue = recorder.entries
+    assert isinstance(started, AgentStarted)
+    assert [tool.name for tool in started.tools] == [
+        "stay",
+        "play_animation",
+        "look_at_user",
+        "stop_look_at_user",
+        "remember_person",
+        "who_is_here",
+        "forget_person",
+        "rename_person",
+        "list_operators",
+        "authorize_person",
+        "revoke_person",
+    ]
+    # A tool it does not have is refused, even if the LLM calls it.
+    assert (
+        ToolInvocation(
+            name="start_task",
+            arguments='{"instruction": "pick up the red cup"}',
+            result='{"error": "There is no tool named start_task."}',
+        )
+        in dialogue
+    )
+    assert vla.running is None
+
+
 async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     llm = ScriptedLanguageModel(
         [

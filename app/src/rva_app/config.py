@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import Self
 
 from loguru import logger
+from pydantic import model_validator
 
 from rva_agent.config import AgentConfig
 from rva_attention.config import VisualAttentionConfig
@@ -15,7 +17,7 @@ from rva_robot_client.client import RobotClientConfig
 from rva_schemas.profile import Admins
 from rva_ui.media import MediaServerConfig
 from rva_ui.server import UiConfig
-from rva_vision_faces.config import FaceVisionConfig
+from rva_vision_faces.config import FaceVisionConfig, RobotSource
 from rva_vision_viewer.stream import VideoStreamConfig
 from rva_vla_client.client import HttpVlaClientConfig
 from rva_voice_asr.parakeet import ParakeetConfig
@@ -31,8 +33,9 @@ class RuntimeConfig(RVABaseModel):
     llm_server: LlamaServerConfig
     vla: HttpVlaClientConfig
     body: HttpBodyClientConfig
-    robot: RobotClientConfig
-    """The robot's joints and head camera; for now, of the simulation `lune-sim` runs."""
+    robot: RobotClientConfig | None
+    """The robot's joints and head camera, for now of the simulation `lune-sim` runs; `None`
+    without a robot body."""
     audio: AudioConfig
     asr: ParakeetConfig
     tts: KokoroConfig
@@ -51,6 +54,12 @@ class RuntimeConfig(RVABaseModel):
     ui: UiConfig
     media_server: MediaServerConfig
     observability: ObservabilityConfig
+
+    @model_validator(mode="after")
+    def _robot_for_its_camera(self) -> Self:
+        if isinstance(self.vision.camera.source, RobotSource) and self.robot is None:
+            raise ValueError("vision.camera.source is the robot's, but there is no robot")
+        return self
 
     @classmethod
     def load(cls, profile: Path) -> "RuntimeConfig":

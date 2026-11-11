@@ -32,21 +32,20 @@ vla:
 body:
   base_url: http://127.0.0.1:8800
 
-# Joints and head camera over kickmsg; for now, of the simulation `lune-sim` runs.
-robot:
-  namespace: rva  # Same as namespace in sim.yaml.
-  connect_timeout_s: 5
-  silence_timeout_s: 2
+# Joints and head camera over kickmsg: see config/reachy_mini_sim.
+robot: null
 
 vision:
   device:
     kind: tensorrt
     engine_cache: ~/.cache/robot-voice-agent/tensorrt/vision
   camera:
-    device: /dev/video0  # Logitech HD Pro Webcam C920
+    source:
+      kind: v4l2
+      device: /dev/video0  # Logitech HD Pro Webcam C920
+      fps: 30
     width: 1920
     height: 1080
-    fps: 30
     intrinsics: cameras/c920.yaml  # Assumed from the datasheet, not calibrated yet.
   detector:
     model:

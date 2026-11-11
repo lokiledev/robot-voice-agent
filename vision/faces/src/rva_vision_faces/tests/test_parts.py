@@ -50,7 +50,7 @@ def _person(name: str) -> KnownPerson:
 
 def _unit(*values: float) -> Embedding:
     vector = np.array(values, np.float32)
-    return vector / np.linalg.norm(vector)
+    return (vector / np.linalg.norm(vector)).astype(np.float32)
 
 
 def _detection(x: float, embedding_id: float) -> Detection:

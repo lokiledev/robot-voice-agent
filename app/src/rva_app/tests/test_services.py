@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from rva_app.servers import Server, is_ready
+from rva_app.servers import HttpProbe, Server, is_ready
 from rva_app.services import Service, ServiceFailedError, services_running
 
 
@@ -21,9 +21,8 @@ def _web_server(port: int, command: list[str]) -> Service:
     return Service(
         server=Server(
             name="Web server",
-            url=f"http://127.0.0.1:{port}/",
+            probe=HttpProbe(url=f"http://127.0.0.1:{port}/", ready_when="answers"),
             how_to_start="run it",
-            ready_when="answers",
         ),
         command=lambda: command,
         environment={},

@@ -226,7 +226,7 @@ def _body_tools(
         ActionPermission(vision, ADMINS),
         vision,
         ("kitchen counter", "shelf"),
-        ("wave_right_hand", "dance"),
+        PROFILE.capabilities,
     )
     return tools, tasks
 

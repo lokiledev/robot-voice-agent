@@ -1,3 +1,5 @@
+body: a humanoid robot
+walks: true
 # Example skills until the real VLA's training phrasings are known. They show the kind and the
 # phrasing of commands the body understands; they are not a closed list.
 skills:
