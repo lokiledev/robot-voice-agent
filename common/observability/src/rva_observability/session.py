@@ -12,6 +12,7 @@ from rva_observability.rerun_sink import RerunRecorder, RerunSpanProcessor
 from rva_pydantic import RVABaseModel
 
 _APPLICATION_ID: Final = "robot-voice-agent"
+_RECORDING: Final = "session.rrd"
 
 
 class ObservabilityConfig(RVABaseModel):
@@ -35,7 +36,7 @@ def start_session(
     logger.add(directory / "agent.log", level="DEBUG")
 
     recording = rr.RecordingStream(_APPLICATION_ID)
-    sinks: list[rr.FileSink | rr.GrpcSink] = [rr.FileSink(directory / "session.rrd")]
+    sinks: list[rr.FileSink | rr.GrpcSink] = [rr.FileSink(directory / _RECORDING)]
     if viewer:
         # Through this recording: the global rr.spawn ignores the call when no global recording
         # was initialized, which this app never does.
@@ -49,3 +50,11 @@ def start_session(
 
     logger.info("Recording session to {}", directory)
     return RerunRecorder(recording)
+
+
+def latest_recording(config: ObservabilityConfig) -> Path | None:
+    """The recording of the session started last, or `None` before any session."""
+    recordings = list(config.captures_dir.expanduser().glob(f"*/{_RECORDING}"))
+    if not recordings:
+        return None
+    return max(recordings, key=lambda recording: recording.stat().st_mtime)

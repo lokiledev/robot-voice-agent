@@ -35,7 +35,7 @@ from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
 from rva_multimodal.config import ActiveSpeakerConfig
 from rva_multimodal.light_asd import open_light_asd
-from rva_observability.session import start_session
+from rva_observability.session import latest_recording, start_session
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
@@ -662,6 +662,18 @@ async def _run_text_agent(
             # No microphone: typed lines are the face in front's, and people still engage.
             None if vision is None else Interaction(config.interaction, None, recorder),
         )
+
+
+@app.command
+def rerun(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
+    """Open the recording of the latest session in the rerun viewer."""
+    config = RuntimeConfig.load(profile)
+    recording = latest_recording(config.observability)
+    if recording is None:
+        raise SystemExit(f"No session recorded yet in {config.observability.captures_dir}")
+    write(f"Opening {recording}\n")
+    # The viewer of the rerun installed here, the one that wrote the recording.
+    os.execv(sys.executable, [sys.executable, "-m", "rerun", str(recording)])
 
 
 @app.command
