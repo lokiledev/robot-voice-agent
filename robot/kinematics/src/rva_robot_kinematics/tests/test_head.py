@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from rva_robot_kinematics.geometry import read_head_geometry
-from rva_robot_kinematics.head import HeadKinematics, HeadPose, UnreachableHeadPoseError
+from rva_robot_kinematics.head import HeadKinematics, UnreachableHeadPoseError
+from rva_robot_schemas.head import HeadPose
 from rva_robot_schemas.joints import JointCommand
 
 MJCF = Path(__file__).parent / "reachy_mini_head.xml"

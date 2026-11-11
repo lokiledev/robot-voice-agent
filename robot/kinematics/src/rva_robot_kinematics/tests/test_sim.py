@@ -15,7 +15,8 @@ from genesis.utils.geom import quat_to_R
 
 from rva_pydantic import load_yaml
 from rva_robot_kinematics.geometry import HEAD_SITE, HeadGeometry, read_head_geometry
-from rva_robot_kinematics.head import HeadKinematics, HeadPose
+from rva_robot_kinematics.head import HeadKinematics
+from rva_robot_schemas.head import HeadPose
 from rva_robot_schemas.joints import JointCommand
 from rva_robot_sim.config import Rasterizer, SimConfig
 from rva_robot_sim.description import install_reachy_mini
