@@ -73,3 +73,12 @@ def test_held_it_stops_where_told() -> None:
 
     # From a standstill again: no speed carried over.
     assert first == pytest.approx(10.24)
+
+
+def test_a_step_after_a_stall_moves_no_more_than_a_tenth_of_a_second_s() -> None:
+    motion = HeadMotion(AHEAD, LIMITS)
+
+    stalled = motion.step(_turned(90), 0.5, None)
+
+    # 600 degrees/s² for 100 ms: 60 degrees/s, so 6 degrees, not the 60 of half a second.
+    assert math.degrees(stalled.yaw) == pytest.approx(6.0)

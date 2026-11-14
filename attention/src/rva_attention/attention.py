@@ -192,7 +192,13 @@ class VisualAttention:
         ):
             self._attended_since = now
         self._current = chosen
-        return None if chosen is None else AttentionTarget(entity=chosen.entity, point=chosen.point)
+        if chosen is None:
+            return None
+        return AttentionTarget(
+            entity=chosen.entity,
+            point=chosen.point,
+            seen_at=self._entities[_key(chosen.entity)].last_seen,
+        )
 
     def _seen_again(
         self, candidates: list[AttentionCandidate], now: float

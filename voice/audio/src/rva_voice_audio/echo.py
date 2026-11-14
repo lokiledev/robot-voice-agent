@@ -39,16 +39,14 @@ class RobotSpeech:
     def is_echo(self, transcript: str) -> bool:
         """Whether most of `transcript` is something the robot is saying or just said."""
         self._forget_old()
-        heard = _normalize(transcript)
-        said = " ".join(sentence for _, sentence in self._sentences)
+        heard = _normalize(transcript).split()
+        said = " ".join(sentence for _, sentence in self._sentences).split()
         if not heard or not said:
             return False
-        # Characters catch a word cut off at the end ("I'm sor"); words catch a misheard word in
-        # the middle ("I can reach" for "I can't reach").
-        return (
-            _longest_match_share(heard, said) >= _ECHO_COVERAGE
-            or _matched_share(heard.split(), said.split()) >= _ECHO_COVERAGE
-        )
+        # Whole words, never letters inside them: "No" is not the echo of "know". The first
+        # catches a word cut off at the end ("I'm sor"), the second a misheard word in the middle
+        # ("I can reach" for "I can't reach").
+        return _is_cut_off(heard, said) or _matched_share(heard, said) >= _ECHO_COVERAGE
 
     def _forget_old(self) -> None:
         if self._speaking:
@@ -61,8 +59,18 @@ def _normalize(text: str) -> str:
     return " ".join(_NOT_WORD.sub("", text.lower()).split())
 
 
-def _longest_match_share(heard: str, said: str) -> float:
-    return SequenceMatcher(None, heard, said, autojunk=False).find_longest_match().size / len(heard)
+def _is_cut_off(heard: list[str], said: list[str]) -> bool:
+    """Whether `heard` is a run of the words of `said`, its last word cut short.
+
+    Never for a single word: "Stop" is not the echo of "stopped".
+    """
+    *whole, cut = heard
+    if not whole:
+        return False
+    return any(
+        said[start : start + len(whole)] == whole and said[start + len(whole)].startswith(cut)
+        for start in range(len(said) - len(whole))
+    )
 
 
 def _matched_share(heard: list[str], said: list[str]) -> float:

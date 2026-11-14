@@ -67,6 +67,9 @@ class AttentionTarget(RVABaseModel):
     entity: AttentionEntity
     point: Point3D
     """In the camera's frame, raw: filtered downstream, where the gaze or the body wants it."""
+    seen_at: float
+    """The time of the frame `point` was seen in: the state's own, or an earlier one while the
+    target is held through a miss. The camera may have turned since."""
 
 
 class AttentionState(RVABaseModel):

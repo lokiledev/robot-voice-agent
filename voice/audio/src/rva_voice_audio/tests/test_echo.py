@@ -29,3 +29,12 @@ def test_echo_is_remembered_for_the_window_after_speaking() -> None:
     assert speech.is_echo("the cup is on")
     clock.now += 1
     assert not speech.is_echo("the cup is on")
+
+
+def test_a_short_answer_is_not_the_echo_of_letters_inside_the_robot_s_words() -> None:
+    speech = RobotSpeech(echo_window_s=2, clock=_Clock())
+    speech.starts("I do not know what you mean, or have you stopped already?")
+
+    assert not speech.is_echo("No.")
+    assert not speech.is_echo("Stop.")
+    assert speech.is_echo("or have you stop")

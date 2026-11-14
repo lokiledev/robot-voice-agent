@@ -19,9 +19,11 @@ def namespace() -> Iterator[str]:
     kickmsg.Registry.unlink(name)
 
 
-def _state(time: float, x: float) -> AttentionState:
+def _state(time: float, x: float, seen_at: float) -> AttentionState:
     target = AttentionTarget(
-        entity=FaceEntity(track_id=3, person=None), point=Point3D(x=x, y=-0.1, z=1.2)
+        entity=FaceEntity(track_id=3, person=None),
+        point=Point3D(x=x, y=-0.1, z=1.2),
+        seen_at=seen_at,
     )
     return AttentionState(time=time, target=target, candidates=())
 
@@ -29,12 +31,13 @@ def _state(time: float, x: float) -> AttentionState:
 async def test_targets_go_to_the_controller_once_it_runs(namespace: str) -> None:
     gaze = GazeOut(namespace)
     # Nobody to send to yet: dropped.
-    gaze.send(_state(10.0, 0.1))
+    gaze.send(_state(10.0, 0.1, seen_at=10.0))
 
     async with gaze_targets(namespace) as targets:
-        gaze.send(_state(10.1, 0.2))
+        # Held through a miss: seen a frame before its state.
+        gaze.send(_state(10.1, 0.2, seen_at=10.0))
         gaze.send(AttentionState(time=10.2, target=None, candidates=()))
 
         received = await asyncio.wait_for(anext(targets), timeout=5)
 
-    assert received == GazeTarget(timestamp=10.1, x=0.2, y=-0.1, z=1.2)
+    assert received == GazeTarget(timestamp=10.0, x=0.2, y=-0.1, z=1.2)

@@ -21,7 +21,11 @@ class GazeOut:
         self._sender: HeadSender[GazeTarget] | None = None
 
     def send(self, state: AttentionState) -> None:
-        """Send the state's target, with the time its frame was taken; nothing without one."""
+        """Send the state's target, with the time it was seen at; nothing without one.
+
+        A target held through a miss is where it was in an earlier frame: sent with this frame's
+        time, the head would place it from where it has turned to since, and turn further.
+        """
         if state.target is None:
             return
         if self._sender is None:
@@ -31,7 +35,9 @@ class GazeOut:
             logger.info("Sending the attention's targets to the head controller")
         point = state.target.point
         try:
-            self._sender.send(GazeTarget(timestamp=state.time, x=point.x, y=point.y, z=point.z))
+            self._sender.send(
+                GazeTarget(timestamp=state.target.seen_at, x=point.x, y=point.y, z=point.z)
+            )
         except BlockingIOError:
             # Its mailbox filled up: that controller stopped, and another may have started since.
             logger.warning("The head controller stopped taking gaze targets")

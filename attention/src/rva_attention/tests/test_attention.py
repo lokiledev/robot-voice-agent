@@ -287,6 +287,8 @@ def test_the_target_is_held_through_a_missed_frame_and_dropped_after_the_hold() 
     missed = states[6]
     assert missed.candidates == ()
     assert missed.target is not None and missed.target.point == IN_FRONT
+    assert missed.time == 0.6
+    assert missed.target.seen_at == 0.5, "where it was a frame ago, not now"
 
 
 def test_a_face_that_leaves_is_dropped_at_once_and_comes_back_habituated() -> None:

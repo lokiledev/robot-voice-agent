@@ -10,6 +10,9 @@ from rva_robot_schemas.head import HeadPose
 
 _ANGLES: Final = ("roll", "pitch", "yaw")
 _POSITIONS: Final = ("x", "y", "z")
+_MAX_STEP_S: Final = 0.1
+"""The longest time one step moves the head over. After a stall, the head takes up where it was
+rather than jump by all it could have moved meanwhile."""
 
 
 class MotionLimits(RVABaseModel):
@@ -50,11 +53,12 @@ class HeadMotion:
 
         Args:
             goal: Where the head should end up.
-            dt: Seconds since the last step.
+            dt: Seconds since the last step; no more than `_MAX_STEP_S` of them count.
             max_speed_deg_s: A lower speed limit for the angles than the limits', e.g. to drift
                 back slowly; `None` for the limits'.
         """
         limits = self._limits
+        dt = min(dt, _MAX_STEP_S)
         angular_speed = math.radians(
             limits.max_speed_deg_s
             if max_speed_deg_s is None
