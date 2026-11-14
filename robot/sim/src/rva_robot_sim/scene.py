@@ -186,11 +186,7 @@ def _camera(
     match renderer:
         case NyxRenderer():
             assert hdri is not None, "installed for Nyx"
-            sky = nps.EnvironmentMapAsset()
-            sky.texture = str(hdri)
-            sky.layout = nps.EEnvMapLayout.LongLat
-            sky.multiplier = renderer.environment.brightness
-            sky.rotation = renderer.environment.rotation_deg
+            sky = environment_map(renderer, hdri)
             return NyxCameraOptions(
                 res=(mount.width, mount.height),
                 fov=mount.fov_y,
@@ -216,6 +212,16 @@ def _camera(
             )
         case _:
             assert_never(renderer)
+
+
+def environment_map(renderer: NyxRenderer, hdri: Path) -> nps.EnvironmentMapAsset:
+    """The panorama Nyx shows around the world and lights it with, from `install_hdri`."""
+    sky = nps.EnvironmentMapAsset()
+    sky.texture = str(hdri)
+    sky.layout = nps.EEnvMapLayout.LongLat
+    sky.multiplier = renderer.environment.brightness
+    sky.rotation = renderer.environment.rotation_deg
+    return sky
 
 
 def _transform(mount: CameraMount) -> npt.NDArray[np.float64]:

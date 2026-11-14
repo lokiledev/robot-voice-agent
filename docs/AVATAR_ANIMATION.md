@@ -5,7 +5,8 @@ work with in people who move: a sway while they stand, walking in and out of vie
 robot or away, gestures, and a mouth that moves while they talk. This proposes how to animate
 them, from what was tried. The first part is built, as an experiment apart from the simulation:
 `uv run animate` plays clips on one avatar, skinned in numpy (`rva_robot_sim.skinning`), shown by
-Genesis' rasterizer, and films it. Nyx and the simulation's people come next.
+Genesis' rasterizer or by Nyx through a patch of its plugin (`rva_robot_sim.nyx_skinned`), and
+films it. The simulation's people come next.
 
 ## What was tried
 
@@ -101,8 +102,40 @@ ground truth to score the perception against.
 - Genesis' rasterizer moves the vertices but keeps the rest pose's normals, which the shading of
   bent limbs barely shows.
 
+## What Nyx needed
+
+- The patch builds on the plugin's buffers shared with torch (0.1.10): the skinned parts are a
+  section of the soft bodies' vertex buffer, and Genesis' custom vertices are copied into it
+  before each render, GPU to GPU. It wraps five private methods and replaces one, and pins the
+  plugin's version.
+- Nyx draws an instance it is told is disabled: the GLB's own instance, which the vgeoms' rigid
+  references must point at, becomes an empty box instead.
+- Genesis keeps a GLB texture's alpha apart, as the surface's opacity texture; it is put back into
+  the PNG the patch writes for Nyx, whose materials cut out by the colour texture's alpha. The
+  eyelashes' cards are soft-edged: cut at 0.5 their edge darkens the eyes, at 0.75 a little still
+  does. The plugin's own path for a GLB draws them solid, as black rims.
+- The FBX's materials import fully metallic, which a path tracer shows as skin and cloth mirroring
+  the room: the skin's bake sets them non-metallic. The still people's bake (`people.py`) does not
+  yet.
+- Path traced, the person and its shadows come out right; the mouth's inside shows mid-grey.
+
+## ozz-animation, parked
+
+[ozz-animation](https://github.com/guillaumeblanc/ozz-animation) (MIT, C++) samples, blends
+(partial, additive), extracts and blends root motion, solves two-bone and aim IK and skins with
+SIMD; its glTF importer needs no Autodesk SDK. It has no Python bindings and no face shapes. It
+is parked until numpy is too slow: a binding of a few calls (nanobind) would replace sampling,
+posing and skinning, the face shapes staying in numpy; the data is already laid out as ozz's,
+rotations in parents and parents before children. A separate process streaming poses over kickmsg
+in lockstep with the sim's steps is not worth its protocol: what crosses kickmsg should be
+commands to the sim (play a clip, walk somewhere, look at the robot, talk), not frames. Python's
+own libraries (pymotion, fairmotion, PyMO) read BVH and do forward kinematics, no more than
+`skinning.py`.
+
 ## Not known yet
 
+- How the people's animation weighs on the Reachy simulation, which steps its physics at 100 Hz
+  and renders at 30: whether ozz becomes worth it.
 - The patch over long runs, with several people, and Nyx's cost of rebuilding a deforming mesh's
   acceleration structure at 1280×720 with 16 samples a pixel.
 - Whether the hair's and eyelashes' cut-out material renders right everywhere.

@@ -7,14 +7,16 @@ license = "Apache-2.0"
 dependencies = [
   "cyclopts>=4",
   "genesis-world>=1.4.6",
-  # Nyx renders the head camera; its wheels are for x86-64 only.
-  "gs-nyx-plugin>=0.1.10; platform_machine == 'x86_64'",
+  # Nyx renders the head camera; its wheels are for x86-64 only. Pinned: `nyx_skinned` patches its
+  # private methods to show the animated people.
+  "gs-nyx-plugin==0.1.10; platform_machine == 'x86_64'",
   "httpx>=0.28",
   "kickmsg>=0.10",
   "loguru>=0.7",
   # Genesis imports matplotlib without declaring it.
   "matplotlib>=3.7",
   "numpy>=2.0",
+  "opencv-python>=4.10",
   "pydantic>=2.11",
   "rva-pydantic",
   "rva-robot-schemas",

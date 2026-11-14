@@ -116,6 +116,13 @@ for item in list(bpy.data.objects):
         bpy.data.objects.remove(item, do_unlink=True)
 mesh.select_set(True)
 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+# The FBX's materials come in fully metallic, which path tracing shows as skin and cloth that
+# mirror the room.
+for material in mesh.data.materials:
+    bsdf = material.node_tree.nodes["Principled BSDF"]
+    for link in list(bsdf.inputs["Metallic"].links):
+        material.node_tree.links.remove(link)
+    bsdf.inputs["Metallic"].default_value = 0.0
 bpy.ops.export_scene.gltf(
     filepath=glb,
     export_format="GLB",
