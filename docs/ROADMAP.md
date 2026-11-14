@@ -85,7 +85,7 @@ what exists and why.
     integration tests. Built for fixed times (`rva_robot_sim.scenarios`, played by
     `rva_robot_sim.actor`), picked by name by `sim.yaml`'s `scenario`, `lune --scenario` or
     `lune-sim --scenario`; a person's script is scripted or live, someone at the microphone
-    speaking for them. The people idle until the agent is up and starts the scenario through
+    speaking for them. The people idle until the agent is up, its camera's first frame seen, and starts the scenario through
     the sim's `scenario_start` mailbox (or `npc start`). Not yet: steps that wait on the robot
     (its answer, its gaze), walking and looking somewhere, and checks of what the robot did.
 - **The simulated people move and speak, but do not walk.** In `greeting` they idle, talk

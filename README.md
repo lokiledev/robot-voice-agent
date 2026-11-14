@@ -186,8 +186,8 @@ uv run lune --profile config/reachy_mini_sim --scenario greeting_as_ben
 | `still` | Both stand silent in their A-pose |
 
 `lune` starts its own simulation, and refuses to start while one is running. The people idle
-until the agent is up, which starts the scenario: Ana's first line comes 3 s after, not while
-the models are still loading. Without the agent, e.g. with `lune see`, start it with
+until the agent is up and its camera has seen a first frame, which starts the scenario: Ana's
+first line comes 3 s after, not while the models are still loading. Without the agent, e.g. with `lune see`, start it with
 `uv run npc start`.
 
 ### Become an operator

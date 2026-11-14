@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import functools
 import math
 import os
 import signal
@@ -552,6 +553,7 @@ async def _listen(
             interaction,
             respeaker,
             recorder,
+            None,
         )
 
 
@@ -726,9 +728,6 @@ async def _run_agent(
     )
     await agent.warm_up()
     logger.info("{} is up", profile.character.name)
-    if config.robot is not None:
-        # The simulation's people wait for the agent, so the scenario does not play to nobody.
-        start_scenario(config.robot.namespace, "lune")
     await _with_vision(
         agent.run(),
         vision,
@@ -738,6 +737,10 @@ async def _run_agent(
         interaction,
         respeaker,
         recorder,
+        # The simulation's people wait for the agent, so the scenario does not play to nobody.
+        None
+        if config.robot is None
+        else functools.partial(start_scenario, config.robot.namespace, "lune"),
     )
 
 
@@ -1018,6 +1021,13 @@ async def _attend(
                 gaze.send(state)
 
 
+async def _on_first_frame(vision: FaceVision, then: Callable[[], None]) -> None:
+    """Call `then` once the camera's first frame has been seen: models loaded, window shown."""
+    async with vision.observations() as observations:
+        await anext(aiter(observations))
+    then()
+
+
 async def _interact(vision: FaceVision, interaction: Interaction) -> None:
     """Show `interaction` what the camera sees in each frame, until cancelled."""
     async with vision.observations() as observations:
@@ -1157,19 +1167,25 @@ async def _with_vision(
     interaction: Interaction | None,
     respeaker: ReSpeaker | None,
     recorder: Recorder,
+    on_ready: Callable[[], None] | None,
 ) -> None:
     """Run `main` while the camera is watched, shown and attended to.
 
     With `gaze`, the head looks at the attention's target; with an `interaction`, it is shown what
-    the camera sees meanwhile, and told where `respeaker` hears speech from.
+    the camera sees meanwhile, and told where `respeaker` hears speech from. `on_ready` is called
+    once all of it runs: once the first frame is seen, or at once without a camera.
 
     A camera failure stops `main`; closing the window only closes it.
     """
     if vision is None:
+        if on_ready is not None:
+            on_ready()
         await main
         return
     try:
         async with asyncio.TaskGroup() as group:
+            if on_ready is not None:
+                group.create_task(_on_first_frame(vision, on_ready))
             seeing = group.create_task(vision.run())
             watching = [group.create_task(_attend(vision, attention, gaze, recorder))]
             if interaction is not None:
