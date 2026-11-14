@@ -433,6 +433,31 @@ async def test_a_check_that_finds_no_name_leaves_nothing_in_the_history() -> Non
     assert not any(isinstance(entry, ToolInvocation) for entry in recorder.entries)
 
 
+async def test_a_name_the_check_makes_up_is_not_remembered() -> None:
+    # Asked, the LLM gave its prompt's example name for someone who never said theirs.
+    made_up = ToolCall(
+        id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Alice"}'
+    )
+    llm = ScriptedLanguageModel([[TextDelta(text="Who?")], [made_up]])
+    vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("Someone's coming.")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        vision,
+        None,
+    ).run()
+
+    assert vision.faces()[0].person is None
+    assert not any(isinstance(entry, ToolInvocation) for entry in recorder.entries)
+
+
 async def test_no_check_for_someone_remembered_while_their_line_was_heard() -> None:
     # The line was attributed from frames before Ben was remembered; one reply, no check.
     llm = ScriptedLanguageModel([[TextDelta(text="Once upon a time.")]])

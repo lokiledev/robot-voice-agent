@@ -182,8 +182,9 @@ flowchart TB
 - **A name the LLM skipped.** Qwen still leaves out `remember_person` now and then, most of all
   when a question comes with the name. So after a turn of someone unknown in view in which no
   name was taken, one more round asks it, unheard, whether they told their name, with only
-  `remember_person` to call. The question and its answer join the history only when a name was
-  remembered. Replaying the `newcomer` conversation up to Ben's line ten times, he was remembered
+  `remember_person` to call, and only a name found in what they said is remembered: asked, the
+  LLM once gave Mia the name Alice, its prompt's example, when she had not said hers. The
+  question and its answer join the history only when a name was remembered. Replaying the `newcomer` conversation up to Ben's line ten times, he was remembered
   9 times without the check and 10 with it, his line cut in two as it was; 6 and 10 said in one
   piece. The check costs one LLM round after each turn of an unknown person, before the next.
 - **Not interrupting itself.** With speakers, three layers keep Lune from hearing its own voice:

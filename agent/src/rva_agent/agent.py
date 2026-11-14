@@ -272,7 +272,7 @@ class Agent:
             and self._unknown_in_view(speaker.track_id)
             and not any(name in _KEPT_WHEN_TALKED_OVER for name, _ in called)
         ):
-            await self._remember_if_named(speaker.track_id, called)
+            await self._remember_if_named(speaker.track_id, utterance.text, called)
 
     async def _on_task_end(self, task: Task) -> None:
         self._history.append(RobotEventMessage(content=_describe_end(task)))
@@ -490,14 +490,18 @@ class Agent:
         face = next((face for face in self._vision.faces() if face.track_id == track_id), None)
         return face is not None and face.person is None
 
-    async def _remember_if_named(self, track_id: int, called: set[tuple[str, str]]) -> None:
+    async def _remember_if_named(
+        self, track_id: int, said: str, called: set[tuple[str, str]]
+    ) -> None:
         """Ask the LLM, unheard, whether the unknown person on `track_id` told their name.
 
-        Only remember_person is offered, and only its calls are run. The question and the answer
-        join the history only when a name was remembered.
+        Only remember_person is offered, and only its calls with a name found in `said` are run:
+        asked, the LLM sometimes makes a name up, such as its prompt's example. The question and
+        the answer join the history only when a name was remembered.
 
         Args:
             track_id: Whoever just spoke, unknown.
+            said: What they said.
             called: The calls of this turn so far; those made here join them.
         """
         check = RobotEventMessage(content=_NAME_CHECK.format(track_id=track_id))
@@ -510,9 +514,17 @@ class Agent:
                     if isinstance(output, ToolCall) and output.name == "remember_person"
                 ]
             )
-        logger.info("Checked whether track {} told their name: {}", track_id, calls or "no")
-        if not calls:
+        told = tuple(
+            call
+            for call in calls
+            if (name := _name_given(call)) is not None and _mentions(said, frozenset({name}))
+        )
+        if told != calls:
+            logger.warning("The name check made up a name not in {!r}: {}", said, calls)
+        logger.info("Checked whether track {} told their name: {}", track_id, told or "no")
+        if not told:
             return
+        calls = told
         self._history.append(check)
         self._history.append(AssistantMessage(content="", tool_calls=calls))
         for call in calls:
@@ -708,6 +720,16 @@ def _describe_person(
     # Said up front so the LLM declines a non-operator's request instead of trying it.
     role = "one of" if permission.is_operator(person.user_id) else "not one of"
     return f"{person.name} (track {track_id}, user {person.user_id}, {role} your operators)"
+
+
+def _name_given(call: ToolCall) -> str | None:
+    """The name a remember_person call gives; `None` when its arguments have none."""
+    try:
+        arguments = json.loads(call.arguments)
+    except json.JSONDecodeError:
+        return None
+    name = arguments.get("name") if isinstance(arguments, dict) else None
+    return name if isinstance(name, str) else None
 
 
 def _normalized(text: str) -> str:
