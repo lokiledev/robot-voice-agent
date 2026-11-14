@@ -3,7 +3,9 @@
 The people around the simulated Reachy Mini stand still in an A-pose. The perception has more to
 work with in people who move: a sway while they stand, walking in and out of view, turning to the
 robot or away, gestures, and a mouth that moves while they talk. This proposes how to animate
-them, from what was tried; nothing of it is built yet.
+them, from what was tried. The first part is built, as an experiment apart from the simulation:
+`uv run animate` plays clips on one avatar, skinned in numpy (`rva_robot_sim.skinning`), shown by
+Genesis' rasterizer, and films it. Nyx and the simulation's people come next.
 
 ## What was tried
 
@@ -82,6 +84,22 @@ which tests want. Later, a `person_command` mailbox of the sim, like `joint_comm
 or an operator drive them: play a clip, walk to a point, face the robot, talk with a given
 loudness. The sim would then publish where each person is, their head and whether they talk, as
 ground truth to score the perception against.
+
+## What the experiment found
+
+- The clips need no Blender constraints to retarget. The clips' skeleton and the avatars' are
+  both 3ds Max Bipeds with the same bone axes, so each bone's rotation in its parent, taken from
+  the clip, poses the avatar as the clip's actor with the avatar's own bone lengths: the arms come
+  down from the A-pose. The pelvis's path is scaled by the ratio of their pelvis heights (0.92 m
+  to 0.919 for Female_Adult_01). The face's bones (eyes, jaw) keep the avatar's rest pose; the
+  face shapes move them.
+- The face FBX has a mesh of 4,734 vertices, 80 bones and 175 shapes; Genesis loads it as 5,563,
+  split at the texture's seams, each at a skin vertex's exact rest position.
+- Posing and skinning take about 0.55 ms a person in numpy, and 1.3 ms a frame with Genesis'
+  `set_vverts`. Clips chain through their root motion: a 90-degree turn leaves the next clip
+  facing the new way.
+- Genesis' rasterizer moves the vertices but keeps the rest pose's normals, which the shading of
+  bent limbs barely shows.
 
 ## Not known yet
 
