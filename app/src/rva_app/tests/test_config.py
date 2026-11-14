@@ -67,6 +67,24 @@ def test_the_camera_intrinsics_are_found_next_to_the_profile_and_marked_assumed(
     assert (intrinsics.width, intrinsics.height, intrinsics.fx) == (1920, 1080, 1360.0)
 
 
+def test_the_robots_camera_intrinsics_are_assumed_from_the_d455_datasheet() -> None:
+    profile = _REPOSITORY / "config" / "thor"
+    config = RuntimeConfig.load(profile)
+
+    assert config.vision.camera.intrinsics == profile / "cameras" / "d455.yaml"
+    intrinsics = load_yaml(CameraIntrinsics, config.vision.camera.intrinsics)
+    assert not intrinsics.calibrated
+    assert (intrinsics.width, intrinsics.height, intrinsics.fx) == (1280, 720, 640.0)
+
+
+def test_face_features_need_the_camera_intrinsics() -> None:
+    config = RuntimeConfig.load(_REPOSITORY / "config" / "default").model_dump()
+    config["vision"]["camera"]["intrinsics"] = None
+
+    with pytest.raises(ValidationError, match="face_features need camera.intrinsics"):
+        RuntimeConfig.model_validate(config)
+
+
 def test_the_reachy_mini_profile_watches_the_simulated_head_camera() -> None:
     profile = _REPOSITORY / "config" / "reachy_mini_sim"
     config = RuntimeConfig.load(profile)

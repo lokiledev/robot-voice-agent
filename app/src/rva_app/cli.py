@@ -157,7 +157,7 @@ def everything(
     camera: bool = True,
     open_rerun: bool = False,
     show_debug_ui: bool = False,
-    video: bool = False,
+    video: bool = True,
     depth: bool = True,
     scenario: str | None = None,
     open_sim_viewer: bool = False,
@@ -174,7 +174,8 @@ def everything(
         camera: Watch for people with the camera.
         open_rerun: Open a rerun viewer, and stream the recording to it.
         show_debug_ui: Also show the camera with the tracked faces in a window.
-        video: Record the camera frames and their depth with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun;
+            `--no-video` leaves them out.
         depth: Estimate the camera's depth, if the profile has a depth model.
         scenario: What happens around the simulated robot, instead of the profile's `sim.yaml`
             scenario: one of `rva_robot_sim.scenarios.SCENARIOS`, e.g. `greeting_as_ben`.
@@ -214,7 +215,7 @@ def text(
     open_rerun: bool = False,
     camera: bool = True,
     show_debug_ui: bool = False,
-    video: bool = False,
+    video: bool = True,
     ui: bool = False,
     depth: bool = True,
 ) -> None:
@@ -225,7 +226,8 @@ def text(
         open_rerun: Open a rerun viewer, and stream the recording to it.
         camera: Watch for people with the camera.
         show_debug_ui: Also show the camera with the tracked faces in a window.
-        video: Record the camera frames and their depth with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun;
+            `--no-video` leaves them out.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
@@ -290,7 +292,7 @@ def run(
     open_rerun: bool = False,
     camera: bool = True,
     show_debug_ui: bool = False,
-    video: bool = False,
+    video: bool = True,
     ui: bool = False,
     depth: bool = True,
 ) -> None:
@@ -301,7 +303,8 @@ def run(
         open_rerun: Open a rerun viewer, and stream the recording to it.
         camera: Watch for people with the camera.
         show_debug_ui: Also show the camera with the tracked faces in a window.
-        video: Record the camera frames and their depth with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun;
+            `--no-video` leaves them out.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
@@ -379,7 +382,7 @@ def _agent_command(
         "--no-camera": not camera,
         "--open-rerun": open_rerun,
         "--show-debug-ui": show_debug_ui,
-        "--video": video,
+        "--no-video": not video,
         "--no-depth": not depth,
     }
     lune = Path(sys.executable).with_name("lune")
@@ -847,7 +850,7 @@ def see(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
     open_rerun: bool = False,
-    video: bool = False,
+    video: bool = True,
     stream: bool = False,
     show_debug_ui: bool = True,
     depth: bool = True,
@@ -860,7 +863,8 @@ def see(
     Args:
         profile: Robot profile directory.
         open_rerun: Open a rerun viewer, and stream the recording to it, with the per-frame timings.
-        video: Record the camera frames and their depth with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun;
+            `--no-video` leaves them out.
         stream: Also publish the window's image to MediaMTX, to watch on its WebRTC page.
         show_debug_ui: Show the debug window; without it, people are only logged, recorded and
             streamed.
@@ -874,7 +878,7 @@ def sense(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
     open_rerun: bool = False,
-    video: bool = False,
+    video: bool = True,
     show_debug_ui: bool = True,
     depth: bool = True,
 ) -> None:
@@ -885,7 +889,8 @@ def sense(
     Args:
         profile: Robot profile directory.
         open_rerun: Open a rerun viewer, and stream the recording to it, with the per-frame timings.
-        video: Record the camera frames and their depth with the session, to replay them in rerun.
+        video: Record the camera frames and their depth with the session, to replay them in rerun;
+            `--no-video` leaves them out.
         show_debug_ui: Show the debug window; without it, people are only logged and recorded.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """

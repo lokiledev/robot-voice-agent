@@ -80,9 +80,9 @@ class Gaze(RVABaseModel):
     """Where the eyes point, in degrees; both are 0 when looking straight at the camera.
 
     Wherever the face is in the image: the angles are taken from the line between the face and the
-    camera, not from the camera's axis: in a recording with the face from 28 degrees left of the
-    axis to 32 right, the yaw changed by 0.06 degrees per degree the face moved, where angles from
-    the axis would change by 1.
+    camera, not from the camera's axis, with the image's right made square to that line as the
+    right. The gaze model sees each face through a virtual camera turned to look along that line,
+    so that a face off the image's centre is not seen askew.
     """
 
     yaw: float

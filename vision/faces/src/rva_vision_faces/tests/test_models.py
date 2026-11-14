@@ -76,17 +76,19 @@ BODY = BodyConfig(
 
 @pytest.mark.download
 def test_face_analyzer_gives_every_feature_of_each_face() -> None:
-    analyzer = FaceAnalyzer(
-        *(
-            load_session(model, Cpu(), dynamic_image_size=False, batch_item=None)
-            for model in (
-                FACE_FEATURES.landmarks,
-                FACE_FEATURES.blendshapes,
-                FACE_FEATURES.gaze,
-                FACE_FEATURES.expression,
-            )
+    mesh, blendshapes, gaze, expression = (
+        load_session(model, Cpu(), dynamic_image_size=False, batch_item=None)
+        for model in (
+            FACE_FEATURES.landmarks,
+            FACE_FEATURES.blendshapes,
+            FACE_FEATURES.gaze,
+            FACE_FEATURES.expression,
         )
     )
+    intrinsics = CameraIntrinsics(
+        calibrated=True, width=300, height=300, fx=250, fy=250, cx=149.5, cy=149.5
+    )
+    analyzer = FaceAnalyzer(mesh, blendshapes, gaze, expression, intrinsics)
     frame = np.random.default_rng(0).integers(0, 255, (300, 300, 3), dtype=np.uint8)
     detection = Detection(
         box=BoundingBox(x=100, y=100, width=100, height=120),

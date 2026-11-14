@@ -28,6 +28,15 @@ what exists and why.
   sentence when they only look away. Left as it is for now.
 - **Someone unknown who leaves the view and comes back** is a newcomer: a reply cut short for
   them is not picked up, and they are greeted again.
+- **Someone the head does not look at reads further from eye contact** in the simulation, so
+  engages slowly, if at all. It is not the perspective: the gaze's crop is now normalized to a
+  virtual camera looking at the face, which takes the image's skew out, but changed the readings
+  of a `newcomer` session by about 1 degree. Off the image's centre (over 30 degrees), the avatars
+  look away a quarter of the time, against 4 % centred: their clips turn their heads while the
+  robot attends to someone else. Without those moments, Cleo still reads 3 to 8 degrees further,
+  mostly in pitch, about 10 degrees higher, with her face higher in the image; rotating the
+  camera alone does not move the pitch. To compare with the head controller's recording: the
+  head's pitch and roll, and how far its turns move the camera.
 - **The head does not favour the person the robot talks with**: the attention scores them like
   anyone else.
 - **Permissions look at the face in front**, not at the face seen saying the request.

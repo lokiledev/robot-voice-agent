@@ -236,7 +236,7 @@ flowchart LR
 - **Face features**, on every face detected in the frame: MediaPipe's face mesh (478 points,
   irises included) on a crop levelled on the eyes; MediaPipe's blendshapes on those points, for
   how open each eye and the mouth are; L2CS-Net (Gaze360) for where the eyes point, 0 degrees
-  being the camera; a ViT fine-tuned on FER2013 for one of seven expressions. They are meant for
+  being the camera, on the face as a virtual camera turned to look at it would see it; a ViT fine-tuned on FER2013 for one of seven expressions. They are meant for
   turn-taking (is the user looking at the robot, is their mouth moving) and are not yet given to
   the agent.
 - **Main user and eye contact.** The main user is the most prominent face: its height, less the
@@ -248,7 +248,16 @@ flowchart LR
   taken from the line between the face and the camera, not from the camera's axis: in a recording
   with the face from 28 degrees left of the axis to 32 right, its yaw moved 0.06 degrees per degree
   the face did. So 0 degrees is the camera wherever the face is, and no correction for the face's
-  position is needed while the camera is the robot's eye. Its bias depends on the person: looking
+  position is needed while the camera is the robot's eye. A face off the image's centre is still
+  seen askew, though, stretched and skewed by the perspective, more so through the simulated
+  head camera's 112 degrees: rotating Reachy's camera so that a centred face sits 45 degrees off
+  the centre moved the yaw read on the face's box by 5 degrees (up to 9). So the gaze's crop is
+  normalized as gaze datasets are: it is what a virtual camera, turned about the real one's centre
+  until it looks at the face's box, with the image's right kept level, sees
+  (`face_features.gaze_transform`), and the same rotation moves it by 3, near what resampling the
+  small face does alone. The angles L2CS-Net reads there need no rotation back: the virtual
+  camera's axes are those `Gaze` is measured in. A centred face gets the box's crop as before.
+  Face features need the camera's intrinsics for it, assumed ones at least. Its bias depends on the person: looking
   into the lens from both edges, one person read about +7 degrees of yaw (towards the right of the
   image) with glasses and +1.5 without. So no offset is taken off; the thresholds absorb it.
   Rules rather than a model, until recordings show where they fail.
@@ -372,7 +381,7 @@ flowchart LR
   with eyes, mouth, gaze and the active speaker's score plotted under `people/<track>`. In 3D,
   the skeletons, hands and gaze rays are under `space/people/<track>`, in the camera's frame,
   which is the 3D view's; `camera` holds the camera's pinhole, so the image and its 2D overlay
-  show in that view too. With `--video`, the depth is recorded under `depth`, as a point cloud
+  show in that view too. Unless `--no-video`, the depth is recorded under `depth`, as a point cloud
   around the people, every other pixel in millimetres.
 
 ### Visual attention
@@ -925,7 +934,7 @@ Thinking is off: the turns are short and latency matters more.
 Each session gets a directory under `~/Captures/robot-voice-agent/`, with a rerun recording and
 the log. The recording holds the dialogue, every tool call, the actions as they start and end,
 people coming and going, and every tracked person with their face features and skeleton, with
-`--video` the camera frames under them. It also holds the sound: what the microphone heard, in
+the camera frames under them unless `--no-video`. It also holds the sound: what the microphone heard, in
 clips of a second, and each clip of the robot's voice as far as it was played, under `audio/`,
 with their level over time; rerun plays them as time plays. Durations are OpenTelemetry spans, drawn as plots in the same recording: each turn,
 the LLM call with its time to the first text, the speech with its time to the first audio, ASR,

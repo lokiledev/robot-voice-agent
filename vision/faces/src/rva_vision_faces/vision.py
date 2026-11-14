@@ -32,7 +32,7 @@ from rva_schemas.vision import (
 from rva_vision_faces.attention import Attention
 from rva_vision_faces.body import POSE_ITEM, BodyEstimator, SteadyHands, attach_seen_first
 from rva_vision_faces.camera import FrameSource
-from rva_vision_faces.config import FaceVisionConfig
+from rva_vision_faces.config import Device, FaceFeaturesConfig, FaceVisionConfig
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.depth import DepthEstimator
 from rva_vision_faces.detector import Detection, Image, YunetDetector
@@ -72,21 +72,8 @@ class _Models:
         self.embedder: Final = SfaceEmbedder(
             load_session(config.recognizer, device, dynamic_image_size=False, batch_item=None)
         )
-        features = config.face_features
         self.faces: Final = (
-            None
-            if features is None
-            else FaceAnalyzer(
-                *(
-                    load_session(model, device, dynamic_image_size=False, batch_item=item)
-                    for model, item in (
-                        (features.landmarks, MESH_ITEM),
-                        (features.blendshapes, None),
-                        (features.gaze, None),
-                        (features.expression, EXPRESSION_ITEM),
-                    )
-                )
-            )
+            None if config.face_features is None else self._analyzer(config.face_features, device)
         )
         body = config.body
         self.pool: Final = ThreadPoolExecutor(3, thread_name_prefix="vision-alongside")
@@ -115,6 +102,20 @@ class _Models:
             None if self.depth is None or self.intrinsics is None else Lifter(self.intrinsics)
         )
         """Places what is seen in 3D, keeping each person's size: used in the frame thread only."""
+
+    def _analyzer(self, features: FaceFeaturesConfig, device: Device) -> FaceAnalyzer:
+        # The config checks it: the gaze's crop is seen through the camera's intrinsics.
+        assert self.intrinsics is not None, "face features need the camera's intrinsics"
+        mesh, blendshapes, gaze, expression = (
+            load_session(model, device, dynamic_image_size=False, batch_item=item)
+            for model, item in (
+                (features.landmarks, MESH_ITEM),
+                (features.blendshapes, None),
+                (features.gaze, None),
+                (features.expression, EXPRESSION_ITEM),
+            )
+        )
+        return FaceAnalyzer(mesh, blendshapes, gaze, expression, self.intrinsics)
 
 
 class FaceVision:

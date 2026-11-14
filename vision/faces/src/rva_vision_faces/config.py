@@ -63,7 +63,8 @@ class CameraConfig(RVABaseModel):
     height: int = Field(gt=0)
     intrinsics: Path | None
     """YAML file of the camera's `CameraIntrinsics`, at any resolution of the frame's aspect ratio;
-    relative to the profile. `None` when not even assumed ones are known."""
+    relative to the profile. `None` when not even assumed ones are known; face features need
+    them."""
 
 
 class DetectorConfig(RVABaseModel):
@@ -177,7 +178,7 @@ class DepthConfig(RVABaseModel):
 
 
 class VideoRecordingConfig(RVABaseModel):
-    """How camera frames are recorded, when recording video is asked for."""
+    """How camera frames are recorded, unless asked not to."""
 
     width: int = Field(gt=0)
     """Frames are scaled down to this width, keeping their aspect ratio."""
@@ -224,3 +225,10 @@ class FaceVisionConfig(RVABaseModel):
     max_embeddings_per_person: int = Field(gt=0)
     """The oldest samples are dropped beyond this."""
     video: VideoRecordingConfig
+
+    @model_validator(mode="after")
+    def _intrinsics_for_face_features(self) -> "FaceVisionConfig":
+        # The gaze model sees each face through a virtual camera turned towards it.
+        if self.face_features is not None and self.camera.intrinsics is None:
+            raise ValueError("face_features need camera.intrinsics, assumed ones at least")
+        return self

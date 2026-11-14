@@ -1,0 +1,11 @@
+# Intel RealSense D455 colour stream at 1280x720. Assumed, not measured: Intel's 90 by 65 degree
+# field of view at the sensor's 1280x800, of which 1280x720 is the middle, square pixels, the
+# principal point at the center. Replace it with the factory calibration the camera holds
+# (`rs-enumerate-devices -c`) and set calibrated: true.
+calibrated: false
+width: 1280
+height: 720
+fx: 640.0
+fy: 640.0
+cx: 639.5
+cy: 359.5

@@ -237,8 +237,8 @@ Then authorize others by voice: "Lune, authorize Bob."
 
 `lune run` and `lune text` need the servers running, and take `--ui` for the session page.
 These and `lune` take `--open-rerun` to watch the recording live in rerun, `--show-debug-ui`
-for the camera's debug window, `--video` to record the camera frames and their depth, and
-`--no-camera`. Every command takes
+for the camera's debug window, `--no-video` not to record the camera frames and their depth,
+and `--no-camera`. Every command takes
 `--profile` to use another robot profile than `config/default`.
 
 ## Where data lives

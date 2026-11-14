@@ -112,7 +112,7 @@ vision:
     kind: kept
     path: ~/.local/share/robot-voice-agent/faces.sqlite3
   max_embeddings_per_person: 10
-  # Used with --video: camera frames recorded with the session, to replay in rerun.
+  # Camera frames recorded with the session, to replay in rerun, unless --no-video.
   video:
     width: 960
     jpeg_quality: 80

@@ -50,7 +50,7 @@ vision:
     frame: camera_color_optical_frame
     width: 1280
     height: 720
-    intrinsics: null  # Not calibrated yet; see config/default/cameras for the format.
+    intrinsics: cameras/d455.yaml  # Assumed from the datasheet, not calibrated yet.
   detector:
     model:
       repo: opencv/face_detection_yunet
@@ -111,7 +111,7 @@ vision:
     kind: kept
     path: ~/.local/share/robot-voice-agent/faces.sqlite3
   max_embeddings_per_person: 10
-  # Used with --video: camera frames recorded with the session, to replay in rerun.
+  # Camera frames recorded with the session, to replay in rerun, unless --no-video.
   video:
     width: 960
     jpeg_quality: 80

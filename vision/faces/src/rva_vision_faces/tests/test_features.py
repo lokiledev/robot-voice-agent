@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from rva_schemas.vision import Body, BoundingBox, CameraIntrinsics, Gaze, Hand, Keypoint
+from rva_schemas.vision import Body, BoundingBox, CameraIntrinsics, Gaze, Hand, Keypoint, Point3D
 from rva_vision_faces.body import (
     SteadyHands,
     attach,
@@ -20,7 +20,14 @@ from rva_vision_faces.body import (
 )
 from rva_vision_faces.depth import letterbox, metres_per_unit
 from rva_vision_faces.detector import Detection
-from rva_vision_faces.face_features import box_transform, gaze_from_bins, mesh_transform
+from rva_vision_faces.face_features import (
+    box_transform,
+    face_rotation,
+    gaze_from_bins,
+    gaze_transform,
+    mesh_transform,
+)
+from rva_vision_faces.space import gaze_direction
 from rva_vision_faces.tracker import iou
 
 
@@ -172,6 +179,60 @@ def test_box_transform_maps_the_box_onto_the_crop() -> None:
 
     corners = cv2.transform(np.array([[[10, 20], [110, 70]]], np.float32), transform)[0]
     assert corners == pytest.approx(np.array([[0, 0], [200, 200]]), abs=1e-4)
+
+
+_REACHY_MINI = CameraIntrinsics(
+    calibrated=True, width=1280, height=720, fx=429.03, fy=429.03, cx=639.5, cy=359.5
+)
+"""The simulated head camera: 112 degrees wide."""
+# A 20 cm square 1.5 m away, 45 degrees right of the axis, square to the line of sight: a face
+# looking at the camera. Its corners, clockwise from the top left, as the camera sees them.
+_OFF_CENTRE_FACE = np.array(
+    [[1014.90, 321.58], [1129.82, 316.16], [1129.82, 402.84], [1014.90, 397.42]]
+)
+_OFF_CENTRE_BOX = BoundingBox(x=1014.90, y=316.16, width=114.92, height=86.68)
+
+
+def test_an_off_centre_face_is_cropped_askew_from_its_box() -> None:
+    corners = cv2.transform(_OFF_CENTRE_FACE[None], box_transform(_OFF_CENTRE_BOX, 448))[0]
+
+    # The far edge is 28 pixels shorter than the near one: the face is seen at an angle.
+    assert corners == pytest.approx(np.array([[0, 28], [448, 0], [448, 448], [0, 420]]), abs=0.1)
+
+
+def test_the_gaze_crop_sees_an_off_centre_face_head_on() -> None:
+    transform = gaze_transform(_OFF_CENTRE_BOX, _REACHY_MINI, 448)
+
+    corners = cv2.perspectiveTransform(_OFF_CENTRE_FACE[None], transform)[0]
+
+    # A square, a little off the crop's middle: the box encloses the face's trapezoid, wider
+    # and taller than the face where it is measured, through its centre.
+    assert corners == pytest.approx(
+        np.array([[-15, 14], [433, 14], [433, 434], [-15, 434]]), abs=0.5
+    )
+
+
+def test_the_gaze_crop_of_a_face_at_the_principal_point_is_its_box() -> None:
+    box = BoundingBox(x=589.5, y=299.5, width=100, height=120)
+
+    transform = gaze_transform(box, _REACHY_MINI, 448)
+
+    assert transform == pytest.approx(np.vstack([box_transform(box, 448), [0, 0, 1]]))
+
+
+def test_the_gaze_read_on_the_crop_needs_no_rotation_back() -> None:
+    # The virtual camera's axes are those `Gaze` is measured in, for eyes along its axis.
+    rotation = face_rotation(_OFF_CENTRE_BOX, _REACHY_MINI)
+    x, y, z = (1.5 * rotation[2]).tolist()
+    eyes = Point3D(x=x, y=y, z=z)
+
+    def direction(gaze: Gaze) -> list[float]:
+        point = gaze_direction(eyes, gaze)
+        return [point.x, point.y, point.z]
+
+    assert direction(Gaze(yaw=0, pitch=0)) == pytest.approx(-rotation[2])
+    assert direction(Gaze(yaw=90, pitch=0)) == pytest.approx(rotation[0])
+    assert direction(Gaze(yaw=0, pitch=90)) == pytest.approx(-rotation[1])
 
 
 def _hand_at(x: float, score: float) -> Hand:

@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime
 
-from rva_schemas.vision import BoundingBox, Expression, FaceFeatures, Gaze
+from rva_schemas.vision import BoundingBox, CameraIntrinsics, Expression, FaceFeatures, Gaze
 from rva_vision_faces.detector import Detection, Image
 
 _MESH_SIZE: Final = 256
@@ -64,11 +64,14 @@ class FaceAnalyzer:
         blendshapes: onnxruntime.InferenceSession,
         gaze: onnxruntime.InferenceSession,
         expression: onnxruntime.InferenceSession,
+        intrinsics: CameraIntrinsics,
     ) -> None:
+        """Set up the models; `intrinsics` are the camera's at the frame's resolution."""
         self._mesh: Final = mesh
         self._blendshapes: Final = blendshapes
         self._gaze: Final = gaze
         self._expression: Final = expression
+        self._intrinsics: Final = intrinsics
 
     def analyze(self, frame: Image, detections: Sequence[Detection]) -> list[FaceFeatures]:
         """The features of each face, in the order of `detections`."""
@@ -116,7 +119,8 @@ class FaceAnalyzer:
         return np.asarray(scores, np.float32)
 
     def _run_gaze(self, rgb: Image, box: BoundingBox) -> Gaze:
-        crop = cv2.warpAffine(rgb, box_transform(box, _GAZE_SIZE), (_GAZE_SIZE, _GAZE_SIZE))
+        transform = gaze_transform(box, self._intrinsics, _GAZE_SIZE)
+        crop = cv2.warpPerspective(rgb, transform, (_GAZE_SIZE, _GAZE_SIZE))
         blob = ((crop / np.float32(255) - _IMAGENET_MEAN) / _IMAGENET_STD).transpose(2, 0, 1)[None]
         yaw, pitch = self._gaze.run(
             None, {self._gaze.get_inputs()[0].name: blob.astype(np.float32)}
@@ -161,11 +165,62 @@ def box_transform(box: BoundingBox, size: int) -> npt.NDArray[np.float64]:
     return np.array([[scale_x, 0, -box.x * scale_x], [0, scale_y, -box.y * scale_y]])
 
 
+def face_rotation(box: BoundingBox, intrinsics: CameraIntrinsics) -> npt.NDArray[np.float64]:
+    """Rotation from the camera's frame to a virtual camera's looking at the box's centre.
+
+    Its z axis is the line from the camera through the box's centre, its x axis the camera's made
+    square to it: the image's right, with no roll.
+    """
+    centre = np.array(
+        [
+            (box.x + box.width / 2 - intrinsics.cx) / intrinsics.fx,
+            (box.y + box.height / 2 - intrinsics.cy) / intrinsics.fy,
+            1.0,
+        ]
+    )
+    z = centre / np.linalg.norm(centre)
+    y = np.cross(z, [1.0, 0.0, 0.0])
+    y /= np.linalg.norm(y)
+    return np.stack([np.cross(y, z), y, z])
+
+
+def gaze_transform(
+    box: BoundingBox, intrinsics: CameraIntrinsics, size: int
+) -> npt.NDArray[np.float64]:
+    """Homography from the frame to a `size` by `size` crop of the face as seen head on.
+
+    The crop is what a virtual camera turned about the real one's centre to look at the box's
+    centre (`face_rotation`) sees, so a face reads the same wherever it is in the image, as in
+    the data normalization of gaze datasets. Its focal lengths frame the box's width and height,
+    measured through its centre: a face at the principal point gets `box_transform`'s crop.
+    """
+    camera = np.array(
+        [[intrinsics.fx, 0, intrinsics.cx], [0, intrinsics.fy, intrinsics.cy], [0, 0, 1]]
+    )
+    to_virtual = face_rotation(box, intrinsics) @ np.linalg.inv(camera)
+    # The middles of the box's left, right, top and bottom edges, seen by the virtual camera.
+    x, y, w, h = box.x, box.y, box.width, box.height
+    edges = to_virtual @ np.array(
+        [[x, x + w, x + w / 2, x + w / 2], [y + h / 2, y + h / 2, y, y + h], [1, 1, 1, 1]]
+    )
+    left, right, top, bottom = (edges[:2] / edges[2]).T
+    virtual = np.array(
+        [
+            [size / (right[0] - left[0]), 0, size / 2],
+            [0, size / (bottom[1] - top[1]), size / 2],
+            [0, 0, 1],
+        ]
+    )
+    return virtual @ to_virtual
+
+
 def gaze_from_bins(yaw: npt.NDArray[np.float32], pitch: npt.NDArray[np.float32]) -> Gaze:
     """Gaze angles from L2CS-Net's probabilities over 4-degree bins (softmax in the graph).
 
     L2CS-Net's yaw is positive towards the left of the image, as its demo draws it: it is flipped.
-    Its pitch is already positive upwards.
+    Its pitch is already positive upwards. On `gaze_transform`'s crop, the angles are the virtual
+    camera's, taken from its axis, the line between the face and the camera, with its x axis as
+    the right: `Gaze`'s, so they need no rotation back.
     """
     bins = np.arange(len(yaw), dtype=np.float32)
     return Gaze(
