@@ -1,6 +1,6 @@
 """The simulation's people, played: their clips one after the other, blinking, talking."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Final
 
@@ -25,7 +25,6 @@ from rva_robot_sim.skinning import (
     retarget,
     sample,
 )
-from rva_robot_sim.speech import SpokenLine
 
 STILL_BONES: Final = frozenset({"Bip01 REye", "Bip01 LEye", "Bip01 MJaw"})
 """Bones of the face the clips would move from their own rest pose, which is not the avatar's: the
@@ -37,8 +36,8 @@ _BLINK_S: Final = 0.16
 class Actor:
     """One person playing clips one after the other, over and over, from where they are placed.
 
-    They blink, and their mouth opens as loud as their lines are while they say them. The clips'
-    root motion carries over: a clip that turns them leaves the next facing the new way.
+    They blink, and their mouth opens as their speech says: a script's or a live voice's. The
+    clips' root motion carries over: a clip that turns them leaves the next facing the new way.
     """
 
     def __init__(
@@ -46,7 +45,7 @@ class Actor:
         skin: Skin,
         clips: Sequence[tuple[ClipName, Motion]],
         placement: Floats,
-        lines: Sequence[SpokenLine],
+        mouth: Callable[[float], float],
     ) -> None:
         """Start the first clip.
 
@@ -54,11 +53,11 @@ class Actor:
             skin: The avatar.
             clips: Retargeted to `skin`, each with its name; none, and they stand still at rest.
             placement: 4×4, where they stand on the floor at the start, from `people.standing`.
-            lines: What they say, which the simulation plays too.
+            mouth: How open their mouth is at a time, from 0 to 1.
         """
         self.skin: Final = skin
         self._clips: Final = list(clips)
-        self._lines: Final = list(lines)
+        self._opening: Final = mouth
         self._still: Final = rest(skin)
         self._blinks: Final = [
             skin.shape_index("AK_09_EyeBlinkLeft"),
@@ -90,7 +89,7 @@ class Actor:
     def vertices(self, bones: Floats, time: float) -> Floats:
         """V×3: the skin's vertices posed by `bones`, the face as it is at `time`."""
         self._weights[self._blinks] = _blink(time)
-        self._weights[self._mouth] = max((line.opening(time) for line in self._lines), default=0.0)
+        self._weights[self._mouth] = self._opening(time)
         return deform(self.skin, bones, self._weights)
 
     def _advance(self, time: float) -> Motion:
@@ -108,11 +107,11 @@ class Actor:
 
 
 def cast(
-    config: AvatarsConfig, person: Person, lines: Sequence[SpokenLine], client: httpx.Client
+    config: AvatarsConfig, person: Person, mouth: Callable[[float], float], client: httpx.Client
 ) -> tuple[Path, Actor]:
-    """The person's avatar, to load in Genesis, and the actor that plays its clips and lines.
+    """The person's avatar, to load in Genesis, and the actor that plays its clips.
 
-    The avatar and the clips are downloaded and baked with Blender on first use.
+    Their mouth opens as `mouth` says. The avatar and the clips are downloaded and baked with Blender on first use.
 
     Raises:
         RuntimeError: If Blender fails to bake one.
@@ -124,7 +123,7 @@ def cast(
         (name, retarget(skin, load_clip(install_clip(config, name, client)), STILL_BONES))
         for name in person.clips
     ]
-    return glb, Actor(skin, clips, standing(person.position, person.turned_deg), lines)
+    return glb, Actor(skin, clips, standing(person.position, person.turned_deg), mouth)
 
 
 def vertex_order(skin: Skin, loaded: Floats) -> npt.NDArray[np.intp]:

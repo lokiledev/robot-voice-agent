@@ -1,5 +1,6 @@
-"""What the simulation's people say: their lines synthesized once and kept, and how loud they are.
+"""What the simulation's people say, synthesized once and kept, and how their mouths follow it.
 
+The mouths open as loud as their lines are, or the microphone is for a live person.
 The synthesizer is given, by voice: the simulation does not know which one it is.
 """
 
@@ -11,10 +12,12 @@ import tempfile
 from collections.abc import Callable, Sequence
 from functools import cached_property
 from pathlib import Path
-from typing import Final
+from typing import Final, Self
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
+from pydantic import model_validator
 
 from rva_pydantic import RVABaseModel
 from rva_robot_sim.scenes import Line
@@ -29,13 +32,40 @@ _LOUDEST_PERCENTILE: Final = 95
 still do not open it wider."""
 
 
+class LiveMouthConfig(RVABaseModel):
+    """How the microphone's level opens a live person's mouth, in dB below full scale."""
+
+    closed_dbfs: float
+    """Below this the mouth stays shut: above the room's hum."""
+    open_dbfs: float
+    """From this it is fully open: someone speaking up close."""
+
+    @model_validator(mode="after")
+    def _closed_below_open(self) -> Self:
+        if self.closed_dbfs >= self.open_dbfs:
+            raise ValueError(
+                f"Closed at {self.closed_dbfs} dBFS, not below open at {self.open_dbfs}"
+            )
+        return self
+
+
 class SpeechConfig(RVABaseModel):
+    """What the people say and hear, and the sound devices it goes through, by name or part of it."""
+
     directory: Path
     """Where the people's lines are kept once synthesized; `~` is expanded."""
-    sink: str | None
-    """Sound device the lines are played into, by name or part of it: the `rva_sim_room` PipeWire
-    sink of config/pipewire/61-rva-sim-room.conf, whose monitor the agent listens to. None, and
-    they are not played; the mouths still move."""
+    sample_rate: int
+    """Of the room's sound, and so of the synthesized lines: Kokoro's, 24000."""
+    room: str
+    """Where the scripted lines and the live voice are played: the `rva_sim_room` PipeWire sink of
+    config/pipewire/61-rva-sim-room.conf, whose monitor the agent listens to as its microphone."""
+    loudspeaker: str | None
+    """Where the scripted lines are played too, for whoever watches to hear them; None, and only
+    the robot does. The robot's own speaker: its echo canceller then keeps them out of the live
+    voice."""
+    microphone: str
+    """Of whoever speaks for a live person; unused without one."""
+    live_mouth: LiveMouthConfig
 
 
 class SpokenLine(RVABaseModel, arbitrary_types_allowed=True):
@@ -64,6 +94,39 @@ class SpokenLine(RVABaseModel, arbitrary_types_allowed=True):
         rms = np.sqrt(np.mean(windows**2, axis=1))
         loudest = np.percentile(rms, _LOUDEST_PERCENTILE)
         return np.clip(rms / loudest, 0.0, 1.0) if loudest > 0 else np.zeros(steps)
+
+
+class ScriptedMouth:
+    """Opens as loud as their lines are while they say them."""
+
+    def __init__(self, lines: Sequence[SpokenLine]) -> None:
+        self._lines: Final = tuple(lines)
+
+    def opening(self, time: float) -> float:
+        """How open it is at `time`, in seconds of simulated time, from 0 to 1."""
+        return max((line.opening(time) for line in self._lines), default=0.0)
+
+
+class LiveMouth:
+    """Opens as loud as the microphone was in the last moment it heard.
+
+    Told on the audio thread, asked on the simulation's: a float is swapped whole.
+    """
+
+    def __init__(self, config: LiveMouthConfig) -> None:
+        self._config: Final = config
+        self._opening = 0.0
+
+    def hear(self, samples: npt.NDArray[np.float32]) -> None:
+        """Open it as loud as `samples`, a few milliseconds of the microphone."""
+        rms = math.sqrt(float(np.mean(np.square(samples, dtype=np.float64))))
+        dbfs = 20 * math.log10(rms) if rms > 0 else -math.inf
+        span = self._config.open_dbfs - self._config.closed_dbfs
+        self._opening = min(max((dbfs - self._config.closed_dbfs) / span, 0.0), 1.0)
+
+    def opening(self, time: float) -> float:
+        """How open it is now, from 0 to 1, whatever `time`: it follows the microphone."""
+        return self._opening
 
 
 async def bake(

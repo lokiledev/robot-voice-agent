@@ -12,7 +12,7 @@ _MAX_LAG_S: Final = 0.1
 """How far behind real time the simulation may fall before it gives up catching up."""
 
 
-def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room | None, config: SimConfig) -> None:
+def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) -> None:
     """Simulate in real time, publishing joint states and frames, until interrupted.
 
     Each step first applies the commands and moves the people as received since the last one, and
@@ -23,7 +23,7 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room | None, config: SimC
     Args:
         scene: The robot and the people.
         bus: The robot's topics.
-        room: Where the people's lines are played; None, and they are not.
+        room: Where the people's lines are played.
         config: The rates.
     """
     state_due = _Due(1 / config.state_rate)
@@ -49,8 +49,7 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room | None, config: SimC
         scene.step()
         step += 1
         simulated = step * config.physics_dt
-        if room is not None:
-            room.speak(simulated)
+        room.speak(simulated)
         now = time.monotonic()
         if state_due.passed(simulated):
             bus.publish_state(scene.joint_state(now))

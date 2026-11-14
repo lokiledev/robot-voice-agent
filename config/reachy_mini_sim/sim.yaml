@@ -14,11 +14,24 @@ avatars:
 # two in an A-pose; `animated_pair`, the same two idling, talking and listening. `lune-sim --scene`
 # runs another.
 scene: animated_pair
+# A person by their index in the scene, e.g. 1 for the man of `animated_pair`, whom you speak for
+# into the microphone: your voice opens their mouth and the robot hears it, among the others'
+# lines. Null, and everyone speaks as the scene says; `lune-sim --live` picks one.
+live: null
 speech:
   directory: ~/.cache/robot-voice-agent/speech
+  sample_rate: 24000  # Kokoro's.
   # The PipeWire sink of config/pipewire/61-rva-sim-room.conf, whose monitor the agent listens to
-  # (audio.input_device in runtime.yaml); null to leave the people silent.
-  sink: rva_sim_room
+  # (audio.input_device in runtime.yaml): the scripted lines, and the live voice if any.
+  room: rva_sim_room
+  # The scripted lines play here too, for you to hear: the robot's speaker, the reSpeaker, whose
+  # echo canceller then keeps them out of your voice as it does the robot's.
+  loudspeaker: alsa_output.usb-Seeed_Studio_reSpeaker_XVF3800
+  microphone: alsa_input.usb-Seeed_Studio_reSpeaker_XVF3800
+  # The reSpeaker hums at about -60 dBFS in a quiet room.
+  live_mouth:
+    closed_dbfs: -50
+    open_dbfs: -25
 physics_dt: 0.005
 state_rate: 100
 camera_fps: 30

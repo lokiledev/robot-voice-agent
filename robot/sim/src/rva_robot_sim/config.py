@@ -1,12 +1,12 @@
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from rva_pydantic import RVABaseModel
 from rva_robot_sim.hdri import HdriConfig
 from rva_robot_sim.people import AvatarsConfig
-from rva_robot_sim.scenes import SCENES
+from rva_robot_sim.scenes import SCENES, describe
 from rva_robot_sim.speech import SpeechConfig
 
 
@@ -55,6 +55,10 @@ class SimConfig(RVABaseModel):
     scene: str
     """Who is around the robot and what they do: one of `scenes.SCENES`, by name, e.g.
     `animated_pair`. `lune-sim --scene` runs another."""
+    live: int | None
+    """The person, by their index in the scene, whom someone at the microphone speaks for instead
+    of their script; None, and the scene's people speak as it says. `lune-sim --live` picks
+    another."""
     speech: SpeechConfig
     """What the people say: where it is kept once synthesized, and where it is played."""
     physics_dt: float
@@ -71,3 +75,12 @@ class SimConfig(RVABaseModel):
         if scene not in SCENES:
             raise ValueError(f"No scene {scene!r}; there are {sorted(SCENES)}")
         return scene
+
+    @model_validator(mode="after")
+    def _live_in_scene(self) -> Self:
+        if self.live is not None:
+            try:
+                describe(self.scene).with_live(self.live)
+            except IndexError as error:
+                raise ValueError(error.args[0]) from error
+        return self

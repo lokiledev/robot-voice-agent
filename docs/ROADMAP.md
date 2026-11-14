@@ -92,7 +92,8 @@ what exists and why.
   ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). She says her scene's lines at their times,
   synthesized once by Kokoro and played into the `rva_sim_room` PipeWire sink the agent listens
   to, her mouth opening as loud as the line is: one viseme, `AA_VI_10_aa`, not the shapes of the
-  sounds yet. `npc walk` still slides one sideways without walk clips, and they do not turn to
+  sounds yet. `--live` hands one of them to the real microphone instead, the mouth following its
+  level. `npc walk` still slides one sideways without walk clips, and they do not turn to
   the robot or look at it. Her talking gestures and her lines are not tied: she may gesture in
   silence or speak while idling.
 - **Onboarding in the simulation.** The Reachy profile has a face database and an admins file of
@@ -100,9 +101,9 @@ what exists and why.
   named becomes an operator. The profile sets `active_speaker: null`, which hands each
   utterance to the face in front. In `animated_pair` her mouth now follows her lines, so
   Light-ASD could see her speak: **try putting it back in `config/reachy_mini_sim/runtime.yaml`**.
-  Someone talking to the simulated robot through the real microphone, mixed into the room by
-  `62-rva-sim-room-mic.conf`, is in no camera's view, though, and Light-ASD would find nobody
-  speaking: a live session wants it off, a scripted one on.
+  Someone talking through the real microphone does so as a live person in the scene, whose mouth
+  moves with their voice, so Light-ASD sees them speak too; how well it does on a mouth that only
+  opens and shuts is untested.
 - **Reachy's gestures and the agent's gaze go to the mock's body API**, not to the simulated
   head, which follows the attention alone: a body client over kickmsg is to replace it, and to
   decide with the attention who has the head.

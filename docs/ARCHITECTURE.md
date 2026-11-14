@@ -181,9 +181,11 @@ flowchart TB
   processed at 16 kHz inside the chip, which is the rate the ASR wants anyway. With another
   microphone, PipeWire's WebRTC canceller does it between `rva_ec_sink` and `rva_ec_source`.
 - **The simulated room as a microphone.** In the simulation, the agent listens to a PipeWire sink,
-  `rva_sim_room`, through its monitor: the simulated people's lines are played into it, and the
-  reSpeaker is mixed in by a loopback. No code reads the simulation's sound: it is a microphone
-  like another, recorded as `audio/microphone`, and timed as the frames are captured.
+  `rva_sim_room`, through its monitor: the simulation plays the scripted people's lines into it,
+  and relays the reSpeaker's voice for a live one, whose mouth it moves. The agent's code does
+  not know the room: it is a microphone like another, recorded as `audio/microphone`, and timed
+  as the frames are captured. The simulation relays the real microphone rather than PipeWire, so
+  that the room hears it only when someone speaks for a person in the scene.
 
 ### Vision
 

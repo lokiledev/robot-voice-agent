@@ -3,9 +3,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from rva_robot_sim.scenes import Line
-from rva_robot_sim.speech import SpokenLine, bake
+from rva_robot_sim.speech import LiveMouth, LiveMouthConfig, ScriptedMouth, SpokenLine, bake
 from rva_schemas.abc.speech import SpeechSynthesizer
 from rva_schemas.audio import AudioClip
 
@@ -67,3 +68,32 @@ def test_the_mouth_opens_as_loud_as_the_line(time: float, opening: float) -> Non
     line = SpokenLine(at_s=1.0, clip=AudioClip(samples=samples, sample_rate=1000))
 
     assert line.opening(time) == pytest.approx(opening)
+
+
+def test_a_scripted_mouth_opens_for_the_line_said() -> None:
+    loud = AudioClip(samples=np.full(1000, 0.3, np.float32), sample_rate=1000)
+    mouth = ScriptedMouth([SpokenLine(at_s=1.0, clip=loud), SpokenLine(at_s=5.0, clip=loud)])
+
+    assert [mouth.opening(time) for time in (0.5, 1.5, 3.0, 5.5)] == [0.0, 1.0, 0.0, 1.0]
+
+
+@pytest.mark.parametrize(
+    ("level", "opening"),
+    [
+        (0.0, 0.0),  # Silence.
+        (0.001, 0.0),  # The room's hum: -60 dBFS.
+        (10 ** (-40 / 20), 0.5),  # Halfway from closed to open, in dB.
+        (0.5, 1.0),  # Shouting: -6 dBFS.
+    ],
+)
+def test_a_live_mouth_opens_as_loud_as_the_microphone(level: float, opening: float) -> None:
+    mouth = LiveMouth(LiveMouthConfig(closed_dbfs=-50, open_dbfs=-30))
+
+    mouth.hear(np.full(240, level, np.float32))
+
+    assert mouth.opening(123.0) == pytest.approx(opening)
+
+
+def test_a_live_mouth_closes_below_where_it_opens() -> None:
+    with pytest.raises(ValidationError, match="not below open"):
+        LiveMouthConfig(closed_dbfs=-20, open_dbfs=-30)
