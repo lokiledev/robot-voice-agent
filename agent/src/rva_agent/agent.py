@@ -64,6 +64,13 @@ _OWN_FAILURE: Final = ' Say it as your own failure, like "I couldn\'t ..."; neve
 # in a breath with a question ("I'm Ben, can you tell us a story?") is cut off by the question.
 # They move nothing, unlike the body's tools, which are dropped with the reply.
 _KEPT_WHEN_TALKED_OVER: Final = frozenset({"remember_person", "rename_person"})
+# Asked, unheard, after a turn of someone unknown in which nothing was remembered: Qwen skips the
+# call now and then, most of all when a question comes with the name, and the name is then lost.
+_NAME_CHECK: Final = (
+    "Did the unknown person on track {track_id} just tell you their name? If they did, call"
+    " remember_person with it now. If they did not, call nothing. Answer with no words: nobody"
+    " hears this."
+)
 _REPEATED: Final = ToolResult(
     content='{"error": "You just called this, and it was not run again. Do not call it again now."}',
     needs_reply=False,
@@ -259,7 +266,13 @@ class Agent:
             await self._body.stay()
             await self._say_fixed("Stopping.")
             return
-        await self._respond(listener)
+        called = await self._respond(listener)
+        if (
+            isinstance(speaker, SeenSpeaking)
+            and self._unknown_in_view(speaker.track_id)
+            and not any(name in _KEPT_WHEN_TALKED_OVER for name, _ in called)
+        ):
+            await self._remember_if_named(speaker.track_id, called)
 
     async def _on_task_end(self, task: Task) -> None:
         self._history.append(RobotEventMessage(content=_describe_end(task)))
@@ -390,11 +403,14 @@ class Agent:
         motion = self._body.active
         return None if motion is None else describe(motion.action)
 
-    async def _respond(self, listener: int | None) -> None:
+    async def _respond(self, listener: int | None) -> set[tuple[str, str]]:
         """Let the LLM speak and call tools until it has nothing left to do.
 
         `listener` is the track of the person answered, if it is one person: when they are engaged
         as the reply starts and stop being so, the reply stops after its sentence.
+
+        Returns:
+            The calls run, by name and arguments.
         """
         keep_going = self._while_listening(listener)
         # The calls made in this turn, by name and arguments.
@@ -428,7 +444,7 @@ class Agent:
                     )
                     for call in kept:
                         await self._run_tool(call, called)
-                    return
+                    return called
                 case "cut_short":
                     self._add_robot_message(
                         AssistantMessage(content=spoken.text, tool_calls=()), interrupted=True
@@ -439,7 +455,7 @@ class Agent:
                         )
                     )
                     self._cut_short_for = listener
-                    return
+                    return called
                 case "finished":
                     pass
                 case _:
@@ -449,7 +465,7 @@ class Agent:
                 interrupted=False,
             )
             if not tool_calls:
-                return
+                return called
             needs_reply = False
             for call in tool_calls:
                 result = await self._run_tool(call, called)
@@ -457,10 +473,50 @@ class Agent:
             # Asking the LLM again here would only make it repeat what it just announced, or, with
             # nothing left to say, make something up: an event it expects, said aloud.
             if not needs_reply:
-                return
+                return called
         logger.warning(
             "The LLM was still calling tools after {} rounds", self._config.max_tool_rounds
         )
+        return called
+
+    def _unknown_in_view(self, track_id: int) -> bool:
+        """Whether the face on `track_id` is in view and nobody known, now.
+
+        Not as the utterance was attributed: a name remembered meanwhile, while the next line was
+        heard, counts.
+        """
+        if self._people is None or self._vision is None:
+            return False
+        face = next((face for face in self._vision.faces() if face.track_id == track_id), None)
+        return face is not None and face.person is None
+
+    async def _remember_if_named(self, track_id: int, called: set[tuple[str, str]]) -> None:
+        """Ask the LLM, unheard, whether the unknown person on `track_id` told their name.
+
+        Only remember_person is offered, and only its calls are run. The question and the answer
+        join the history only when a name was remembered.
+
+        Args:
+            track_id: Whoever just spoke, unknown.
+            called: The calls of this turn so far; those made here join them.
+        """
+        check = RobotEventMessage(content=_NAME_CHECK.format(track_id=track_id))
+        specs = tuple(spec for spec in self._tool_specs if spec.name == "remember_person")
+        with _tracer.start_as_current_span("llm:name_check"):
+            calls = tuple(
+                [
+                    output
+                    async for output in self._llm.stream((*self._history.messages, check), specs)
+                    if isinstance(output, ToolCall) and output.name == "remember_person"
+                ]
+            )
+        logger.info("Checked whether track {} told their name: {}", track_id, calls or "no")
+        if not calls:
+            return
+        self._history.append(check)
+        self._history.append(AssistantMessage(content="", tool_calls=calls))
+        for call in calls:
+            await self._run_tool(call, called)
 
     async def _run_tool(self, call: ToolCall, called: set[tuple[str, str]]) -> ToolResult:
         """Run a call of this turn, recorded with its result, which goes into the history.

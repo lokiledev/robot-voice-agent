@@ -305,7 +305,8 @@ async def test_unknown_places_and_animations_are_listed_back() -> None:
 
 
 async def test_each_user_turn_names_who_was_in_front() -> None:
-    llm = ScriptedLanguageModel([[TextDelta(text="Sure.")], [TextDelta(text="Hi.")]])
+    # The last turn: whether the unknown person told their name; they did not.
+    llm = ScriptedLanguageModel([[TextDelta(text="Sure.")], [TextDelta(text="Hi.")], []])
     vision = FakeVision([_face(1, person("Bob"), nearest=True), _face(2, None, nearest=False)])
     vla = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
     user = QueueUserInput()
@@ -337,7 +338,7 @@ async def test_each_user_turn_names_who_was_in_front() -> None:
     user.leave()
     await running
 
-    assert [request[-1].content for request in llm.requests] == [
+    assert [request[-1].content for request in llm.requests][:2] == [
         "[Bob, track 1] Go to the shelf.",
         "[unknown person, track 2] Hello?",
     ]

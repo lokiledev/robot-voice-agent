@@ -179,6 +179,13 @@ flowchart TB
   their name and asks a question in one breath ("I'm Ben, can you tell us a story?") makes two
   turns, at the pause, and the question talks over the reply to the name; in the simulation, the
   robot never remembered Ben until then.
+- **A name the LLM skipped.** Qwen still leaves out `remember_person` now and then, most of all
+  when a question comes with the name. So after a turn of someone unknown in view in which no
+  name was taken, one more round asks it, unheard, whether they told their name, with only
+  `remember_person` to call. The question and its answer join the history only when a name was
+  remembered. Replaying the `newcomer` conversation up to Ben's line ten times, he was remembered
+  9 times without the check and 10 with it, his line cut in two as it was; 6 and 10 said in one
+  piece. The check costs one LLM round after each turn of an unknown person, before the next.
 - **Not interrupting itself.** With speakers, three layers keep Lune from hearing its own voice:
   the echo canceller subtracts what it plays from the microphone, a barge-in needs clearer and
   longer speech while it talks, and a transcript repeating what it said in the last 2 s is
