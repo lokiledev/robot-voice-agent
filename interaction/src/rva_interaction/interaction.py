@@ -5,6 +5,7 @@ from typing import Final, assert_never
 
 from loguru import logger
 
+from rva_interaction.bearings import speech_bearing
 from rva_interaction.config import InteractionConfig
 from rva_interaction.engagement import EngagementTracker
 from rva_interaction.gaze import GazeHistory
@@ -14,6 +15,7 @@ from rva_schemas.dialogue import NobodySeenSpeaking, SeenSpeaking, SpeechSpan, U
 from rva_schemas.frames import StaticTransforms
 from rva_schemas.interaction import EngagementEvent, EngagementState
 from rva_schemas.observation import VisualObservation
+from rva_schemas.record import Measurement
 from rva_schemas.sound import HeardDirection
 
 
@@ -38,10 +40,14 @@ class Interaction:
             score_delay_s: How long before its frame the moment the active speaker scores is;
                 `None` without an active speaker, when no utterance can be attributed.
             transforms: Turn where a microphone array hears speech from into the camera's frame.
-            recorder: Receives the engagement of each frame.
+            recorder: Receives the engagement of each frame, and each direction heard as a
+                bearing from the camera, `doa/bearing_deg`.
         """
         self._config: Final = config
         self._recorder: Final = recorder
+        self._transforms: Final = transforms
+        self._camera_frame: str | None = None
+        """The camera's link, once a frame of it is seen."""
         self._engagement: Final = EngagementTracker(config.engagement, config.eye_contact_deg)
         self._gaze: Final = GazeHistory(config.history_s, config.eye_contact_deg)
         self._speakers: Final = (
@@ -71,11 +77,19 @@ class Interaction:
             self.hear_direction(direction)
 
     def hear_direction(self, direction: HeardDirection) -> None:
-        """Take where a microphone array hears speech from; ignored without an active speaker."""
+        """Take where a microphone array hears speech from.
+
+        It tells who speaks only with an active speaker; it is recorded either way.
+        """
+        if self._camera_frame is not None:
+            bearing = speech_bearing(direction, self._camera_frame, self._transforms)
+            if bearing is not None:
+                self._recorder.record(Measurement(name="doa/bearing_deg", value=bearing))
         if self._speakers is not None:
             self._speakers.hear(direction)
 
     def observe(self, observation: VisualObservation) -> EngagementState:
+        self._camera_frame = observation.people.frame
         self._gaze.observe(observation)
         if self._speakers is not None:
             self._speakers.observe(observation)

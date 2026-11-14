@@ -6,9 +6,13 @@ import pytest
 from pydantic import ValidationError
 
 from rva_app.config import RuntimeConfig, load_admins
+from rva_app.doa import RobotDoaConfig
+from rva_interaction.bearings import speech_bearing
 from rva_pydantic import load_yaml
 from rva_robot_sim.config import SimConfig
+from rva_schemas.frames import StaticTransforms
 from rva_schemas.profile import Admins
+from rva_schemas.sound import HeardDirection
 from rva_schemas.vision import CameraIntrinsics
 from rva_vision_faces.config import RobotSource
 
@@ -112,3 +116,69 @@ def test_the_respeaker_needs_a_transform_to_the_camera() -> None:
 
     with pytest.raises(ValidationError, match="No transform between"):
         RuntimeConfig.model_validate({**config.model_dump(), "transforms": ()})
+
+
+@pytest.mark.parametrize(("azimuth_deg", "bearing_deg"), [(0.0, 0.0), (30.0, -30.0), (-50.0, 50.0)])
+def test_the_simulated_microphones_hear_from_where_the_camera_sees(
+    azimuth_deg: float, bearing_deg: float
+) -> None:
+    config = RuntimeConfig.load(_REPOSITORY / "config" / "reachy_mini_sim")
+    assert isinstance(config.doa, RobotDoaConfig)
+    # The array's azimuths grow to the left, a camera's bearings to the right.
+    heard = HeardDirection(
+        time=0.0, frame=config.doa.frame, speech_azimuth=math.radians(azimuth_deg)
+    )
+
+    bearing = speech_bearing(heard, config.vision.camera.frame, StaticTransforms(config.transforms))
+
+    # Within the profile's rounding of a quarter turn.
+    assert bearing == pytest.approx(bearing_deg, abs=1e-4)
+
+
+def test_the_robots_microphones_need_a_robot() -> None:
+    config = RuntimeConfig.load(_REPOSITORY / "config" / "reachy_mini_sim")
+    # The default profile's camera, which needs no robot either.
+    webcam = RuntimeConfig.load(_REPOSITORY / "config" / "default").vision
+
+    with pytest.raises(ValidationError, match="doa is the robot's, but there is no robot"):
+        RuntimeConfig.model_validate(
+            {
+                **config.model_dump(),
+                "robot": None,
+                "vision": webcam.model_dump(),
+                "head_controller": None,
+            }
+        )
+
+
+def test_directions_of_arrival_need_the_active_speaker() -> None:
+    config = RuntimeConfig.load(_REPOSITORY / "config" / "reachy_mini_sim")
+
+    with pytest.raises(ValidationError, match="only help the active speaker"):
+        RuntimeConfig.model_validate({**config.model_dump(), "active_speaker": None})
+
+
+@pytest.mark.parametrize(
+    ("azimuth_deg", "bearing_deg"),
+    [
+        # Measured with `lune doa`: someone talking straight in front of the camera.
+        (176.0, 0.0),
+        # The board's azimuths grow to its left, which faces back: to the camera's left.
+        (206.0, -30.0),
+        (146.0, 30.0),
+    ],
+)
+def test_the_respeaker_hears_ahead_of_the_camera_behind_its_own_zero(
+    azimuth_deg: float, bearing_deg: float
+) -> None:
+    config = RuntimeConfig.load(_REPOSITORY / "config" / "default")
+    assert config.doa is not None
+    heard = HeardDirection(
+        time=0.0, frame=config.doa.frame, speech_azimuth=math.radians(azimuth_deg)
+    )
+
+    bearing = speech_bearing(heard, config.vision.camera.frame, StaticTransforms(config.transforms))
+
+    # The board is pitched 4 degrees off flat: a bearing turns a little differently from the
+    # azimuth.
+    assert bearing == pytest.approx(bearing_deg, abs=0.5)

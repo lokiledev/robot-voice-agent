@@ -16,7 +16,7 @@ class CameraMonitor:
 
     Each live frame is drawn over with the people seen in it, the point attended to and who is
     engaged, from the last attention and engagement recorded, then shown, with how loud the
-    microphone and the robot's voice have been. It consumes records like any other recorder: nothing of
+    microphone and the robot's voice have been, and where speech was last heard from. It consumes records like any other recorder: nothing of
     what it shows is routed back to the camera pipeline. Live frames come in the thread that
     records them, the camera's, which the window lives in; the attention may come from any
     thread.
@@ -46,6 +46,8 @@ class CameraMonitor:
         self._engagement: dict[int, PersonEngagement] = {}
         """By track id; empty until an engagement is recorded, from any thread."""
         self._sound: Final = SoundLevels(HISTORY_S)
+        self._heard: tuple[float, float] | None = None
+        """The last bearing speech was heard from, in degrees right of the camera, and when."""
 
     def record(self, entry: Record) -> None:
         match entry:
@@ -59,6 +61,8 @@ class CameraMonitor:
                 self._sound.hear(entry, time.monotonic())
             case Measurement(name="vad"):
                 self._sound.speech(entry.value, time.monotonic())
+            case Measurement(name="doa/bearing_deg"):
+                self._heard = (entry.value, time.monotonic())
             case _:
                 return
 
@@ -87,6 +91,7 @@ class CameraMonitor:
             engagement,
             attention,
             self._sound.series(),
+            self._heard,
         )
         if key == "q":
             # Closed by the user: it stays closed while the camera goes on.

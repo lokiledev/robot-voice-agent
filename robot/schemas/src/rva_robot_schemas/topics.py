@@ -2,8 +2,8 @@
 
 The robot, simulated or real, creates its topics when it starts, and the head controller its
 mailboxes; clients open them and wait for them if they are not up yet. Joint states, commands,
-head poses and gaze targets travel as the JSON of their model, frames as `encode_frame` writes
-them.
+sound directions, head poses and gaze targets travel as the JSON of their model, frames as
+`encode_frame` writes them.
 """
 
 from typing import Final
@@ -14,6 +14,8 @@ JOINT_STATE: Final = "joint_state"
 """`JointState`, published by the robot."""
 CAMERA: Final = "camera"
 """`CameraFrame` from the head camera, published by the robot."""
+SOUND_DIRECTION: Final = "sound_direction"
+"""`SoundDirection`, where the robot's microphones hear speech from, published by the robot."""
 JOINT_COMMAND: Final = "joint_command"
 """`JointCommand`, a mailbox of the robot's node that any client may send to."""
 HEAD_CONTROLLER_NODE: Final = "head_controller"

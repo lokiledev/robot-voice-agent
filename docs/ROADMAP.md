@@ -110,10 +110,10 @@ what exists and why.
   decide with the attention who has the head.
 - **The head controller goes straight to each pose** it is sent, with no trajectory or speed
   limit, and does not notice a robot that stopped until its commands pile up.
-- **Direction of arrival is not simulated.** The reSpeaker's is read in `rva-voice-respeaker`,
-  and the Reachy profile has none (`respeaker: null`), so in the simulation the sound's direction
-  never picks the face speaking. To make it a sensor with a simulated implementation: while a
-  person speaks, the direction from the robot to them.
+- **The simulated direction of arrival is exact.** The simulated microphones hear the loudest
+  person speaking from their head, with no error, delay or echoes, where the reSpeaker is off
+  by several degrees and 60 ms late. Light-ASD is back on in the Reachy profile with it; how
+  well the two pick the face speaking among the simulated people is not measured yet.
 - **The simulated head looks around too fast and gets stuck.** In a `greeting` run it moved
   quickly, then caught a face far in the background, turned fully aside and stayed there a
   while. To try: filtering or rate-limiting the gaze targets, and recentring slowly when no one

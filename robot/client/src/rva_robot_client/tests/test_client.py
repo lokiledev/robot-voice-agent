@@ -13,6 +13,7 @@ from rva_robot_client.head import gaze_targets, head_targets, open_gaze_sender, 
 from rva_robot_schemas.camera import CameraFrame
 from rva_robot_schemas.head import GazeTarget, HeadPose
 from rva_robot_schemas.joints import JointCommand, JointReading, JointState, JointTarget
+from rva_robot_schemas.sound import SoundDirection
 from rva_robot_sim.bus import RobotBus
 
 
@@ -68,6 +69,22 @@ async def test_frames_arrive_whole(namespace: str) -> None:
 
     assert frame.timestamp == 5.0
     np.testing.assert_array_equal(frame.image, image)
+
+
+async def test_where_speech_is_heard_from_reaches_the_client(namespace: str) -> None:
+    bus = RobotBus(namespace, (4, 2))
+    try:
+        async with (
+            open_robot(_config(namespace), "test_client") as robot,
+            robot.sound_directions() as directions,
+        ):
+            bus.publish_sound_direction(SoundDirection(timestamp=5.0, speech_azimuth=0.5))
+
+            direction = await anext(directions)
+    finally:
+        bus.close()
+
+    assert direction == SoundDirection(timestamp=5.0, speech_azimuth=0.5)
 
 
 async def test_a_robot_that_is_not_up_is_reported(namespace: str) -> None:

@@ -22,6 +22,7 @@ from rva_agent.prompt import render_system_prompt
 from rva_agent.sentences import split_sentences
 from rva_agent.tools import TaskTools
 from rva_app.config import RuntimeConfig, load_admins
+from rva_app.doa import open_sound_directions
 from rva_app.gaze import GazeOut, gaze_out
 from rva_app.head import control_head
 from rva_app.page import MergedInput, Recorders, serve_page
@@ -55,6 +56,7 @@ from rva_robot_schemas.topics import HEAD_CONTROLLER_NODE, HEAD_TARGET, JOINT_CO
 from rva_robot_sim.npc import SimulationNotRunningError, start_scenario
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
+from rva_schemas.abc.sound import SoundDirections
 from rva_schemas.abc.speaker import SpeakerDetector
 from rva_schemas.dialogue import (
     AssistantMessage,
@@ -89,7 +91,6 @@ from rva_vision_viewer.monitor import CameraMonitor
 from rva_vla_client.client import HttpVlaClient
 from rva_voice_audio.devices import Microphone
 from rva_voice_respeaker.control import ReSpeakerUnavailableError
-from rva_voice_respeaker.respeaker import ReSpeaker, open_respeaker
 
 app = cyclopts.App(
     name="lune",
@@ -243,7 +244,7 @@ def doa(*, profile: ProfileDir = _DEFAULT_PROFILE, open_rerun: bool = False) -> 
         open_rerun: Open a rerun viewer, and stream the recording to it, with each beam's
             azimuth and speech energy.
     """
-    _run(_doa(profile, open_rerun))
+    _run(_print_doa(profile, open_rerun))
 
 
 @app.command
@@ -582,9 +583,7 @@ async def _listen(
             await _print_heard(voice)
             return
         # The array hears the room now, not the file's.
-        respeaker = await stack.enter_async_context(
-            _respeaker(config, recorder, listening=replay is None)
-        )
+        doa = await stack.enter_async_context(_doa(config, recorder, listening=replay is None))
         vision = await asyncio.to_thread(
             _face_vision,
             config,
@@ -601,7 +600,7 @@ async def _listen(
             config.attention,
             gaze_out(config),
             interaction,
-            respeaker,
+            doa,
             recorder,
             None,
         )
@@ -638,17 +637,17 @@ async def _print_heard(user_input: UserInput) -> None:
         write(f"{who}{utterance.text}  [{delay_ms:.0f} ms after the end of the turn]\n")
 
 
-async def _doa(profile_dir: Path, viewer: bool) -> None:
+async def _print_doa(profile_dir: Path, viewer: bool) -> None:
     config = RuntimeConfig.load(profile_dir)
-    if config.respeaker is None:
-        raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no respeaker")
+    if config.doa is None:
+        raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no doa")
     recorder = start_session(config.observability, "doa", viewer=viewer, console_level="WARNING")
     camera = config.vision.camera.frame
     transforms = _transforms(config)
-    async with open_respeaker(config.respeaker, recorder) as respeaker:
+    async with open_sound_directions(config.doa, config.robot, recorder) as doa:
         write("Listening for where speech comes from. Ctrl+C to stop.\n")
         printed = -math.inf
-        async for direction in respeaker.directions():
+        async for direction in doa.directions():
             if direction.speech_azimuth is None or direction.time - printed < _DOA_PRINT_S:
                 continue
             printed = direction.time
@@ -720,7 +719,7 @@ async def _run_voice_agent(
             else Interaction(config.interaction, delay_s, _transforms(config), recorder)
         )
         async with (
-            _respeaker(config, recorder, listening=speaker is not None) as respeaker,
+            _doa(config, recorder, listening=speaker is not None) as doa,
             open_voice_output(config.audio, config.tts, speaking, recorder) as speech,
             open_voice_input(
                 config.audio,
@@ -744,7 +743,7 @@ async def _run_voice_agent(
                 vision,
                 monitor,
                 interaction,
-                respeaker,
+                doa,
             )
 
 
@@ -759,7 +758,7 @@ async def _run_agent(
     vision: FaceVision | None,
     monitor: CameraMonitor | None,
     interaction: Interaction | None,
-    respeaker: ReSpeaker | None,
+    doa: SoundDirections | None,
 ) -> None:
     if interaction is not None:
         user_input = AttributedInput(user_input, interaction)
@@ -785,7 +784,7 @@ async def _run_agent(
         config.attention,
         gaze_out(config),
         interaction,
-        respeaker,
+        doa,
         recorder,
         # For the launcher, which starts the simulation's scenario then.
         notify_ready,
@@ -1014,11 +1013,9 @@ async def _see(
                 )
                 # The speaker detector takes the sound in the audio thread; nothing else needs it.
                 tasks.append(group.create_task(_drain(microphone.frames())))
-                respeaker = await stack.enter_async_context(
-                    _respeaker(config, recorder, listening=True)
-                )
-                if respeaker is not None:
-                    tasks.append(group.create_task(interaction.listen(respeaker.directions())))
+                doa = await stack.enter_async_context(_doa(config, recorder, listening=True))
+                if doa is not None:
+                    tasks.append(group.create_task(interaction.listen(doa.directions())))
             seeing = group.create_task(vision.run())
             # Until the camera fails or the window is closed.
             await asyncio.wait([seeing, tasks[2]], return_when=asyncio.FIRST_COMPLETED)
@@ -1086,13 +1083,13 @@ async def _speaker(config: ActiveSpeakerConfig | None) -> SpeakerDetector | None
     return None if config is None else await asyncio.to_thread(open_light_asd, config)
 
 
-def _respeaker(
+def _doa(
     config: RuntimeConfig, recorder: Recorder, *, listening: bool
-) -> AbstractAsyncContextManager[ReSpeaker | None]:
+) -> AbstractAsyncContextManager[SoundDirections | None]:
     """The profile's microphone array, if it has one and the room is listened to."""
-    if config.respeaker is None or not listening:
+    if config.doa is None or not listening:
         return contextlib.nullcontext(None)
-    return open_respeaker(config.respeaker, recorder)
+    return open_sound_directions(config.doa, config.robot, recorder)
 
 
 def _transforms(config: RuntimeConfig) -> StaticTransforms:
@@ -1213,14 +1210,14 @@ async def _with_vision(
     attention: VisualAttentionConfig,
     gaze: GazeOut | None,
     interaction: Interaction | None,
-    respeaker: ReSpeaker | None,
+    doa: SoundDirections | None,
     recorder: Recorder,
     on_ready: Callable[[], None] | None,
 ) -> None:
     """Run `main` while the camera is watched, shown and attended to.
 
     With `gaze`, the head looks at the attention's target; with an `interaction`, it is shown what
-    the camera sees meanwhile, and told where `respeaker` hears speech from. `on_ready` is called
+    the camera sees meanwhile, and told where `doa` hears speech from. `on_ready` is called
     once all of it runs: once the first frame is seen, or at once without a camera.
 
     A camera failure stops `main`; closing the window only closes it.
@@ -1238,8 +1235,8 @@ async def _with_vision(
             watching = [group.create_task(_attend(vision, attention, gaze, recorder))]
             if interaction is not None:
                 watching.append(group.create_task(_interact(vision, interaction)))
-                if respeaker is not None:
-                    watching.append(group.create_task(interaction.listen(respeaker.directions())))
+                if doa is not None:
+                    watching.append(group.create_task(interaction.listen(doa.directions())))
             await main
             seeing.cancel()
             for task in watching:

@@ -30,6 +30,9 @@ speech:
 physics_dt: 0.005
 state_rate: 100
 camera_fps: 30
+# As often as the reSpeaker gives them to the agent (doa.poll_hz in the default profile):
+# its chip updates them every 15 ms, but each USB read takes 15 ms, two per direction.
+doa_hz: 20
 # Nyx needs an NVIDIA GPU with ray tracing; `kind: rasterizer` renders anywhere, flat.
 camera_renderer:
   kind: nyx

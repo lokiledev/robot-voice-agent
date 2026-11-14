@@ -14,12 +14,15 @@ from gs_nyx_plugin.nyx_camera_options import NyxCameraOptions
 
 from rva_robot_schemas.camera import CameraFrame
 from rva_robot_schemas.joints import JointCommand, JointReading, JointState
+from rva_robot_schemas.sound import SoundDirection
 from rva_robot_sim import nyx_skinned
 from rva_robot_sim.actor import Actor, vertex_order
 from rva_robot_sim.config import CameraRenderer, NyxRenderer, Rasterizer
+from rva_robot_sim.hearing import heard_azimuth
 from rva_robot_sim.mjcf import CameraMount, read_facts
 from rva_robot_sim.npc import PersonPose
 from rva_robot_sim.people import standing
+from rva_robot_sim.skinning import Floats
 
 _TABLE_SIZE: Final = (0.6, 1.0)
 """Depth and width of the table top, in meters."""
@@ -30,6 +33,8 @@ _FLOOR_COLOR: Final = (0.42, 0.4, 0.37)
 """A grey concrete, rather than Genesis' checkerboard."""
 _SUN: Final = {"type": "directional", "dir": (-0.3, 0.2, -0.9), "intensity": 3.0, "shadow": True}
 """High, from behind the robot on its left, for Nyx."""
+_SPEAKING: Final = 0.1
+"""How loud a person must be, as their mouth opens from 0 to 1, to be heard speaking."""
 _NEAR_M: Final = 0.02
 _FAR_M: Final = 50.0
 
@@ -110,6 +115,9 @@ class ReachyMiniScene:
             gs.morphs.MJCF(file=str(mjcf), pos=(0.0, 0.0, table_height))
         )
         mount = facts.head_camera
+        self._mount: Final = mount
+        # Each person's loudness and head, as last animated.
+        self._voices: list[tuple[float, Floats]] = []
         if isinstance(renderer, NyxRenderer):
             # Nyx would show the people still, in their rest pose.
             nyx_skinned.install()
@@ -169,9 +177,24 @@ class ReachyMiniScene:
 
     def animate(self, time: float) -> None:
         """Pose the people as they are `time` seconds into the simulation; before a render."""
+        voices = []
         for (entity, actor), order in zip(self._people.values(), self._orders, strict=True):
             bones = actor.pose(time)
             entity.set_vverts(actor.vertices(bones, time)[order])
+            voices.append((actor.voice(time), actor.head(bones)))
+        self._voices = voices
+
+    def sound_direction(self, timestamp: float) -> SoundDirection:
+        """Where the microphones hear speech from, as the people were last animated.
+
+        From the loudest person speaking, at their head; none when nobody speaks.
+        """
+        speaking = [(loudness, head) for loudness, head in self._voices if loudness > _SPEAKING]
+        if not speaking:
+            return SoundDirection(timestamp=timestamp, speech_azimuth=None)
+        _, head = max(speaking, key=lambda voice: voice[0])
+        camera = self.link_pose(self._mount.body) @ _transform(self._mount)
+        return SoundDirection(timestamp=timestamp, speech_azimuth=heard_azimuth(camera, head))
 
     def joint_state(self, timestamp: float) -> JointState:
         positions = self._robot.get_dofs_position(self._dofs).numpy()

@@ -169,10 +169,16 @@ attention:
 # The simulation's own, since the ids are those of its face database.
 admins: ~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml
 
-# Light-ASD: which face speaks, from its lips and the microphone together. Left out: the avatar's
-# lips do not move yet, so it would never be seen speaking and every utterance would be dropped.
-# Without it, each utterance is the face in front's: the avatar's, that the microphone speaks for.
-active_speaker: null
+# Light-ASD: which face speaks, from its lips and the microphone together: the simulated people's
+# mouths open with their lines, and a live person's with the microphone. As in the default
+# profile.
+active_speaker:
+  device: cuda
+  model_dir: ~/.cache/robot-voice-agent/models
+  window_s: 1.0
+  delay_s: 0.12
+  enter: -1.0
+  leave: -1.3
 
 # Where perception meets the dialogue: who pays attention to the robot, which face said each
 # utterance and whether to the robot. None of it is tuned on recordings of several people yet.
@@ -236,8 +242,20 @@ media_server:
 observability:
   captures_dir: ~/Captures/robot-voice-agent
 
-respeaker: null
-transforms: []
+# Direction of arrival: the simulated robot's microphones, in its head at the camera, which hear
+# speech from the head of the person speaking (rva_robot_sim.hearing).
+doa:
+  kind: robot
+  frame: head_microphones
+
+# The microphones' frame has x along the camera's view, y to the image's left and z up it: from
+# the optical frame (z ahead, x right, y down), as the reSpeaker's would be lying flat facing
+# ahead.
+transforms:
+  - parent: eye_camera_optical
+    child: head_microphones
+    xyz: [0.0, 0.0, 0.0]
+    rpy: [1.5707963, -1.5707963, 0.0]
 
 audio:
   # The simulated room, config/pipewire/61-rva-sim-room.conf: what the simulated people say, with

@@ -5,6 +5,7 @@ from loguru import logger
 from pydantic import model_validator
 
 from rva_agent.config import AgentConfig
+from rva_app.doa import DoaConfig, RobotDoaConfig
 from rva_attention.config import VisualAttentionConfig
 from rva_body_client.client import HttpBodyClientConfig
 from rva_interaction.config import InteractionConfig
@@ -24,7 +25,6 @@ from rva_vision_viewer.stream import VideoStreamConfig
 from rva_vla_client.client import HttpVlaClientConfig
 from rva_voice_asr.parakeet import ParakeetConfig
 from rva_voice_audio.config import AudioConfig
-from rva_voice_respeaker.config import ReSpeakerConfig
 from rva_voice_tts.kokoro import KokoroConfig
 
 
@@ -67,9 +67,9 @@ class RuntimeConfig(RVABaseModel):
     """Which face speaks, from the camera and the microphone; `None` to leave it out."""
     interaction: InteractionConfig
     """Who pays attention to the robot, and who each utterance is from and to."""
-    respeaker: ReSpeakerConfig | None
-    """The microphone array asked where speech comes from, to tell who said it; `None` without
-    one."""
+    doa: DoaConfig | None
+    """The microphone array that tells where speech comes from, its direction of arrival, to
+    tell who said it: the reSpeaker, or the robot's own; `None` without one."""
     transforms: tuple[FrameTransform, ...]
     """Where links are fixed relative to each other, until the robot's description tells it."""
     admins: Path
@@ -85,10 +85,12 @@ class RuntimeConfig(RVABaseModel):
             raise ValueError("vision.camera.source is the robot's, but there is no robot")
         if self.head_controller is not None and self.robot is None:
             raise ValueError("There is a head controller, but no robot for it to drive")
-        if self.respeaker is not None:
+        if self.doa is not None:
             if self.active_speaker is None:
-                raise ValueError("The reSpeaker's directions only help the active speaker")
-            camera, array = self.vision.camera.frame, self.respeaker.frame
+                raise ValueError("Directions of arrival only help the active speaker")
+            if isinstance(self.doa, RobotDoaConfig) and self.robot is None:
+                raise ValueError("doa is the robot's, but there is no robot")
+            camera, array = self.vision.camera.frame, self.doa.frame
             if not StaticTransforms(self.transforms).connects(camera, array):
                 raise ValueError(f"No transform between the camera's {camera} and the {array}")
         return self

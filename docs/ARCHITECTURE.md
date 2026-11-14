@@ -453,6 +453,17 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
   decide: a flat array of four mics 66 mm apart is too rough to overrule them. The array only
   helps the active speaker, so a profile with one must have the other. Directions are not in
   the recordings replayed with `lune listen --replay`.
+- **Direction of arrival as a sensor.** `SoundDirections` (`rva_schemas.abc.sound`) is any
+  microphone array that tells where it hears speech from, picked by the profile's `doa`: the
+  reSpeaker (`kind: respeaker`), or the robot's own microphones (`kind: robot`), which the
+  simulation publishes on the robot's `sound_direction` topic, 20 times a second as the
+  reSpeaker is read. Its array is in the head at the camera, and hears the loudest person
+  speaking, whose mouth is open, from their head (`rva_robot_sim.hearing`). Each array's
+  azimuth is in its own frame, and means nothing alone: the reSpeaker under the webcam has its
+  0 degrees behind, someone in front at 176, where the simulated one has it ahead. Everything
+  that reads a direction, the interaction, `lune doa` and the debug window's dial, turns it
+  first into a bearing from the camera through the profile's transform between the two links:
+  degrees right of the camera's axis. A test pins each profile's transform to it.
 - **Links.** What the camera sees names the camera's optical link, and each direction heard the
   array's link, so that both can be placed on the robot's description later. Until then, the
   profile's `transforms` fix one link to another, as a URDF joint's origin would; the links' names

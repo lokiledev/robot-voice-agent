@@ -61,6 +61,9 @@ class SimConfig(RVABaseModel):
     """Joint states published per second."""
     camera_fps: float
     """Frames from the head camera per second; their size and field of view are the MJCF's."""
+    doa_hz: float = Field(gt=0)
+    """Directions of arrival the microphones publish per second, as the person speaking was at
+    the last frame."""
     camera_renderer: CameraRenderer
 
     @field_validator("scenario")

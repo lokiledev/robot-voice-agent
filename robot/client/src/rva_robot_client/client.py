@@ -11,7 +11,8 @@ import numpy.typing as npt
 from rva_pydantic import RVABaseModel
 from rva_robot_schemas.camera import CameraFrame, decode_frame
 from rva_robot_schemas.joints import JointCommand, JointState
-from rva_robot_schemas.topics import CAMERA, JOINT_COMMAND, JOINT_STATE, ROBOT_NODE
+from rva_robot_schemas.sound import SoundDirection
+from rva_robot_schemas.topics import CAMERA, JOINT_COMMAND, JOINT_STATE, ROBOT_NODE, SOUND_DIRECTION
 
 _POLL_S: Final = 0.1
 """Longest a receive blocks its thread, so that cancelling a reader takes effect soon."""
@@ -31,7 +32,7 @@ class RobotUnavailableError(RuntimeError):
 
 
 class RobotClient:
-    """The robot's joints and head camera, over kickmsg, from any process of the machine."""
+    """The robot's joints, head camera and microphones, over kickmsg, from any local process."""
 
     def __init__(self, node: kickmsg.Node, commands: kickmsg.Publisher, silence_s: float) -> None:
         self._node: Final = node
@@ -63,6 +64,15 @@ class RobotClient:
         """
         subscriber = self._node.subscribe(CAMERA)
         yield self._latest(subscriber, CAMERA, decode_frame)
+
+    @asynccontextmanager
+    async def sound_directions(self) -> AsyncGenerator[AsyncIterator[SoundDirection]]:
+        """Subscribe to where the microphones hear speech from; each one yielded is the latest.
+
+        The iterator raises `RobotUnavailableError` once the robot has been silent too long.
+        """
+        subscriber = self._node.subscribe(SOUND_DIRECTION)
+        yield self._latest(subscriber, SOUND_DIRECTION, _decode_sound_direction)
 
     async def _latest[T](
         self, subscriber: kickmsg.Subscriber, topic: str, decode: Callable[[memoryview], T]
@@ -201,3 +211,7 @@ def receive_latest[T](
 
 def _decode_state(buffer: memoryview) -> JointState:
     return JointState.model_validate_json(bytes(buffer))
+
+
+def _decode_sound_direction(buffer: memoryview) -> SoundDirection:
+    return SoundDirection.model_validate_json(bytes(buffer))

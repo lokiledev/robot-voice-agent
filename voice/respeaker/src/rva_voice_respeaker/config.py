@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field
 
 from rva_pydantic import RVABaseModel
@@ -6,6 +8,7 @@ from rva_pydantic import RVABaseModel
 class ReSpeakerConfig(RVABaseModel):
     """The reSpeaker XVF3800 array, asked over USB where it hears speech from."""
 
+    kind: Literal["respeaker"] = "respeaker"
     frame: str
     """The array's link: the board's plane is its xy plane, with the azimuths the chip reports
     turning from its x axis towards its y axis."""

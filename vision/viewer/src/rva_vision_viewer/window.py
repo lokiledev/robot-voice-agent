@@ -13,6 +13,7 @@ from rva_schemas.attention import AttentionEntity, AttentionState, FaceEntity, H
 from rva_schemas.interaction import PersonEngagement
 from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import Body, DepthMap, Hand, Keypoint, MainUser, VisionTimings
+from rva_vision_viewer.dial import DoaDial
 from rva_vision_viewer.overlay import OverlayOptions
 
 _TITLE: Final = "lune see"
@@ -58,8 +59,8 @@ class DebugWindow:
 
     The camera image and, right of it, its depth once some is given, with the distance under the
     mouse, and under it the attention: the score of every face and hand that could be attended
-    to, a curve each, the one attended to marked. Then the timings and checkboxes for what is
-    drawn over the camera image. Underneath,
+    to, a curve each, the one attended to marked. Then the timings, checkboxes for what is
+    drawn over the camera image, and a dial of where speech is heard from. Underneath,
     across the window, a row per person in view: their gaze, expression and skeleton, a timeline
     of their signals, e.g. whether they look at the robot, one lane each, and a plot of how open
     their eyes and mouth have been. The rows share their time axis, so who speaks when reads
@@ -113,6 +114,7 @@ class DebugWindow:
                     )
                     self._main_user: Final = dpg.add_text(wrap=_PANEL_WIDTH)
                     self._unmatched: Final = dpg.add_text(color=_UNCONFIRMED)
+                    self._doa: Final = DoaDial()
             self._sound: Final = _SoundPlot()
             with dpg.child_window(height=_ROW_HEIGHT, border=False) as people:
                 self._people: Final = people
@@ -146,13 +148,16 @@ class DebugWindow:
         engagement: Mapping[int, PersonEngagement],
         attention: AttentionState | None,
         sound: Mapping[str, tuple[Sequence[float], Sequence[float]]],
+        heard: tuple[float, float] | None,
     ) -> str | None:
         """Show a frame, drawn over already, and what was seen in it.
 
         `engagement` is how much each person pays attention to the robot, by track id, and
         `attention` what could be attended to in the frame; `None` until some is known. `sound`
         is the times, from `time.monotonic`, and the values, from 0 to 1, of each series to plot
-        of the sound lately, by name: nothing is plotted while they are all empty.
+        of the sound lately, by name: nothing is plotted while they are all empty. `heard` is the
+        last bearing speech was heard from, in degrees right of the camera, and when, from
+        `time.monotonic`; `None` until one is, without a microphone array.
 
         Returns:
             A key pressed since the last frame, `q` once the window is closed, else `None`.
@@ -184,6 +189,7 @@ class DebugWindow:
             now, attention, (side_width, max(height - taken, _MIN_ATTENTION_HEIGHT))
         )
         dpg.set_value(self._timings, describe_timings(timings))
+        self._doa.update(heard, people.intrinsics, time.monotonic())
         self._show_people(people, engagement)
         dpg.set_value(self._main_user, describe_main_user(main_user))
         dpg.configure_item(

@@ -228,9 +228,11 @@ media_server:
 observability:
   captures_dir: ~/Captures/robot-voice-agent
 
-# The reSpeaker XVF3800 array, asked over USB where it hears speech from: see
-# config/udev/70-respeaker-xvf3800.rules to do it without root. `lune doa` prints what it hears.
-respeaker:
+# Direction of arrival: the reSpeaker XVF3800 array, asked over USB where it hears speech from:
+# see config/udev/70-respeaker-xvf3800.rules to do it without root. `lune doa` prints what it
+# hears.
+doa:
+  kind: respeaker
   # A placeholder until a description of the setup names the array's link.
   frame: respeaker_xvf3800
   poll_hz: 20.0

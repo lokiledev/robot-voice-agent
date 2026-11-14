@@ -37,6 +37,8 @@ from rva_robot_sim.speech import SpokenLine
 STILL_BONES: Final = frozenset({"Bip01 REye", "Bip01 LEye", "Bip01 MJaw"})
 """Bones of the face the clips would move from their own rest pose, which is not the avatar's: the
 eyes and the jaw keep the avatar's, and the face shapes move them."""
+HEAD_BONE: Final = "Bip01 Head"
+"""The bone a person's voice comes from, near enough."""
 _BLINK_PERIOD_S: Final = 3.7
 _BLINK_S: Final = 0.16
 
@@ -135,10 +137,16 @@ class Actor:
     def vertices(self, bones: Floats, time: float) -> Floats:
         """V×3: the skin's vertices posed by `bones`, the face as it is at `time`."""
         self._weights[self._blinks] = _blink(time)
-        self._weights[self._mouth] = (
-            0.0 if self._begun is None else self._opening(time - self._begun)
-        )
+        self._weights[self._mouth] = self.voice(time)
         return deform(self.skin, bones, self._weights)
+
+    def voice(self, time: float) -> float:
+        """How loud they speak at `time`, from 0 to 1: how open their mouth is."""
+        return 0.0 if self._begun is None else self._opening(time - self._begun)
+
+    def head(self, bones: Floats) -> Floats:
+        """3: where their head is, posed by `bones`, in the world."""
+        return bones[self.skin.bone_names.index(HEAD_BONE), :3, 3]
 
     def _advance(self, time: float) -> None:
         while True:

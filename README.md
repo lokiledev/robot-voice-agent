@@ -122,7 +122,9 @@ sudo udevadm control --reload && sudo udevadm trigger
 ```
 
 `lune doa` then prints the direction it hears, to check the profile's `transforms` entry, which
-says how the array sits relative to the camera. Without the array, set `respeaker: null`.
+says how the array sits relative to the camera. Without the array, set `doa: null`. The
+simulation's robot has microphones of its own, which the Reachy profile listens to
+(`doa: {kind: robot}`), and the debug window shows where speech comes from on a dial.
 
 ### Run
 
@@ -219,7 +221,7 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
 | `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot; `--replay clip.mp4` watches and hears a video file instead, `--show-debug-ui` opens the camera window |
-| `lune doa` | Prints where the reSpeaker array hears speech from, on the board and from the camera, to check how the profile places it; `--open-rerun` plots each of its beams in rerun |
+| `lune doa` | Prints where the profile's microphone array (`doa`: the reSpeaker, or the simulated robot's) hears speech from, in its own frame and from the camera, to check how the profile places it; `--open-rerun` plots it in rerun, and each of the reSpeaker's beams |
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |
 | `lune llm` | Chat with the LLM alone; tool calls are shown, not run |
 | `lune prompt` | Prints the system prompt built from the profile |

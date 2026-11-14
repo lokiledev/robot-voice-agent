@@ -227,7 +227,7 @@ media_server:
 observability:
   captures_dir: ~/Captures/robot-voice-agent
 
-respeaker: null
+doa: null
 transforms: []
 
 audio:

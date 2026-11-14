@@ -5,7 +5,8 @@ from loguru import logger
 
 from rva_robot_schemas.camera import CameraFrame, encode_frame, encoded_size
 from rva_robot_schemas.joints import JointCommand, JointState
-from rva_robot_schemas.topics import CAMERA, JOINT_COMMAND, JOINT_STATE, ROBOT_NODE
+from rva_robot_schemas.sound import SoundDirection
+from rva_robot_schemas.topics import CAMERA, JOINT_COMMAND, JOINT_STATE, ROBOT_NODE, SOUND_DIRECTION
 from rva_robot_sim.npc import PERSON_POSE, SCENARIO_START, SIM_NODE, PersonPose, ScenarioStart
 
 _MAX_JSON: Final = 16 * 1024
@@ -17,7 +18,7 @@ _MAX_SUBSCRIBERS: Final = 8
 class RobotBus:
     """The robot's end of its kickmsg topics, and the simulation's mailboxes.
 
-    It creates them all, publishes joint states and frames, and takes the commands, the people's
+    It creates them all, publishes joint states, frames and where speech is heard from, and takes the commands, the people's
     poses and the scenario's start that clients send.
     Topics left by a robot that did not close are replaced, so clients of that robot must reopen
     them. Not thread-safe: use it from one thread.
@@ -35,6 +36,9 @@ class RobotBus:
         self._unlink()
         self._states: Final = self._node.advertise(
             JOINT_STATE, _config(_MAX_JSON, _MAX_SUBSCRIBERS, ring=16)
+        )
+        self._sound_directions: Final = self._node.advertise(
+            SOUND_DIRECTION, _config(_MAX_JSON, _MAX_SUBSCRIBERS, ring=16)
         )
         # Two frames in each ring: a reader behind gets the latest, not a backlog, and the pool,
         # sized for every ring full, stays small (2.8 MB a frame at 1280x720).
@@ -55,6 +59,9 @@ class RobotBus:
 
     def publish_state(self, state: JointState) -> None:
         self._states.send(state.model_dump_json().encode())
+
+    def publish_sound_direction(self, direction: SoundDirection) -> None:
+        self._sound_directions.send(direction.model_dump_json().encode())
 
     def publish_frame(self, frame: CameraFrame) -> None:
         slot = self._frames.allocate()
@@ -115,6 +122,7 @@ class RobotBus:
     def _unlink(self) -> None:
         self._node.unlink_topic(JOINT_STATE)
         self._node.unlink_topic(CAMERA)
+        self._node.unlink_topic(SOUND_DIRECTION)
         self._node.unlink_mailbox(JOINT_COMMAND)
         self._sim.unlink_mailbox(PERSON_POSE)
         self._sim.unlink_mailbox(SCENARIO_START)

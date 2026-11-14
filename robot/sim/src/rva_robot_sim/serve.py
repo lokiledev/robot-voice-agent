@@ -29,12 +29,14 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
     """
     state_due = _Due(1 / config.state_rate)
     frame_due = _Due(1 / config.camera_fps)
+    doa_due = _Due(1 / config.doa_hz)
     start = time.monotonic()
     step = 0
     logger.info(
-        "Simulating: joint states at {:g} Hz, frames at {:g} Hz",
+        "Simulating: joint states at {:g} Hz, frames at {:g} Hz, directions of arrival at {:g} Hz",
         config.state_rate,
         config.camera_fps,
+        config.doa_hz,
     )
     logger.info("The people idle until `lune`, once all is up, or `npc start` starts the scenario")
     begun: float | None = None
@@ -71,6 +73,8 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
             # The people move at the frames' rate: only the camera sees them.
             scene.animate(simulated)
             bus.publish_frame(scene.render(now))
+        if doa_due.passed(simulated):
+            bus.publish_sound_direction(scene.sound_direction(now))
         due = start + simulated
         if now - due > _MAX_LAG_S:
             logger.warning("The simulation fell {:.2f} s behind real time", now - due)
