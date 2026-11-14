@@ -166,6 +166,46 @@ async def test_a_robot_without_legs_or_vla_has_only_gestures_and_its_gaze() -> N
     assert vla.running is None
 
 
+async def test_a_head_that_follows_the_attention_is_not_the_agents_to_turn() -> None:
+    capabilities = PROFILE.capabilities.model_copy(
+        update={"skills": (), "walks": False, "looks_at_people": False}
+    )
+    llm = ScriptedLanguageModel([[TextDelta(text="Hello! What's your name?")]])
+    face = TrackedFace(track_id=8, box=BOX, person=None, nearest=True)
+    vision, engagement = FakeVision([face]), FakeEngagement([])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    vla = TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None))
+    running = asyncio.create_task(
+        Agent(
+            llm=llm,
+            vla=vla,
+            body=idle_body(vla),
+            user_input=user,
+            speech=speech,
+            recorder=recorder,
+            vision=vision,
+            engagement=engagement,
+            profile=PROFILE.model_copy(update={"capabilities": capabilities}),
+            admins=ADMINS,
+            config=CONFIG,
+        ).run()
+    )
+
+    engagement.show(Engaged(track_id=8, person=None))
+    await speech.wait_for("What's your name?")
+    user.leave()
+    await running
+
+    started = recorder.entries[0]
+    assert isinstance(started, AgentStarted)
+    assert "look_at_user" not in [tool.name for tool in started.tools]
+    assert "look_at_user" not in llm.requests[0][0].content
+    assert llm.requests[0][-1] == RobotEventMessage(
+        content="An unknown person (track 8) came to you and is looking at you. Greet them and"
+        " wave."
+    )
+
+
 async def test_keeps_talking_during_a_task_and_reports_its_end() -> None:
     llm = ScriptedLanguageModel(
         [

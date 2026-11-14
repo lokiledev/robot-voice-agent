@@ -532,7 +532,7 @@ second one is refused rather than queued:
 |---|---|---|---|
 | Body | `start_task` (VLA), `go_to_location`, `go_to_human`, `play_animation` | One at a time | Operators for tasks and walking; anyone for gestures |
 | Body control | `stay`, `cancel_task`, `get_task_status` | Instant | Anyone |
-| Head | `look_at_user`, `stop_look_at_user` | Alongside the body | Anyone |
+| Head | `look_at_user`, `stop_look_at_user`, unless the head follows the attention on its own (`looks_at_people: false`) | Alongside the body | Anyone |
 | People | `who_is_here`, `remember_person`, `rename_person`, `forget_person`, `list_operators` | Instant | Anyone |
 | Permissions | `authorize_person`, `revoke_person` | Instant | Operators |
 
@@ -771,8 +771,10 @@ and shows the head camera, to check the simulation and the controller by hand.
 with no arms, no legs and no VLA. Its capabilities say so (`walks: false`, no skills), and the
 agent offers only the tools a body has: without skills no task tools, without walking no
 `go_to_location` or `go_to_human`, and the system prompt leaves out what they would explain. A
-call to a tool the body does not have is refused. Its gestures and gaze still go to the body API
-of the mock, until the head controller drives the simulated head.
+call to a tool the body does not have is refused. Its head follows the attention on its own, so
+it has no `look_at_user` either (`looks_at_people: false`): which takes a user id, and the
+strangers it meets have none, so the LLM called it with "unknown" or a track and spent its
+turns explaining why it failed. Its gestures still go to the body API of the mock.
 
 Its camera is the robot's: `vision.camera.source` is `kind: robot`, and the pipeline reads the
 head camera's frames over kickmsg instead of a V4L2 device, with the simulated camera's exact

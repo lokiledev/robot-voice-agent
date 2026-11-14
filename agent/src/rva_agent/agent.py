@@ -129,6 +129,13 @@ class Agent:
             render_system_prompt(profile, vision=vision is not None), config.max_history_messages
         )
         # When each known person last disengaged, by user id, on the monotonic clock.
+        # What to do when someone comes: said in the event itself, which the model follows far
+        # more than a rule in its prompt.
+        self._greeting: Final = (
+            "Greet them: look at them and wave."
+            if vision is not None and capabilities.looks_at_people
+            else "Greet them and wave."
+        )
         self._disengaged_at: Final[dict[UUID, float]] = {}
         # The tracks already greeted or heard from: a face is greeted once.
         self._greeted: Final[set[int]] = set()
@@ -290,12 +297,8 @@ class Agent:
             )
             return
         self._greeted.add(event.track_id)
-        # Said in the event itself: the model follows it far more than a rule in its prompt.
         self._history.append(
-            RobotEventMessage(
-                content=f"{who} came to you and is looking at you. Greet them: look at them and"
-                " wave."
-            )
+            RobotEventMessage(content=f"{who} came to you and is looking at you. {self._greeting}")
         )
         await self._respond(event.track_id)
 

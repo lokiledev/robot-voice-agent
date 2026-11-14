@@ -188,7 +188,9 @@ class BodyTools:
         self._animations: Final = capabilities.animations
         walking = _WALKING if capabilities.walks else ()
         # Walking to or looking at someone needs to see them.
-        with_people = (_WALKING_TO_PEOPLE if capabilities.walks else ()) + _LOOKING
+        with_people = (_WALKING_TO_PEOPLE if capabilities.walks else ()) + (
+            _LOOKING if capabilities.looks_at_people else ()
+        )
         self.specs: Final = walking + _GESTURES + (() if vision is None else with_people)
         """The tools this body has; the agent offers no others."""
 

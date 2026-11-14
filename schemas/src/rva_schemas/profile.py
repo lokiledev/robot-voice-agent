@@ -51,6 +51,9 @@ class Capabilities(RVABaseModel):
     """What VLA tasks can do; none for a robot without a VLA, which then has no task tools."""
     walks: bool
     """Whether it can walk to places and to people."""
+    looks_at_people: bool
+    """Whether the agent turns it to look at someone it names, with `look_at_user`. False where
+    the head follows the visual attention on its own, and the agent has no say in it."""
     animations: tuple[str, ...]
     """Body animations that can be played, e.g. "wave_right_hand"."""
     constraints: tuple[str, ...]
