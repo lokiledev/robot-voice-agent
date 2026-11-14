@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ from rva_pydantic import load_yaml
 from rva_robot_sim.animation_assets import ClipName
 from rva_robot_sim.config import SimConfig
 from rva_robot_sim.scenarios import SCENARIOS, Live, Play, Say, Scenario, Scripted, describe
-from rva_robot_sim.scenes import Person, Scene, two_by_the_table
+from rva_robot_sim.scenes import Person, Scene, chatting_by_the_table, two_by_the_table
 
 SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
 TALK = ClipName.parse("static/f_gestic_talk_neutral_01")
@@ -49,6 +50,67 @@ def test_you_speak_for_one_of_them_while_the_other_keeps_their_script(
     assert scenario.scripts[scripted] == describe("greeting").scripts[scripted]
 
 
+def test_ana_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
+    scenario = describe("newcomer")
+
+    lines = sorted(
+        (step.at_s, name, step.text)
+        for name, script in scenario.scripts.items()
+        if isinstance(script, Scripted)
+        for step in script.steps
+        if isinstance(step, Say)
+    )
+    assert lines == [
+        (2.0, "ana", "So, did you get the demo working in the end?"),
+        (6.0, "ben", "Almost. The head still wobbles when it turns."),
+        (10.0, "ana", "Look, it's watching us. Let's say hi."),
+        (19.5, "ana", "Hi Reachy! I'm Ana."),
+        (34.0, "ben", "And I'm Ben. Can you tell us a story about a robot who learns to dance?"),
+        (50.0, "ana", "Sorry, hold on. Someone's coming."),
+        (66.0, "cleo", "Hi, I'm Cleo. I just joined the team."),
+        (75.0, "cleo", "Nice to meet you. Who else is here?"),
+        (85.0, "ben", "Right, back to work. See you later!"),
+    ]
+    cleo = scenario.scripts["cleo"]
+    assert isinstance(cleo, Scripted)
+    assert cleo.steps[0] == Play(
+        at_s=41.0,
+        clips=(
+            ClipName.parse("xy/f_walk_start"),
+            ClipName.parse("xy/f_walk_neutral_01"),
+            ClipName.parse("xy/f_walk_stop"),
+            ClipName.parse("xyz/f_turn_left_60"),
+            ClipName.parse("static/f_wave_01"),
+        ),
+    )
+
+
+def test_ana_and_ben_face_each_other_and_cleo_starts_out_of_the_robots_view() -> None:
+    scene = chatting_by_the_table()
+
+    assert [(p.name, p.turned_deg) for p in scene.people[:2]] == [("ana", 60.0), ("ben", -60.0)]
+    x, y = scene.person("cleo").position
+    # The head camera sees 40 degrees each side of its axis.
+    assert math.degrees(math.atan2(-y, x)) > 70.0
+    assert len({person.voice for person in scene.people}) == 3
+
+
+def test_you_speak_for_ana_who_still_turns_to_the_robot_at_her_time() -> None:
+    scenario = describe("newcomer_as_ana")
+
+    assert scenario.scripts["ana"] == Live(
+        idle=scenario.scripts["ana"].idle,
+        steps=(Play(at_s=13.0, clips=(ClipName.parse("xyz/f_turn_right_60"),)),),
+    )
+    assert scenario.scripts["ben"] == describe("newcomer").scripts["ben"]
+    assert scenario.scripts["cleo"] == describe("newcomer").scripts["cleo"]
+
+
+def test_a_play_step_plays_at_least_one_clip() -> None:
+    with pytest.raises(ValidationError, match="at least 1"):
+        Play(at_s=1.0, clips=())
+
+
 def test_still_people_stand_silent_in_their_a_pose() -> None:
     assert set(describe("still").scripts.values()) == {Scripted(idle=(), steps=())}
 
@@ -61,7 +123,7 @@ def test_a_live_script_cannot_say_lines() -> None:
 def test_steps_are_written_in_order() -> None:
     with pytest.raises(ValidationError, match="not in order"):
         Scripted(
-            idle=(), steps=(Play(at_s=10.0, clip=TALK), Say(at_s=5.0, text="Hi", gesture=TALK))
+            idle=(), steps=(Play(at_s=10.0, clips=(TALK,)), Say(at_s=5.0, text="Hi", gesture=TALK))
         )
 
 
@@ -105,15 +167,15 @@ def test_an_unknown_scenario_lists_the_others() -> None:
         describe("party")
 
 
-def test_the_reachy_profile_plays_the_greeting() -> None:
-    assert load_yaml(SimConfig, SIM_YAML).scenario == "greeting"
+def test_the_reachy_profile_plays_the_newcomer() -> None:
+    assert load_yaml(SimConfig, SIM_YAML).scenario == "newcomer"
 
 
 def test_a_profile_cannot_name_a_scenario_that_does_not_exist(tmp_path: Path) -> None:
     text = SIM_YAML.read_text()
-    assert "scenario: greeting\n" in text
+    assert "scenario: newcomer\n" in text
     misnamed = tmp_path / "sim.yaml"
-    misnamed.write_text(text.replace("scenario: greeting\n", "scenario: party\n"))
+    misnamed.write_text(text.replace("scenario: newcomer\n", "scenario: party\n"))
 
     with pytest.raises(ValidationError, match="No scenario 'party'"):
         load_yaml(SimConfig, misnamed)

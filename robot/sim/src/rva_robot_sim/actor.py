@@ -234,8 +234,9 @@ def cast(
             case Say(gesture=gesture):
                 line = next(spoken)
                 actions.append(saying(step.at_s, line.clip.duration, gesture, motion(gesture)))
-            case Play(clip=clip):
-                actions.append(Action(at_s=step.at_s, clips=((clip, motion(clip)),)))
+            case Play(clips=clips):
+                played = tuple((clip, motion(clip)) for clip in clips)
+                actions.append(Action(at_s=step.at_s, clips=played))
             case _:
                 assert_never(step)
     assert next(spoken, None) is None, "one line per Say step"

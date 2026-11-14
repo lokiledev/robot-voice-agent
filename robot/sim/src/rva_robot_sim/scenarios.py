@@ -14,7 +14,7 @@ from pydantic import Field, field_validator, model_validator
 
 from rva_pydantic import RVABaseModel
 from rva_robot_sim.animation_assets import ClipName
-from rva_robot_sim.scenes import Scene, two_by_the_table
+from rva_robot_sim.scenes import Scene, chatting_by_the_table, two_by_the_table
 
 
 class Say(RVABaseModel):
@@ -29,12 +29,16 @@ class Say(RVABaseModel):
 
 
 class Play(RVABaseModel):
-    """Play a clip once."""
+    """Play clips once, one after the other, each from where the one before left them.
+
+    A walk is several: starting, walking, stopping, turning to face someone; idling in between
+    would stop them on the way.
+    """
 
     kind: Literal["play"] = "play"
     at_s: float = Field(ge=0)
     """When it starts, in seconds since the simulation started."""
-    clip: ClipName
+    clips: tuple[ClipName, ...] = Field(min_length=1)
 
 
 type ScriptedStep = Annotated[Say | Play, Field(discriminator="kind")]
@@ -130,8 +134,8 @@ def greeting(live: Literal["ana", "ben"] | None) -> Scenario:
     ben: Script = Scripted(
         idle=ben_idle,
         steps=(
-            Play(at_s=4.0, clip=ClipName.parse("static/m_gestic_listen_neutral_01")),
-            Play(at_s=44.0, clip=ClipName.parse("static/m_gestic_listen_neutral_02")),
+            Play(at_s=4.0, clips=_clips("static/m_gestic_listen_neutral_01")),
+            Play(at_s=44.0, clips=_clips("static/m_gestic_listen_neutral_02")),
         ),
     )
     match live:
@@ -144,11 +148,109 @@ def greeting(live: Literal["ana", "ben"] | None) -> Scenario:
     return Scenario(scene=two_by_the_table(), scripts={"ana": ana, "ben": ben})
 
 
+def newcomer(live: Literal["ana"] | None) -> Scenario:
+    """Ana and Ben chat, then introduce themselves to the robot; Cleo walks in, a stranger.
+
+    What it shows, in order: speech not said to the robot, while the head turns to whoever
+    speaks; Ana engaging and giving her name, the first, who becomes the operator; Ben asking for
+    a story and Ana cutting it short; Cleo walking in from out of view and waving, greeted and
+    asked her name as an unknown face; then who is here, recognized. Lines are at fixed times,
+    tuned for the robot's answers to fit between them, with the LLM fed the events expected;
+    start with an empty face database. Each turns to the robot and lets it greet them before
+    speaking: a line said as they engage would cut the greeting off.
+
+    Args:
+        live: Whom you speak for at the microphone. Ana: you replace her lines, chatting with
+            Ben, and still turn to the robot at her time.
+    """
+    ana_idle = _clips("static/f_idle_neutral_01", "static/f_idle_neutral_02")
+    ana: Script = Scripted(
+        idle=ana_idle,
+        steps=(
+            Say(
+                at_s=2.0,
+                text="So, did you get the demo working in the end?",
+                gesture=ClipName.parse("static/f_gestic_talk_neutral_01"),
+            ),
+            Say(
+                at_s=10.0,
+                text="Look, it's watching us. Let's say hi.",
+                gesture=ClipName.parse("static/f_gestic_talk_neutral_02"),
+            ),
+            Play(at_s=13.0, clips=_clips("xyz/f_turn_right_60")),
+            Say(
+                at_s=19.5,
+                text="Hi Reachy! I'm Ana.",
+                gesture=ClipName.parse("static/f_gestic_talk_relaxed_01"),
+            ),
+            Say(
+                at_s=50.0,
+                text="Sorry, hold on. Someone's coming.",
+                gesture=ClipName.parse("static/f_gestic_talk_excited_01"),
+            ),
+        ),
+    )
+    ben: Script = Scripted(
+        idle=_clips("static/m_idle_neutral_01", "static/m_idle_neutral_02"),
+        steps=(
+            Say(
+                at_s=6.0,
+                text="Almost. The head still wobbles when it turns.",
+                gesture=ClipName.parse("static/m_gestic_talk_neutral_01"),
+            ),
+            Play(at_s=26.0, clips=_clips("xyz/m_turn_left_60")),
+            Say(
+                at_s=34.0,
+                text="And I'm Ben. Can you tell us a story about a robot who learns to dance?",
+                gesture=ClipName.parse("static/m_gestic_talk_relaxed_01"),
+            ),
+            Say(
+                at_s=85.0,
+                text="Right, back to work. See you later!",
+                gesture=ClipName.parse("static/m_gestic_talk_neutral_02"),
+            ),
+        ),
+    )
+    cleo: Script = Scripted(
+        idle=_clips("static/f_idle_neutral_03"),
+        steps=(
+            Play(
+                at_s=41.0,
+                clips=_clips(
+                    "xy/f_walk_start",
+                    "xy/f_walk_neutral_01",
+                    "xy/f_walk_stop",
+                    "xyz/f_turn_left_60",
+                    "static/f_wave_01",
+                ),
+            ),
+            Say(
+                at_s=66.0,
+                text="Hi, I'm Cleo. I just joined the team.",
+                gesture=ClipName.parse("static/f_gestic_talk_relaxed_02"),
+            ),
+            Say(
+                at_s=75.0,
+                text="Nice to meet you. Who else is here?",
+                gesture=ClipName.parse("static/f_gestic_talk_neutral_03"),
+            ),
+        ),
+    )
+    match live:
+        case "ana":
+            ana = Live(idle=ana_idle, steps=(Play(at_s=13.0, clips=_clips("xyz/f_turn_right_60")),))
+        case None:
+            pass
+    return Scenario(scene=chatting_by_the_table(), scripts={"ana": ana, "ben": ben, "cleo": cleo})
+
+
 SCENARIOS: Final[Mapping[str, Callable[[], Scenario]]] = {
     "still": still,
     "greeting": functools.partial(greeting, live=None),
     "greeting_as_ana": functools.partial(greeting, live="ana"),
     "greeting_as_ben": functools.partial(greeting, live="ben"),
+    "newcomer": functools.partial(newcomer, live=None),
+    "newcomer_as_ana": functools.partial(newcomer, live="ana"),
 }
 """Every scenario, by the name `--scenario` takes."""
 

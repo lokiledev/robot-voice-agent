@@ -79,3 +79,41 @@ def two_by_the_table() -> Scene:
             ),
         ),
     )
+
+
+def chatting_by_the_table() -> Scene:
+    """Ana and Ben chatting in front of the robot, and Cleo out of its view on its right.
+
+    Ana and Ben stand 0.6 m apart, each turned 60 degrees to the other: their faces are seen, but
+    not looking at the robot. A 60-degree turn clip faces each of them to it. Cleo stands 3.6 m
+    to the robot's right, 74 degrees off its axis and out of view, facing its left: Rocketbox's
+    walk clips take her to (1.06, -0.75), 35 degrees off its axis, where a 60-degree turn to her
+    left faces her to it.
+    """
+    return Scene(
+        table_height=1.1,
+        people=(
+            Person(
+                name="ana",
+                avatar="Adults/Female_Adult_01",
+                voice="af_bella",
+                position=(1.2, 0.45),
+                turned_deg=60.0,
+            ),
+            Person(
+                name="ben",
+                avatar="Adults/Male_Adult_04",
+                voice="am_michael",
+                position=(1.2, -0.15),
+                turned_deg=-60.0,
+            ),
+            Person(
+                name="cleo",
+                avatar="Adults/Female_Adult_05",
+                voice="bf_emma",
+                position=(1.0, -3.6),
+                # Facing the robot's left, along +y.
+                turned_deg=-15.5,
+            ),
+        ),
+    )

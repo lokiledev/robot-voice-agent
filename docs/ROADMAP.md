@@ -87,19 +87,27 @@ what exists and why.
     `lune-sim --scenario`; a person's script is scripted or live, someone at the microphone
     speaking for them. The people idle until `lune` has everything up, the agent last, and
     starts the scenario through the sim's `scenario_start` mailbox (or `npc start`). Not yet: steps that wait on the robot
-    (its answer, its gaze), walking and looking somewhere, and checks of what the robot did.
-- **The simulated people move and speak, but do not walk.** In `greeting` they idle, talk
+    (its answer, its gaze), walking to a given point and looking somewhere, and checks of what
+    the robot did. Fixed times make `newcomer` fragile: an answer longer than in the pretest
+    runs into the next line, which then cuts it off as a barge-in would, and a short one leaves
+    a silence. Cleo engages 10 to 18 s after she faces the robot: avatars do not look at the
+    camera with their eyes, and her eye contact at the edge of the image stays under the
+    threshold. Steps that wait on events (an answer, an engagement) were judged overkill for now.
+- **The simulated people walk only where their clips take them.** In `greeting` they idle, talk
   with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
   ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). Ana says her lines at their times, gesturing,
   synthesized once by Kokoro and played into the `rva_sim_room` PipeWire sink the agent listens
   to, her mouth opening as loud as the line is: one viseme, `AA_VI_10_aa`, not the shapes of the
   sounds yet. In `greeting_as_ana` or `greeting_as_ben` the real microphone speaks for one of
-  them instead, the mouth following its level, with no gesture. `npc walk` still slides one
-  sideways without walk clips, and they do not turn to the robot or look at it. Clips start and
-  end without blending, so the pose jumps when a gesture cuts in or ends.
-- **Onboarding in the simulation.** The Reachy profile has a face database and an admins file of
-  its own, so the avatar is a stranger who meets Reachy as a new user would, and the first person
-  named becomes an operator. The profile sets `active_speaker: null`, which hands each
+  them instead, the mouth following its level, with no gesture. In `newcomer` Ana and Ben turn
+  to the robot with turn clips, and Cleo walks in with a walk's start, a cycle and its stop, then
+  a turn, played as one step: she ends where Rocketbox's clips take her, which the scene was
+  placed for by hand. `npc walk` still slides one sideways without walk clips, and nobody turns
+  only their head or eyes to look at the robot. Clips start and end without blending, so the
+  pose jumps when a gesture cuts in or ends.
+- **Onboarding in the simulation.** The Reachy profile makes a new face database for each
+  session, so the avatars are strangers who meet Reachy as new users would, every run, and the
+  first person named becomes an operator. The profile sets `active_speaker: null`, which hands each
   utterance to the face in front. In `greeting` Ana's mouth now follows her lines, so
   Light-ASD could see her speak: **try putting it back in `config/reachy_mini_sim/runtime.yaml`**.
   Someone talking through the real microphone does so as a live person in the scene, whose mouth

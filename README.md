@@ -178,11 +178,13 @@ voice. A live person speaks with your voice: the reSpeaker's microphone opens th
 `lune-sim` relays it into the room, so the robot hears only what the people in the scene say.
 
 ```bash
-uv run lune --profile config/reachy_mini_sim --scenario greeting_as_ben
+uv run lune --profile config/reachy_mini_sim --scenario newcomer_as_ana
 ```
 
 | Scenario | What happens |
 |---|---|
+| `newcomer` | The default, about 90 s. Ana and Ben chat, turned to each other, which Reachy does not answer; Ana turns to it and gives her name, becoming its operator; Ben gives his and asks for a story, which Ana cuts short as Cleo walks in from out of view and waves; Reachy asks the stranger her name, and she asks who else is here |
+| `newcomer_as_ana` | The same, with you speaking for Ana: chat with Ben's lines, introduce yourself after she turns to Reachy, interrupt its story |
 | `greeting` | Ana greets Reachy, asks what it can do and for a joke, 20 s apart; Ben listens |
 | `greeting_as_ben` | The same, with you speaking for Ben among her lines |
 | `greeting_as_ana` | You speak for Ana instead of her lines; Ben listens |
@@ -190,7 +192,7 @@ uv run lune --profile config/reachy_mini_sim --scenario greeting_as_ben
 
 `lune` starts its own simulation, and refuses to start while one is running. The people idle
 until everything is up, the agent last, its camera's first frame seen; `lune` then starts the
-scenario, and Ana's first line comes 3 s after. Run by hand, with `lune-sim` and `lune run` or
+scenario, and the first line comes 2 or 3 s after. Run by hand, with `lune-sim` and `lune run` or
 `lune see`, start it with `uv run npc start`.
 
 ### Become an operator

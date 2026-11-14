@@ -665,8 +665,14 @@ targets.
   as a function in `rva_robot_sim.scenes`, places them, facing the robot or turned away, each
   with a name and a Kokoro voice. A scenario, written as a function in
   `rva_robot_sim.scenarios` and named by `sim.yaml` (`--scenario` runs another), picks a scene
-  and gives each person a script: Rocketbox clips to idle with, and steps at fixed times, a
-  clip to play or a line to say with a gesture; or the real microphone, for a live person. On first use each
+  and gives each person a script: Rocketbox clips to idle with, and steps at fixed times,
+  clips to play one after the other or a line to say with a gesture; or the real microphone,
+  for a live person. A clip's root motion carries over to the next, so turning to the robot is
+  a turn clip, and walking in is a walk's start, cycles and stop, then a turn: where they end up
+  is where Rocketbox's clips take them, a few centimetres off a straight line. The default,
+  `newcomer`, has Ana and Ben chat, then meet the robot one after the other, before Cleo walks
+  in from out of view: its lines were timed by feeding the agent and the LLM the engagements and
+  utterances expected, in real time, then in the simulation. On first use each
   avatar and clip is downloaded from GitHub at a pinned commit and baked once by headless
   Blender, since Genesis cannot read their FBX: the face FBX's mesh in its A-pose as a GLB, with
   its skin and face shapes as arrays, and each clip as its bones' rotations. Genesis shows the
