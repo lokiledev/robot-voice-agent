@@ -71,11 +71,8 @@ what exists and why.
   nothing anticipates: the target's velocity in the base frame, over the last frames, would let
   the controller aim where it will be. Raw targets, sent each frame, also jitter with the face
   mesh; a filter would go with the prediction.
-- **The engagement still measures staying in the camera's frame.** The attention and the face
-  tracker take the head's own turns out, from the camera's pose the head controller publishes;
-  the engagement's staying, which compares where a face was half a second ago, does not, so a
-  head turn can make someone standing still seem to walk. A restarted head controller replaces
-  its topic, and the perception stops hearing from it until it restarts too.
+- **A restarted head controller** replaces its `camera_pose` topic, and the perception stops
+  hearing from it until it restarts too: the head's turns then look like motion again.
 - **Tracks can still swap in a very fast head swing.** With the camera's turn taken out, the
   predicted image shift matched the faces' within 10 to 30 pixels at a swing of 100 pixels a
   frame. In one run, though, faces swapped tracks as the image slid about 130 pixels in a frame,

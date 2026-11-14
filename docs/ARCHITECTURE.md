@@ -457,7 +457,8 @@ say about them is the LLM's. None of the thresholds is tuned on recordings of se
   gaze within 15 degrees of the camera) it rises towards closeness times staying: closeness is 1
   up to 2 m and falls to 0 at 4.5 m, staying is 1 standing still and 0 from a walking pace,
   measured straight between where the face was half a second ago and where it is, as its depth
-  jitters. While they do not look it falls towards 0, more slowly: listeners look away. They are
+  jitters, in the robot's base frame when the camera's pose is known, so a head turn does not
+  make someone standing still seem to walk. While they do not look it falls towards 0, more slowly: listeners look away. They are
   engaged from 0.6, after about 0.7 s of eye contact up close, down to 0.2, after about 5 s
   looking away; a track that ends has left at once. So someone walking past, glancing from afar
   or standing with their back turned is not engaged. Once engaged, speaking counts as looking:
@@ -804,8 +805,8 @@ At each joint state, it also publishes where the head camera is in the base fram
 forward kinematics, on its `camera_pose` topic. The perception, with a robot's camera and a head
 controller in the profile, takes the pose nearest each frame's time, within 50 ms: the face
 tracker moves each track's last box with the image as the camera turned since the frame before,
-so a turn of the head does not tear the tracks, and the attention measures motion in the base
-frame, so a head turn no longer makes every face in view seem to move. Without a pose, as
+so a turn of the head does not tear the tracks, and the attention and the engagement measure
+motion in the base frame, so a head turn no longer makes every face in view seem to move. Without a pose, as
 before the controller is up, both work in the camera's frame, with a warning.
 
 In the simulation, with someone pacing 0.8 m each side of the robot's axis at 1.1 m, the head

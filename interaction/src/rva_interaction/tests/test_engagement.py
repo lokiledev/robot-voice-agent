@@ -1,8 +1,11 @@
+import math
+
 import pytest
 
 from rva_interaction.config import EngagementConfig
 from rva_interaction.engagement import EngagementTracker
 from rva_interaction.tests.people import AT_ROBOT, AWAY, at, face, frame, seen
+from rva_schemas.frames import CameraPose
 from rva_schemas.interaction import Disengaged, Engaged, EngagementEvent
 from rva_schemas.observation import VisualObservation
 from rva_schemas.vision import Gaze, Point3D
@@ -163,3 +166,40 @@ def test_someone_who_spoke_to_the_robot_is_engaged_at_once() -> None:
     assert watch(tracker, standing(0.1, AT_ROBOT, far, start=1.0)) == [
         Engaged(track_id=1, person=None)
     ]
+
+
+def test_someone_standing_still_stays_as_the_head_turns_past_them() -> None:
+    # Someone 1.5 m ahead of the robot, the head turning left at 1 radian a second.
+    ahead = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
+
+    def turned(yaw: float) -> CameraPose:
+        c, s = math.cos(yaw), math.sin(yaw)
+        turn = ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
+
+        def row(i: int) -> tuple[float, float, float]:
+            a, b, d = (sum(turn[i][k] * ahead[k][j] for k in range(3)) for j in range(3))
+            return (a, b, d)
+
+        return CameraPose(position=(0.0, 0.0, 0.0), rotation=(row(0), row(1), row(2)))
+
+    def seen_from(camera: CameraPose) -> Point3D:
+        # The face at (1.5, 0, 0) in the robot's frame, in the camera's.
+        r = camera.rotation
+        return Point3D(x=1.5 * r[0][0], y=1.5 * r[0][1], z=1.5 * r[0][2])
+
+    cameras = [turned(0.1 * t) for t in range(6)]
+    followed, unaware = EngagementTracker(CONFIG, 15.0), EngagementTracker(CONFIG, 15.0)
+    with_pose = [
+        followed.observe(
+            frame(t / 10, seen(1, face(AT_ROBOT, seen_from(c)), speaking=False), camera=c)
+        )
+        for t, c in enumerate(cameras)
+    ][-1]
+    without = [
+        unaware.observe(frame(t / 10, seen(1, face(AT_ROBOT, seen_from(c)), speaking=False)))
+        for t, c in enumerate(cameras)
+    ][-1]
+
+    assert with_pose.people[0].staying == pytest.approx(1.0)
+    # Swept 0.5 radians at 1.5 m in half a second, she seems to walk at about 1.5 m/s.
+    assert without.people[0].staying == 0.0

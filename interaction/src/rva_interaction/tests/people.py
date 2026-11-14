@@ -1,3 +1,4 @@
+from rva_schemas.frames import CameraPose
 from rva_schemas.observation import VisualObservation
 from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import (
@@ -51,7 +52,9 @@ def seen(track_id: int, features: FaceFeatures | None, *, speaking: bool) -> Tra
     )
 
 
-def frame(time: float, *people: TrackedPerson) -> VisualObservation:
+def frame(
+    time: float, *people: TrackedPerson, camera: CameraPose | None = None
+) -> VisualObservation:
     return VisualObservation(
         time=time,
         people=PeopleInView(
@@ -62,5 +65,5 @@ def frame(time: float, *people: TrackedPerson) -> VisualObservation:
             people=people,
             unmatched_bodies=(),
         ),
-        camera_pose=None,
+        camera_pose=camera,
     )

@@ -3,6 +3,7 @@ from collections import deque
 from typing import Final
 
 from rva_interaction.config import EngagementConfig
+from rva_schemas.frames import CameraPose
 from rva_schemas.interaction import (
     Disengaged,
     Engaged,
@@ -59,11 +60,16 @@ class EngagementTracker:
             gone = self._people.pop(track_id)
             if gone.engaged:
                 events.append(Disengaged(track_id=track_id, person=gone.known, left=True))
-        states = [self._follow(person, now, events) for person in seen.values()]
+        camera = observation.camera_pose
+        states = [self._follow(person, now, camera, events) for person in seen.values()]
         return EngagementState(time=now, people=tuple(states), events=tuple(events))
 
     def _follow(
-        self, seen: TrackedPerson, now: float, events: list[EngagementEvent]
+        self,
+        seen: TrackedPerson,
+        now: float,
+        camera: CameraPose | None,
+        events: list[EngagementEvent],
     ) -> PersonEngagement:
         config = self._config
         person = self._people.setdefault(seen.track_id, _Person(config.moving_window_s, now))
@@ -76,7 +82,9 @@ class EngagementTracker:
             # Without depth, any face large enough to be tracked is taken as close and staying.
             closeness = staying = 1.0
         else:
-            person.place(now, point)
+            # Where they stand in the robot's frame when the camera's pose is known: a head turn
+            # moves everyone in the camera's.
+            person.place(now, point if camera is None else _fixed(point, camera))
             closeness = _fade(_norm(point) - config.near_m, config.far_m - config.near_m)
             staying = _fade(person.speed(), config.walking_m_s)
         looking = seen.face is not None and seen.face.gaze.off_camera() <= self._eye_contact_deg
@@ -137,6 +145,11 @@ def _between_the_eyes(person: TrackedPerson) -> Point3D | None:
         return None
     left, right = (person.face.in_3d.landmarks[iris] for iris in _IRISES)
     return Point3D(x=(left.x + right.x) / 2, y=(left.y + right.y) / 2, z=(left.z + right.z) / 2)
+
+
+def _fixed(point: Point3D, camera: CameraPose) -> Point3D:
+    x, y, z = camera.to_fixed((point.x, point.y, point.z))
+    return Point3D(x=x, y=y, z=z)
 
 
 def _fade(value: float, limit: float) -> float:
