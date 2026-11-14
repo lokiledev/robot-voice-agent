@@ -2,8 +2,6 @@ body: a small desktop robot, a head on a turning base with two antennas
 # No legs, no arms and no VLA: its head, its base and its antennas are all that move, so it has
 # no tasks to start and no walking.
 walks: false
-# Its head follows the visual attention on its own: the agent does not turn it to someone.
-looks_at_people: false
 skills: []
 # Played with the play_animation tool.
 animations:

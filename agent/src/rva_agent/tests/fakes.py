@@ -247,7 +247,6 @@ PROFILE = Profile(
     capabilities=Capabilities(
         body="a humanoid robot",
         walks=True,
-        looks_at_people=True,
         skills=(
             Skill(name="pick", description="Pick up an object.", examples=("pick up the red cup",)),
         ),

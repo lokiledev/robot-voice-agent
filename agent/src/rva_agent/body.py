@@ -26,13 +26,13 @@ from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.vision import Vision
 from rva_schemas.dialogue import ToolCall, ToolSpec
 from rva_schemas.profile import Capabilities
-from rva_schemas.record import GazeUpdate, MotionUpdate
+from rva_schemas.record import MotionUpdate
 from rva_schemas.vision import KnownPerson
 from rva_vla_schemas.task import FinalTaskStatus, TaskRunning
 
 
 class BodySupervisor:
-    """Keeps track of the one motion the body is making, walking or an animation, and its gaze."""
+    """Keeps track of the one motion the body is making, walking or an animation."""
 
     def __init__(
         self, body: BodyClient, recorder: Recorder, on_end: Callable[[Motion], None]
@@ -41,7 +41,7 @@ class BodySupervisor:
 
         Args:
             body: The robot's body.
-            recorder: Receives each motion when it starts and when it ends, and each gaze change.
+            recorder: Receives each motion when it starts and when it ends.
             on_end: Called with the final state of each motion started here.
         """
         self._body: Final = body
@@ -80,15 +80,6 @@ class BodySupervisor:
     async def stay(self) -> None:
         """Stop the running motion, if any; its end is reported through `on_end`."""
         await self._body.stay()
-
-    async def look_at(self, person: KnownPerson) -> None:
-        """Keep looking at `person`, alongside any motion."""
-        await self._body.look_at(person.user_id)
-        self._recorder.record(GazeUpdate(looking_at=person))
-
-    async def stop_looking(self) -> None:
-        await self._body.stop_looking()
-        self._recorder.record(GazeUpdate(looking_at=None))
 
     def _end(self, motion_id: UUID, status: FinalTaskStatus) -> None:
         if self._active is None or self._active.id != motion_id:
@@ -146,30 +137,15 @@ _WALKING_TO_PEOPLE: Final = (
         parameters=UserArgs.model_json_schema(),
     ),
 )
-_LOOKING: Final = (
-    ToolSpec(
-        name="look_at_user",
-        description="Keep your head and body turned towards a person in view, without walking, by their user_id from who_is_here.",
-        parameters=UserArgs.model_json_schema(),
-    ),
-    ToolSpec(
-        name="stop_look_at_user",
-        description="Stop following someone with your head and body.",
-        parameters=NoArgs.model_json_schema(),
-    ),
-)
 
 
 class BodyTools:
-    """The tools the LLM uses to walk, gesture and look at people, besides VLA tasks.
+    """The tools the LLM uses to walk and gesture, besides VLA tasks.
 
-    Walking needs an operator in front of the robot, like tasks; gestures, looking and staying
-    do not. Walking, animations and tasks share the body, so only one runs at a time.
+    Walking needs an operator in front of the robot, like tasks; gestures and staying do not. Walking, animations and tasks share the body, so only one runs at a time.
     """
 
-    names: Final = frozenset(
-        spec.name for spec in (*_WALKING, *_GESTURES, *_WALKING_TO_PEOPLE, *_LOOKING)
-    )
+    names: Final = frozenset(spec.name for spec in (*_WALKING, *_GESTURES, *_WALKING_TO_PEOPLE))
 
     def __init__(
         self,
@@ -187,11 +163,9 @@ class BodyTools:
         self._locations: Final = locations
         self._animations: Final = capabilities.animations
         walking = _WALKING if capabilities.walks else ()
-        # Walking to or looking at someone needs to see them.
-        with_people = (_WALKING_TO_PEOPLE if capabilities.walks else ()) + (
-            _LOOKING if capabilities.looks_at_people else ()
-        )
-        self.specs: Final = walking + _GESTURES + (() if vision is None else with_people)
+        # Walking to someone needs to see them.
+        to_people = _WALKING_TO_PEOPLE if capabilities.walks and vision is not None else ()
+        self.specs: Final = walking + _GESTURES + to_people
         """The tools this body has; the agent offers no others."""
 
     async def call(self, call: ToolCall) -> ToolResult:
@@ -210,12 +184,6 @@ class BodyTools:
                     return _done(status="staying where you are")
                 case "play_animation":
                     return await self._play(PlayAnimationArgs.model_validate_json(call.arguments))
-                case "look_at_user":
-                    return await self._look_at(UserArgs.model_validate_json(call.arguments))
-                case "stop_look_at_user":
-                    NoArgs.model_validate_json(call.arguments or "{}")
-                    await self._body.stop_looking()
-                    return _done(status="no longer following anyone with your gaze")
                 case _:
                     return _error(f"There is no tool named {call.name}.")
         except pydantic.ValidationError as error:
@@ -251,12 +219,6 @@ class BodyTools:
                 f"There is no animation {args.animation}. Animations: {', '.join(self._animations)}."
             )
         return await self._start(PlayAnimation(animation=args.animation), None)
-
-    async def _look_at(self, args: UserArgs) -> ToolResult:
-        if (person := self._person_in_view(args.user_id)) is None:
-            return _error("Nobody with this user_id is in view. Call who_is_here.")
-        await self._body.look_at(person)
-        return _done(status=f"looking at {person.name}")
 
     async def _start(
         self, action: GoToLocation | GoToHuman | PlayAnimation, target: str | None

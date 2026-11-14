@@ -37,7 +37,6 @@ class BodyMock:
         self._animation: Final = animation
         self._motions: Final[dict[UUID, Motion]] = {}
         self._active: tuple[UUID, asyncio.Task[None]] | None = None
-        self._looking_at: UUID | None = None
         self._subscribers: Final[set[asyncio.Queue[MotionEvent]]] = set()
 
     async def start(self, request: MotionRequest) -> Motion:
@@ -49,9 +48,6 @@ class BodyMock:
         policy = self._animation
         if isinstance(action, GoToLocation | GoToHuman):
             policy = self._navigation
-            if self._looking_at is not None:
-                logger.info("Stops looking at {} to walk", self._looking_at)
-                self._looking_at = None
         motion = self._update(
             Motion(id=uuid4(), action=action, status=TaskRunning()), TaskRunning()
         )
@@ -75,17 +71,9 @@ class BodyMock:
         if self._active is not None:
             await self.cancel(self._active[0])
 
-    async def look_at(self, user_id: UUID) -> None:
-        logger.info("Looks at {}", user_id)
-        self._looking_at = user_id
-
-    async def stop_looking(self) -> None:
-        logger.info("Stops looking at {}", self._looking_at)
-        self._looking_at = None
-
     async def state(self) -> BodyState:
         motion = None if self._active is None else self._motions[self._active[0]]
-        return BodyState(motion=motion, looking_at=self._looking_at)
+        return BodyState(motion=motion)
 
     @asynccontextmanager
     async def events(self) -> AsyncGenerator[AsyncIterator[MotionEvent]]:

@@ -20,7 +20,6 @@ from rva_schemas.record import (
     CameraFrame,
     DepthFrame,
     FaceUpdate,
-    GazeUpdate,
     LiveFrame,
     Measurement,
     MotionUpdate,
@@ -112,7 +111,6 @@ class UiServer:
                 | ToolInvocation()
                 | TaskUpdate()
                 | MotionUpdate()
-                | GazeUpdate()
                 | MuteUpdate()
                 | FaceUpdate()
             ):

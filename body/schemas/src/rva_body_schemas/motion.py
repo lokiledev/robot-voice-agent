@@ -48,15 +48,9 @@ class MotionEvent(RVABaseModel):
     timestamp: datetime
 
 
-class GazeRequest(RVABaseModel):
-    user_id: UUID
-    """The person to keep looking at, turning the head and body without walking."""
-
-
 class BodyState(RVABaseModel):
     motion: Motion | None
     """The motion running now, if any."""
-    looking_at: UUID | None
 
 
 def describe(action: GoToLocation | GoToHuman | PlayAnimation) -> str:

@@ -145,8 +145,6 @@ async def test_a_robot_without_legs_or_vla_has_only_gestures_and_its_gaze() -> N
     assert [tool.name for tool in started.tools] == [
         "stay",
         "play_animation",
-        "look_at_user",
-        "stop_look_at_user",
         "remember_person",
         "who_is_here",
         "forget_person",
@@ -167,9 +165,14 @@ async def test_a_robot_without_legs_or_vla_has_only_gestures_and_its_gaze() -> N
     assert vla.running is None
 
 
-async def test_a_head_that_follows_the_attention_is_not_the_agents_to_turn() -> None:
+async def test_a_newcomer_is_greeted_with_the_robot_s_own_animation() -> None:
     capabilities = PROFILE.capabilities.model_copy(
-        update={"skills": (), "walks": False, "looks_at_people": False}
+        update={
+            "skills": (),
+            "walks": False,
+            "animations": ("wiggle_antennas", "nod"),
+            "greeting_animation": "wiggle_antennas",
+        }
     )
     llm = ScriptedLanguageModel([[TextDelta(text="Hello! What's your name?")]])
     face = TrackedFace(track_id=8, box=BOX, person=None, nearest=True)
@@ -197,13 +200,10 @@ async def test_a_head_that_follows_the_attention_is_not_the_agents_to_turn() -> 
     user.leave()
     await running
 
-    started = recorder.entries[0]
-    assert isinstance(started, AgentStarted)
-    assert "look_at_user" not in [tool.name for tool in started.tools]
-    assert "look_at_user" not in llm.requests[0][0].content
+    assert "wave" not in llm.requests[0][0].content
     assert llm.requests[0][-1] == RobotEventMessage(
         content="An unknown person (track 8) came to you and is looking at you. Greet them:"
-        " play your wave_right_hand animation."
+        " play your wiggle_antennas animation."
     )
 
 
@@ -628,7 +628,7 @@ async def test_a_quick_return_is_not_greeted_again() -> None:
     assert speech.said == ["Hi Alice.", "You are Alice."]
     assert llm.requests[0][-1] == RobotEventMessage(
         content=f"Alice (track 7, user {ALICE_ID}, one of your operators) came to you and is"
-        " looking at you. Greet them: look at them and play your wave_right_hand animation."
+        " looking at you. Greet them: play your wave_right_hand animation."
     )
     assert llm.requests[1][-3:-1] == (
         RobotEventMessage(content="Alice (track 7) left."),

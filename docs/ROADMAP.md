@@ -131,9 +131,12 @@ what exists and why.
   Someone talking through the real microphone does so as a live person in the scene, whose mouth
   moves with their voice, so Light-ASD sees them speak too; how well it does on a mouth that only
   opens and shuts is untested.
-- **Reachy's gestures and the agent's gaze go to the mock's body API**, not to the simulated
-  head, which follows the attention alone: a body client over kickmsg is to replace it, and to
-  decide with the attention who has the head.
+- **Reachy's gestures go to the mock's body API**, not to the simulated head, which follows the
+  attention alone: a body client over kickmsg is to replace it, and to decide with the attention
+  who has the head.
+- **Only Reachy's head follows the attention.** The agent no longer turns a body to someone
+  with a tool, and the attention's targets go to a head controller alone: a humanoid looks at
+  nobody until its body takes them too.
 - **The head controller does not notice a robot that stopped** until its commands pile up.
 - **The head looks up 7 to 10 degrees more than it is sent** while it looks up at people: its
   weight pulls it back, and P-only servos hold it within their dead band. Faces sit a little low

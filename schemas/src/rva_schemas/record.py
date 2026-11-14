@@ -82,12 +82,6 @@ class MotionUpdate(RVABaseModel):
     motion: Motion
 
 
-class GazeUpdate(RVABaseModel):
-    kind: Literal["gaze"] = "gaze"
-    looking_at: KnownPerson | None
-    """The person the robot keeps looking at, or `None` once it stops."""
-
-
 class MuteUpdate(RVABaseModel):
     kind: Literal["mute"] = "mute"
     muted: bool
@@ -196,7 +190,6 @@ type Record = Annotated[
     | ToolInvocation
     | TaskUpdate
     | MotionUpdate
-    | GazeUpdate
     | MuteUpdate
     | Measurement
     | Sound

@@ -27,9 +27,9 @@ Lune answers, its gaze on the speaker; the actions the busy body cannot take are
   reply is spoken sentence by sentence: the first word comes about 0.8 s after you stop talking.
   Talk over Lune and it stops to listen.
 - **Every robot skill is a tool call that runs in the background.** Picking something up (a VLA
-  policy), walking, a gesture, following someone with its gaze: each one starts, reports its
-  status, can be cancelled, and tells the agent when it ends. Lune keeps talking while its body
-  works, and knows which actions cannot run together.
+  policy), walking, a gesture: each one starts, reports its status, can be cancelled, and tells
+  the agent when it ends. Lune keeps talking while its body works, and knows which actions cannot
+  run together.
 - **You can watch it think.** A live web page shows the camera with the tracked faces, the
   conversation with every tool call, and which actions hold the body. Each session is also
   recorded, to replay in [rerun](https://rerun.io).
@@ -42,7 +42,7 @@ flowchart LR
     cam([Camera]) -- video --> lune
     lune["Lune<br/>listen · see · think · speak"] -- speech --> spk([Speaker])
     lune <-- "chat and tool calls" --> llm([Local LLM])
-    lune <-- "tasks, motions, gaze,<br/>and how they end" --> body([Robot body])
+    lune <-- "tasks, motions,<br/>and how they end" --> body([Robot body])
     lune <-- "live session,<br/>typed messages" --> page([Session page])
 ```
 

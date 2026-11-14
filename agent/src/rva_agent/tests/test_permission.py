@@ -305,10 +305,6 @@ async def test_unknown_places_and_animations_are_listed_back() -> None:
     assert await _body_call(tools, "play_animation", '{"animation": "backflip"}') == (
         '{"error": "There is no animation backflip. Animations: wave_right_hand, dance."}'
     )
-    assert (
-        await _body_call(tools, "look_at_user", f'{{"user_id": "{person("Alice").user_id}"}}')
-        == '{"status": "looking at Alice"}'
-    )
 
 
 async def test_each_user_turn_names_who_was_in_front() -> None:

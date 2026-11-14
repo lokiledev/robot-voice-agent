@@ -2,7 +2,6 @@ import asyncio
 import socket
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from uuid import UUID
 
 import pytest
 import uvicorn
@@ -33,7 +32,7 @@ async def _serve(app: FastAPI) -> AsyncGenerator[AnyHttpUrl]:
         await serving
 
 
-async def test_motion_life_gaze_and_busy_body_over_http() -> None:
+async def test_motion_life_and_busy_body_over_http() -> None:
     commands = asyncio.Queue[str]()
     vla = TaskRunner(TerminalPolicy(commands, fallback=None))
     body_mock = BodyMock(
@@ -45,13 +44,11 @@ async def test_motion_life_gaze_and_busy_body_over_http() -> None:
         HttpBodyClient(HttpBodyClientConfig(base_url=url)) as client,
     ):
         body: BodyClient = client
-        await body.look_at(UUID(int=7))
         async with body.events() as events:
             motion = await body.start(MotionRequest(action=GoToLocation(location="shelf")))
             with pytest.raises(BodyBusyError) as busy:
                 await body.start(MotionRequest(action=PlayAnimation(animation="dance")))
-            # Walking stops looking at someone.
-            assert await body.state() == BodyState(motion=motion, looking_at=None)
+            assert await body.state() == BodyState(motion=motion)
             commands.put_nowait("s")
             statuses = [(await anext(events)).status for _ in range(2)]
 

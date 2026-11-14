@@ -7,7 +7,7 @@ from rva_body_schemas.motion import BodyState, Motion, MotionEvent, MotionReques
 
 
 class BodyClient(Protocol):
-    """The robot's body besides the VLA: walking, animations and where it looks."""
+    """The robot's body besides the VLA: walking and animations."""
 
     async def start(self, request: MotionRequest) -> Motion:
         """Start a motion and return once it began, without waiting for it to end.
@@ -28,12 +28,6 @@ class BodyClient(Protocol):
     async def stay(self) -> None:
         """Stop walking or animating, if doing so, and stay where it is."""
         ...
-
-    async def look_at(self, user_id: UUID) -> None:
-        """Keep turning the head and body towards a person until told otherwise or walking."""
-        ...
-
-    async def stop_looking(self) -> None: ...
 
     async def state(self) -> BodyState: ...
 

@@ -34,7 +34,7 @@ def main(
     failure_rate: float = 0.2,
     seed: int | None = None,
 ) -> None:
-    """Serve the mock robot: VLA tasks, and body motions, gestures and gaze.
+    """Serve the mock robot: VLA tasks, and body motions and gestures.
 
     Each VLA task lasts a random time; past `timeout` it fails as timed out, otherwise some fail.
     Walking and animations behave the same with their own durations. Every call is logged.

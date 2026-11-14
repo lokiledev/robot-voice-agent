@@ -9,7 +9,7 @@ from pydantic import AnyHttpUrl
 from websockets.asyncio.client import ClientConnection, connect
 
 from rva_body_schemas.errors import BodyBusyError, UnknownMotionError
-from rva_body_schemas.motion import BodyState, GazeRequest, Motion, MotionEvent, MotionRequest
+from rva_body_schemas.motion import BodyState, Motion, MotionEvent, MotionRequest
 from rva_pydantic import RVABaseModel
 
 
@@ -63,17 +63,6 @@ class HttpBodyClient:
 
     async def stay(self) -> None:
         (await self._http.post("/body/stay")).raise_for_status()
-
-    async def look_at(self, user_id: UUID) -> None:
-        response = await self._http.put(
-            "/body/gaze",
-            content=GazeRequest(user_id=user_id).model_dump_json(),
-            headers={"content-type": "application/json"},
-        )
-        response.raise_for_status()
-
-    async def stop_looking(self) -> None:
-        (await self._http.delete("/body/gaze")).raise_for_status()
 
     async def state(self) -> BodyState:
         response = await self._http.get("/body/state")

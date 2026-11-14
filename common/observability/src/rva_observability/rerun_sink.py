@@ -21,7 +21,6 @@ from rva_schemas.record import (
     CameraFrame,
     DepthFrame,
     FaceUpdate,
-    GazeUpdate,
     LiveFrame,
     Measurement,
     MotionUpdate,
@@ -172,14 +171,6 @@ class RerunRecorder:
                 level = "ERROR" if entry.motion.status.state == "failed" else "INFO"
                 text = f"{describe(entry.motion.action)}: {entry.motion.status.model_dump_json()}"
                 self._recording.log("body/motion", rr.TextLog(text, level=level))
-            case GazeUpdate():
-                person = entry.looking_at
-                text = (
-                    "stopped looking"
-                    if person is None
-                    else f"looking at {person.name} ({person.user_id})"
-                )
-                self._recording.log("body/gaze", rr.TextLog(text))
             case MuteUpdate():
                 self._recording.log("agent/muted", rr.TextLog("muted" if entry.muted else "talks"))
             case Measurement():

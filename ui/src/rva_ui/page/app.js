@@ -10,12 +10,6 @@ const LANES = [
     tools: ["start_task", "go_to_location", "go_to_human", "play_animation"],
     controls: ["stay", "cancel_task", "get_task_status"],
   },
-  {
-    id: "head",
-    title: "Head",
-    rule: "Alongside the body.",
-    tools: ["look_at_user", "stop_look_at_user"],
-  },
   { id: "voice", title: "Voice", rule: "Alongside everything: talks while the body works." },
   {
     id: "people",
@@ -41,8 +35,6 @@ const LABELS = {
   stay: "Stop moving",
   cancel_task: "Cancel task",
   get_task_status: "Task status",
-  look_at_user: "Follow with gaze",
-  stop_look_at_user: "Stop following",
   who_is_here: "Who is here",
   remember_person: "Remember",
   rename_person: "Rename",
@@ -79,7 +71,6 @@ const state = {
   tools: new Map(), // name -> description
   people: new Map(), // user id -> name
   body: null, // {id, tool, what, since}: the action holding the body
-  gaze: null, // name of the person followed with the gaze
   muted: false,
   speaking: null, // the robot's message being spoken
   vad: 0,
@@ -144,7 +135,6 @@ function reset(videoPage) {
     tools: new Map(),
     people: new Map(),
     body: null,
-    gaze: null,
     muted: false,
     speaking: null,
   });
@@ -194,8 +184,6 @@ function apply(record, at, fresh) {
       return onTask(record.task, at, fresh);
     case "motion":
       return onMotion(record.motion, at, fresh);
-    case "gaze":
-      return onGaze(record.looking_at);
     case "mute":
       return onMute(record.muted, at);
     case "face":
@@ -320,9 +308,6 @@ function renderLanes() {
       locked = state.body !== null && !active;
       if (active) text = state.body.what;
       else if (locked) text = "waits for the body";
-    } else if (name === "look_at_user" && state.gaze !== null) {
-      active = true;
-      text = `looking at ${state.gaze}`;
     }
     chip.classList.toggle("active", active);
     chip.classList.toggle("locked", locked);
@@ -568,12 +553,6 @@ function outcome(status, what) {
       return ["", `■ Stopped: ${what}`];
   }
   return ["", `${status.state}: ${what}`];
-}
-
-function onGaze(person) {
-  if (person !== null) state.people.set(person.user_id, person.name);
-  state.gaze = person === null ? null : person.name;
-  renderLanes();
 }
 
 function onMute(muted, at) {

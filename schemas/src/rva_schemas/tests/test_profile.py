@@ -9,7 +9,6 @@ def _capabilities(greeting_animation: str | None) -> Capabilities:
         body="a small desktop robot",
         skills=(),
         walks=False,
-        looks_at_people=False,
         animations=("wiggle_antennas", "nod"),
         greeting_animation=greeting_animation,
         constraints=(),

@@ -28,7 +28,7 @@ llm_server:
 vla:
   base_url: http://127.0.0.1:8800
 
-# Walking, animations and gaze; the mock serves them next to the VLA.
+# Walking and animations; the mock serves them next to the VLA.
 body:
   base_url: http://127.0.0.1:8800
 

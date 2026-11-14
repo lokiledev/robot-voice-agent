@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
 
 from rva_body_schemas.errors import BodyBusyError, UnknownMotionError
-from rva_body_schemas.motion import BodyState, GazeRequest, Motion, MotionRequest
+from rva_body_schemas.motion import BodyState, Motion, MotionRequest
 from rva_pydantic import RVABaseModel
 from rva_vla_mock.body import BodyMock
 from rva_vla_mock.runner import TaskRunner
@@ -68,14 +68,6 @@ def build_app(runner: TaskRunner, body: BodyMock) -> FastAPI:
     @app.post("/body/stay", status_code=204)
     async def stay() -> None:
         await body.stay()
-
-    @app.put("/body/gaze", status_code=204)
-    async def look_at(request: GazeRequest) -> None:
-        await body.look_at(request.user_id)
-
-    @app.delete("/body/gaze", status_code=204)
-    async def stop_looking() -> None:
-        await body.stop_looking()
 
     @app.get("/body/state")
     async def state() -> BodyState:
