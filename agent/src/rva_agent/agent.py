@@ -60,6 +60,10 @@ _PUNCTUATION: Final = re.compile(r"[^\w\s]")
 # Told with each failure: deep in a long conversation, the LLM otherwise reports some of them from
 # the outside ("the task to gather the cables failed") despite its instructions.
 _OWN_FAILURE: Final = ' Say it as your own failure, like "I couldn\'t ..."; never call it a task.'
+# What the LLM made of what it was told, which stands when its reply is talked over: a name given
+# in a breath with a question ("I'm Ben, can you tell us a story?") is cut off by the question.
+# They move nothing, unlike the body's tools, which are dropped with the reply.
+_KEPT_WHEN_TALKED_OVER: Final = frozenset({"remember_person", "rename_person"})
 _REPEATED: Final = ToolResult(
     content='{"error": "You just called this, and it was not run again. Do not call it again now."}',
     needs_reply=False,
@@ -125,10 +129,6 @@ class Agent:
             + (() if self._people is None else PeopleTools.specs)
         )
         self._tool_names: Final = frozenset(spec.name for spec in self._tool_specs)
-        self._history: Final = History(
-            render_system_prompt(profile, vision=vision is not None), config.max_history_messages
-        )
-        # When each known person last disengaged, by user id, on the monotonic clock.
         # What to do when someone comes: said in the event itself, which the model follows far
         # more than a rule in its prompt.
         self._greeting: Final = (
@@ -136,6 +136,10 @@ class Agent:
             if vision is not None and capabilities.looks_at_people
             else "Greet them and wave."
         )
+        self._history: Final = History(
+            render_system_prompt(profile, vision=vision is not None), config.max_history_messages
+        )
+        # When each known person last disengaged, by user id, on the monotonic clock.
         self._disengaged_at: Final[dict[UUID, float]] = {}
         # The tracks already greeted or heard from: a face is greeted once.
         self._greeted: Final[set[int]] = set()
@@ -408,15 +412,22 @@ class Agent:
                     spoken = await (
                         _silently(sentences) if muted else self._speech.say(sentences, keep_going)
                     )
+                    if spoken.end == "talked_over":
+                        # The round goes on unheard, for the tool calls written after the words.
+                        async for _ in chunks:
+                            pass
             if muted:
                 # Nothing was heard, so nothing was said.
                 text.clear()
             match spoken.end:
                 case "talked_over":
-                    # Keep what the user heard, drop the rest and any action.
+                    # Keep what the user heard, drop the rest and any action, but not a name.
+                    kept = tuple(call for call in tool_calls if call.name in _KEPT_WHEN_TALKED_OVER)
                     self._add_robot_message(
-                        AssistantMessage(content=spoken.text, tool_calls=()), interrupted=True
+                        AssistantMessage(content=spoken.text, tool_calls=kept), interrupted=True
                     )
+                    for call in kept:
+                        await self._run_tool(call, called)
                     return
                 case "cut_short":
                     self._add_robot_message(
@@ -441,20 +452,7 @@ class Agent:
                 return
             needs_reply = False
             for call in tool_calls:
-                if (call.name, call.arguments) in called:
-                    # The LLM retries what just failed, round after round, saying each time that
-                    # it does it now: the turn ends here instead.
-                    result = _REPEATED
-                else:
-                    called.add((call.name, call.arguments))
-                    with _tracer.start_as_current_span(f"tool:{call.name}"):
-                        result = await self._call_tool(call)
-                self._recorder.record(
-                    ToolInvocation(name=call.name, arguments=call.arguments, result=result.content)
-                )
-                self._history.append(
-                    ToolResultMessage(tool_call_id=call.id, content=result.content)
-                )
+                result = await self._run_tool(call, called)
                 needs_reply = needs_reply or result.needs_reply
             # Asking the LLM again here would only make it repeat what it just announced, or, with
             # nothing left to say, make something up: an event it expects, said aloud.
@@ -463,6 +461,27 @@ class Agent:
         logger.warning(
             "The LLM was still calling tools after {} rounds", self._config.max_tool_rounds
         )
+
+    async def _run_tool(self, call: ToolCall, called: set[tuple[str, str]]) -> ToolResult:
+        """Run a call of this turn, recorded with its result, which goes into the history.
+
+        Args:
+            call: As the LLM wrote it.
+            called: The calls of this turn so far, by name and arguments; `call` joins them.
+        """
+        if (call.name, call.arguments) in called:
+            # The LLM retries what just failed, round after round, saying each time that it does
+            # it now: the turn ends here instead.
+            result = _REPEATED
+        else:
+            called.add((call.name, call.arguments))
+            with _tracer.start_as_current_span(f"tool:{call.name}"):
+                result = await self._call_tool(call)
+        self._recorder.record(
+            ToolInvocation(name=call.name, arguments=call.arguments, result=result.content)
+        )
+        self._history.append(ToolResultMessage(tool_call_id=call.id, content=result.content))
+        return result
 
     def _while_listening(self, listener: int | None) -> Callable[[], bool]:
         """Whether to keep talking: until a `listener` engaged now no longer is."""

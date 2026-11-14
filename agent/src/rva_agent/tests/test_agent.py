@@ -313,6 +313,49 @@ async def test_barge_in_keeps_only_what_was_heard_and_skips_the_action() -> None
     assert not any(isinstance(entry, ToolInvocation) for entry in recorder.entries)
 
 
+async def test_a_name_told_with_a_question_is_remembered_though_the_question_cuts_the_reply() -> (
+    None
+):
+    llm = ScriptedLanguageModel(
+        [
+            [
+                TextDelta(text="Nice to meet you, Ben. Let me think of a story."),
+                ToolCall(
+                    id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Ben"}'
+                ),
+                START_PICK_CUP,
+            ],
+            [TextDelta(text="Once upon a time.")],
+        ]
+    )
+    vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=1), ListRecorder()
+    user.say("And I'm Ben,")
+    user.say("can you tell us a story?")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        vision,
+        None,
+    ).run()
+
+    remember = ToolCall(
+        id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Ben"}'
+    )
+    assert llm.requests[1][-3] == AssistantMessage(
+        content="Nice to meet you, Ben.", tool_calls=(remember,)
+    )
+    assert [entry.name for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
+        "remember_person"
+    ]
+    assert vision.faces()[0].person == person("Ben")
+
+
 BOX = BoundingBox(x=800.0, y=300.0, width=200.0, height=240.0)
 
 

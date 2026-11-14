@@ -173,8 +173,12 @@ flowchart TB
   fails to load, starting fails rather than falling back to CUDA.
 - **Speaking early.** LLM tokens are cut into sentences, and each goes to Kokoro as soon as it is
   complete while the previous one plays.
-- **Barge-in.** Speech while Lune talks stops the playback and the LLM stream, and the history
-  keeps only what was heard.
+- **Barge-in.** Speech while Lune talks stops the playback, and the history keeps only what was
+  heard. The reply's actions are dropped, but not the names it took in: the LLM's round goes on
+  unheard to its end, and `remember_person` and `rename_person` still run. Someone who gives
+  their name and asks a question in one breath ("I'm Ben, can you tell us a story?") makes two
+  turns, at the pause, and the question talks over the reply to the name; in the simulation, the
+  robot never remembered Ben until then.
 - **Not interrupting itself.** With speakers, three layers keep Lune from hearing its own voice:
   the echo canceller subtracts what it plays from the microphone, a barge-in needs clearer and
   longer speech while it talks, and a transcript repeating what it said in the last 2 s is
