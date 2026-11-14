@@ -4,6 +4,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
+from datetime import UTC, datetime
 from typing import Final, Never, assert_never
 from uuid import UUID
 
@@ -70,6 +71,13 @@ _NAME_CHECK: Final = (
     "Did the unknown person on track {track_id} just tell you their name? If they did, call"
     " remember_person with it now. If they did not, call nothing. Answer with no words: nobody"
     " hears this."
+)
+# Before a line said while the robot's reply to something else was on its way: such as "Someone's
+# coming" as it greets the newcomer, which Qwen answered with the same greeting 8 times in 10, and
+# still 5 in 10 when only told the line came before its reply.
+_SAID_BEFORE_REPLY: Final = (
+    "(Said before you finished your last reply: that reply already answered it, so do not say it"
+    " again. Answer only something new, or say nothing.)"
 )
 _REPEATED: Final = ToolResult(
     content='{"error": "You just called this, and it was not run again. Do not call it again now."}',
@@ -154,6 +162,8 @@ class Agent:
         self._cut_short_for: int | None = None
         # Who they are, if known: out of view and back, they are on a new track.
         self._cut_short_person: UUID | None = None
+        # When the robot last stopped saying words out loud, on the utterances' clock.
+        self._said_until: datetime | None = None
 
     async def warm_up(self) -> None:
         """Have the LLM read the system prompt and the tools ahead of the first turn.
@@ -252,7 +262,7 @@ class Agent:
         self._recorder.record(
             UserLine(text=utterance.text, speaker=_speaker(speaker, self._permission))
         )
-        self._history.append(UserMessage(content=self._attributed(utterance.text, speaker)))
+        self._history.append(UserMessage(content=self._attributed(utterance, speaker)))
         # Muting is matched in code rather than left to the LLM: it must work every time.
         if self._muted and _mentions(utterance.text, self._config.unmute_phrases):
             await self._unmute()
@@ -372,16 +382,22 @@ class Agent:
             return None
         return SeenSpeaking(track_id=nearest.track_id, person=nearest.person, to_robot=True)
 
-    def _attributed(self, text: str, speaker: UtteranceSpeaker | None) -> str:
-        """`text` prefixed with who said it and with what the body is busy with, if anything.
+    def _attributed(self, utterance: UserUtterance, speaker: UtteranceSpeaker | None) -> str:
+        """The text of `utterance`, prefixed with what the LLM needs to know about it.
 
-        Without these, the LLM keeps answering whoever spoke last after someone else speaks, and
-        promises an action before finding out the body is busy.
+        Who said it, what the body is busy with, if anything, and whether it was said before the
+        robot's last reply was over. Without these, the LLM keeps answering whoever spoke last
+        after someone else speaks, promises an action before finding out the body is busy, and
+        answers again what its last reply answered: a line said while that reply was on its way
+        comes after it in the history.
         """
+        text = utterance.text
         task = self._supervisor.active
         busy = task.instruction if task is not None else self._moving()
         if busy is not None:
             text = f"(Your body is busy: {busy}.) {text}"
+        if self._said_until is not None and utterance.ended_at < self._said_until:
+            text = f"{_SAID_BEFORE_REPLY} {text}"
         if self._muted:
             # Said in the turn itself: the model follows it far more than a rule in its prompt.
             text = f"{text} (You are muted: answer with no words, only with tools if needed.)"
@@ -426,7 +442,7 @@ class Agent:
                     aclosing(split_sentences(chunks)) as sentences,
                 ):
                     spoken = await (
-                        _silently(sentences) if muted else self._speech.say(sentences, keep_going)
+                        _silently(sentences) if muted else self._say(sentences, keep_going)
                     )
                     if spoken.end == "talked_over":
                         # The round goes on unheard, for the tool calls written after the words.
@@ -593,11 +609,17 @@ class Agent:
     async def _say_fixed(self, text: str) -> None:
         if self._muted:
             return
-        spoken = await self._speech.say(_single(text), _always)
+        spoken = await self._say(_single(text), _always)
         self._add_robot_message(
             AssistantMessage(content=spoken.text, tool_calls=()),
             interrupted=spoken.end != "finished",
         )
+
+    async def _say(self, sentences: AsyncIterator[str], keep_going: Callable[[], bool]) -> Spoken:
+        spoken = await self._speech.say(sentences, keep_going)
+        if spoken.text.strip():
+            self._said_until = datetime.now(UTC)
+        return spoken
 
     def _add_robot_message(self, message: AssistantMessage, *, interrupted: bool) -> None:
         self._history.append(message)

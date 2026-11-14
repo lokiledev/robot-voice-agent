@@ -275,12 +275,19 @@ async def test_tasks_walks_and_animations_share_the_body() -> None:
         '{"status": "started", "motion": "go to the kitchen counter",'
         ' "next": "You are told when it ends."}'
     )
+    # A gesture is skipped, unlike a walk, which is the operator's to sort out.
     assert await _body_call(tools, "play_animation", '{"animation": "dance"}') == (
+        '{"status": "not played", "reason": "Your body is busy: go to the kitchen counter."}'
+    )
+    assert await _body_call(tools, "go_to_location", '{"location": "shelf"}') == (
         '{"error": "Your body is busy: go to the kitchen counter. Call stay first or wait."}'
     )
     await _body_call(tools, "stay", "{}")
     await tasks.start("pick up the red cup")
     assert await _body_call(tools, "play_animation", '{"animation": "dance"}') == (
+        '{"status": "not played", "reason": "Your body is busy with \'pick up the red cup\'."}'
+    )
+    assert await _body_call(tools, "go_to_location", '{"location": "shelf"}') == (
         '{"error": "Your body is busy with \'pick up the red cup\'. Cancel it first or wait."}'
     )
 

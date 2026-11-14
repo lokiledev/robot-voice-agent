@@ -1,6 +1,6 @@
 import json
 from collections.abc import AsyncIterator, Callable
-from typing import Final
+from typing import Final, assert_never
 from uuid import UUID
 
 import pydantic
@@ -263,11 +263,15 @@ class BodyTools:
     ) -> ToolResult:
         """Start a motion; `target` names the person walked to, if any."""
         if (task := self._tasks.active) is not None:
-            return _error(f"Your body is busy with {task.instruction!r}. Cancel it first or wait.")
+            return _busy(
+                action, f"Your body is busy with {task.instruction!r}.", "Cancel it first or wait."
+            )
         try:
             await self._body.start(action)
         except BodyBusyError as error:
-            return _error(f"Your body is busy: {error.busy_with}. Call stay first or wait.")
+            return _busy(
+                action, f"Your body is busy: {error.busy_with}.", "Call stay first or wait."
+            )
         what = describe(action) if target is None else f"go to {target}"
         return _done(status="started", motion=what, next="You are told when it ends.")
 
@@ -286,6 +290,21 @@ class BodyTools:
 def _done(**fields: str) -> ToolResult:
     # Like a task start, nothing to add when the LLM announced it.
     return ToolResult(content=json.dumps(fields), needs_reply=False)
+
+
+def _busy(action: GoToLocation | GoToHuman | PlayAnimation, busy: str, remedy: str) -> ToolResult:
+    """The result of a motion asked for while the body is busy with another one or a task."""
+    match action:
+        case PlayAnimation():
+            # A gesture goes with what was just said, which stands without it. Asked for a reply,
+            # the LLM says it all again, and stops whatever the body does to play the gesture.
+            return ToolResult(
+                content=json.dumps({"status": "not played", "reason": busy}), needs_reply=False
+            )
+        case GoToLocation() | GoToHuman():
+            return _error(f"{busy} {remedy}")
+        case _:
+            assert_never(action)
 
 
 def _error(message: str) -> ToolResult:

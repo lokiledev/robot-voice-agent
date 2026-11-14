@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncGenerator, Sequence
+from datetime import UTC, datetime
 
 from rva_agent.agent import Agent
 from rva_agent.config import AgentConfig
@@ -410,19 +411,23 @@ async def test_a_check_that_finds_no_name_leaves_nothing_in_the_history() -> Non
     )
     vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            vision,
+            None,
+        ).run()
+    )
+
     user.say("Hello?")
+    await speech.wait_for("Hi.")
     user.say("What time is it?")
     user.leave()
-
-    await _agent(
-        llm,
-        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
-        user,
-        speech,
-        recorder,
-        vision,
-        None,
-    ).run()
+    await running
 
     assert llm.requests[2][1:] == (
         UserMessage(content="[unknown person, track 9] Hello?"),
@@ -755,20 +760,24 @@ async def test_muted_robot_says_nothing_until_it_may_talk_again() -> None:
     # Muting and unmuting never go through the LLM: its only turn is the question.
     llm = ScriptedLanguageModel([[TextDelta(text="It is noon.")]])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            vision=None,
+            engagement=None,
+        ).run()
+    )
+
     user.say("Okay, now stop talking please.")
+    await speech.wait_for("Okay.")
     user.say("What time is it?")
     user.say("You can talk again!")
     user.leave()
-
-    await _agent(
-        llm,
-        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
-        user,
-        speech,
-        recorder,
-        vision=None,
-        engagement=None,
-    ).run()
+    await running
 
     assert speech.said == ["Okay.", "I can talk again."]
     assert llm.requests[0][-1] == UserMessage(
@@ -871,6 +880,78 @@ async def test_a_call_that_failed_is_not_run_again_in_the_same_turn() -> None:
     ]
     # The turn ended there: the LLM was not asked a fourth time.
     assert len(llm.requests) == 3
+
+
+async def test_a_gesture_the_busy_body_cannot_play_is_skipped_without_another_word() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Here I go."), _call("play_animation", '{"animation": "dance"}')],
+            # Asked for a reply to a failed wave, Qwen said the greeting again and called stay.
+            [
+                TextDelta(text="Hello Bob!"),
+                _call("play_animation", '{"animation": "wave_right_hand"}'),
+            ],
+        ]
+    )
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("Dance for me.")
+    user.say("Say hello to Bob.")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
+        None,
+    ).run()
+
+    assert speech.said == ["Here I go.", "Hello Bob!"]
+    assert [entry.result for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
+        '{"status": "started", "motion": "play the dance animation",'
+        ' "next": "You are told when it ends."}',
+        '{"status": "not played", "reason": "Your body is busy: play the dance animation."}',
+    ]
+    assert len(llm.requests) == 2
+
+
+async def test_a_line_said_before_the_reply_was_over_is_marked_so() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [TextDelta(text="Hello there! What's your name?")],
+            [TextDelta(text="Yes, I see them.")],
+            [TextDelta(text="Sure.")],
+        ]
+    )
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    engagement = FakeEngagement([])
+    running = _running(llm, user, speech, recorder, FakeVision([]), engagement)
+    alice = SeenSpeaking(track_id=7, person=person("Alice"), to_robot=True)
+
+    greeted_from = datetime.now(UTC)
+    engagement.show(Engaged(track_id=8, person=None))
+    await recorder.wait_until(lambda entries: any(isinstance(e, RobotLine) for e in entries))
+    # Heard while the greeting was on its way, it comes after it in the history.
+    user.said_earlier("Someone's coming.", alice, greeted_from)
+    await speech.wait_for("Yes, I see them.")
+    await recorder.wait_until(lambda entries: sum(isinstance(e, RobotLine) for e in entries) == 2)
+    user.say_as("Wait a moment.", alice)
+    await speech.wait_for("Sure.")
+    user.leave()
+    await running
+
+    assert llm.requests[1][-1] == UserMessage(
+        content="[Alice, track 7] (Said before you finished your last reply: that reply already"
+        " answered it, so do not say it again. Answer only something new, or say nothing.)"
+        " Someone's coming."
+    )
+    assert llm.requests[2][-1] == UserMessage(content="[Alice, track 7] Wait a moment.")
+
+
+def _call(name: str, arguments: str) -> ToolCall:
+    return ToolCall(id=f"call_{name}", name=name, arguments=arguments)
 
 
 async def test_what_is_said_does_not_wait_for_the_tool_calls_that_follow_it() -> None:

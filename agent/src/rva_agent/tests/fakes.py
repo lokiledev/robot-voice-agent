@@ -51,24 +51,31 @@ class ScriptedLanguageModel:
 
 class QueueUserInput:
     def __init__(self) -> None:
-        self._lines: Final = asyncio.Queue[tuple[str, UtteranceSpeaker | None] | None]()
+        # Each line with who said it and when it ended, if not as it is heard.
+        self._lines: Final = asyncio.Queue[
+            tuple[str, UtteranceSpeaker | None, datetime | None] | None
+        ]()
 
     def say(self, text: str) -> None:
-        self._lines.put_nowait((text, None))
+        self._lines.put_nowait((text, None, None))
 
     def say_as(self, text: str, speaker: UtteranceSpeaker) -> None:
         """Say `text` as an utterance the camera and the microphone attributed to `speaker`."""
-        self._lines.put_nowait((text, speaker))
+        self._lines.put_nowait((text, speaker, None))
+
+    def said_earlier(self, text: str, speaker: UtteranceSpeaker, ended_at: datetime) -> None:
+        """Hear now what `speaker` finished saying at `ended_at`, as the recognizer is late."""
+        self._lines.put_nowait((text, speaker, ended_at))
 
     def leave(self) -> None:
         self._lines.put_nowait(None)
 
     async def utterances(self) -> AsyncGenerator[UserUtterance]:
         while (line := await self._lines.get()) is not None:
-            text, speaker = line
-            now = datetime.now(UTC)
+            text, speaker, ended_at = line
+            ended_at = datetime.now(UTC) if ended_at is None else ended_at
             yield UserUtterance(
-                text=text, started_at=now, ended_at=now, speech=None, speaker=speaker
+                text=text, started_at=ended_at, ended_at=ended_at, speech=None, speaker=speaker
             )
 
 
