@@ -93,5 +93,5 @@ def test_a_command_naming_an_unknown_joint_is_refused_whole(scene: ReachyMiniSce
 @pytest.mark.download
 @pytest.mark.timeout(600)
 def test_a_person_who_is_not_there_cannot_be_moved(scene: ReachyMiniScene) -> None:
-    with pytest.raises(UnknownPersonError, match=r"Nobody named 'ana'; there are \[\]"):
-        scene.place(PersonPose(person="ana", position=(1.0, 0.0), turned_deg=0.0))
+    with pytest.raises(UnknownPersonError, match=r"Nobody named 'mia'; there are \[\]"):
+        scene.place(PersonPose(person="mia", position=(1.0, 0.0), turned_deg=0.0))

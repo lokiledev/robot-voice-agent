@@ -45,8 +45,8 @@ def test_pacing_sideways_goes_to_the_robots_right_first(elapsed: float, y: float
 
 def test_poses_reach_the_simulation_in_order(namespace: str) -> None:
     assert open_people_mover(namespace, "test_walk") is None
-    first = PersonPose(person="ana", position=(1.1, 0.0), turned_deg=0.0)
-    second = PersonPose(person="ana", position=(1.1, -0.1), turned_deg=10.0)
+    first = PersonPose(person="mia", position=(1.1, 0.0), turned_deg=0.0)
+    second = PersonPose(person="mia", position=(1.1, -0.1), turned_deg=10.0)
 
     bus = RobotBus(namespace, (4, 2))
     try:

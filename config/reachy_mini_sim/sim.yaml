@@ -8,11 +8,11 @@ avatars:
   directory: ~/.cache/robot-voice-agent/rocketbox
   blender: /snap/bin/blender
 # What happens around the robot: a scenario of rva_robot_sim/scenarios.py, by name, which picks
-# its scene (the table and the people) and gives each person a script. `newcomer`: Ana and Ben
+# its scene (the table and the people) and gives each person a script. `newcomer`: Mia and Ben
 # chat, introduce themselves to the robot and cut its story short, then Cleo walks in, a stranger
-# it asks the name of; `newcomer_as_ana`: you speak for Ana into the microphone. `greeting`: Ana
-# greets the robot and asks it things, Ben listens; `greeting_as_ben` and `greeting_as_ana`: you
-# speak for one of them. `still`: Ana and Ben stand in an A-pose. `--scenario` runs another, with
+# it asks the name of; `newcomer_as_mia`: you speak for Mia into the microphone. `greeting`: Mia
+# greets the robot and asks it things, Ben listens; `greeting_as_ben` and `greeting_as_mia`: you
+# speak for one of them. `still`: Mia and Ben stand in an A-pose. `--scenario` runs another, with
 # `lune` or `lune-sim`.
 scenario: newcomer
 speech:

@@ -13,7 +13,7 @@ class Person(RVABaseModel):
     """One of a scene's people: who they are and where they stand at the start."""
 
     name: str
-    """How scenarios, `npc` commands and the `person_pose` mailbox call them, e.g. `ana`."""
+    """How scenarios, `npc` commands and the `person_pose` mailbox call them, e.g. `mia`."""
     avatar: str
     """A Rocketbox avatar, by its directory under `Assets/Avatars`, e.g. `Adults/Female_Adult_01`
     to `17`, `Adults/Male_Adult_01` to `21`."""
@@ -54,7 +54,7 @@ class Scene(RVABaseModel):
 
 
 def two_by_the_table() -> Scene:
-    """Ana 1.1 m in front of the robot, and Ben on its right, both facing it.
+    """Mia 1.1 m in front of the robot, and Ben on its right, both facing it.
 
     Ben stands 40 degrees off its axis and a little closer: the nearest face, the one `lune see`
     names with n while the other is already known. The table puts the head camera about 1.25 m
@@ -64,7 +64,7 @@ def two_by_the_table() -> Scene:
         table_height=1.1,
         people=(
             Person(
-                name="ana",
+                name="mia",
                 avatar="Adults/Female_Adult_01",
                 voice="af_bella",
                 position=(1.1, 0.0),
@@ -82,9 +82,9 @@ def two_by_the_table() -> Scene:
 
 
 def chatting_by_the_table() -> Scene:
-    """Ana and Ben chatting in front of the robot, and Cleo out of its view on its right.
+    """Mia and Ben chatting in front of the robot, and Cleo out of its view on its right.
 
-    Ana and Ben stand 0.6 m apart, each turned 60 degrees to the other: their faces are seen, but
+    Mia and Ben stand 0.6 m apart, each turned 60 degrees to the other: their faces are seen, but
     not looking at the robot. A 60-degree turn clip faces each of them to it. Cleo stands 3.6 m
     to the robot's right, 74 degrees off its axis and out of view, facing its left: Rocketbox's
     walk clips take her to (1.06, -0.75), 35 degrees off its axis, where a 60-degree turn to her
@@ -94,7 +94,7 @@ def chatting_by_the_table() -> Scene:
         table_height=1.1,
         people=(
             Person(
-                name="ana",
+                name="mia",
                 avatar="Adults/Female_Adult_01",
                 voice="af_bella",
                 position=(1.2, 0.45),

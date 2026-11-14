@@ -679,7 +679,7 @@ targets.
   for a live person. A clip's root motion carries over to the next, so turning to the robot is
   a turn clip, and walking in is a walk's start, cycles and stop, then a turn: where they end up
   is where Rocketbox's clips take them, a few centimetres off a straight line. The default,
-  `newcomer`, has Ana and Ben chat, then meet the robot one after the other, before Cleo walks
+  `newcomer`, has Mia and Ben chat, then meet the robot one after the other, before Cleo walks
   in from out of view: its lines were timed by feeding the agent and the LLM the engagements and
   utterances expected, in real time, then in the simulation. On first use each
   avatar and clip is downloaded from GitHub at a pinned commit and baked once by headless
@@ -799,7 +799,7 @@ Its camera is the robot's: `vision.camera.source` is `kind: robot`, and the pipe
 head camera's frames over kickmsg instead of a V4L2 device, with the simulated camera's exact
 intrinsics. Its field of view is wider than the webcam's, so faces count from 0.06 of the frame
 height rather than 0.12: the same 1.8 m. Its face database is made anew for each session, apart
-from the real people's: the avatars meet Reachy as strangers every run. Its admins file is its
+from the real people's: the avatars meet Milo as strangers every run. Its admins file is its
 own, best left missing: the ids would be a past session's. `lune --profile config/reachy_mini_sim` starts the
 simulation with the other servers, and waits until it serves its topics, then the head
 controller.

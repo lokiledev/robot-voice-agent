@@ -98,34 +98,34 @@ class Scenario(RVABaseModel):
 
 
 def still() -> Scenario:
-    """Ana and Ben standing still and silent in their A-pose."""
+    """Mia and Ben standing still and silent in their A-pose."""
     return Scenario(
         scene=two_by_the_table(),
         scripts={
-            "ana": Scripted(idle=(), steps=()),
+            "mia": Scripted(idle=(), steps=()),
             "ben": Scripted(idle=(), steps=()),
         },
     )
 
 
-def greeting(live: Literal["ana", "ben"] | None) -> Scenario:
-    """Ana greets the robot, asks what it can do and for a joke; Ben listens.
+def greeting(live: Literal["mia", "ben"] | None) -> Scenario:
+    """Mia greets the robot, asks what it can do and for a joke; Ben listens.
 
     Her lines are twenty seconds apart, leaving the robot time to answer. Both idle in between,
     and look around now and then.
 
     Args:
-        live: Whom you speak for at the microphone. Ana: you replace her, and only gesture with
+        live: Whom you speak for at the microphone. Mia: you replace her, and only gesture with
             your own words. Ben: you speak among her lines, and he only idles.
     """
-    ana_idle = _clips("static/f_idle_neutral_01", "static/f_idle_look_around_01")
+    mia_idle = _clips("static/f_idle_neutral_01", "static/f_idle_look_around_01")
     ben_idle = _clips("static/m_idle_neutral_01", "static/m_idle_look_around_01")
     talk = ClipName.parse("static/f_gestic_talk_neutral_01")
     talk_more = ClipName.parse("static/f_gestic_talk_neutral_02")
-    ana: Script = Scripted(
-        idle=ana_idle,
+    mia: Script = Scripted(
+        idle=mia_idle,
         steps=(
-            Say(at_s=3.0, text="Hello Reachy! How are you today?", gesture=talk),
+            Say(at_s=3.0, text="Hello Milo! How are you today?", gesture=talk),
             Say(at_s=23.0, text="What can you do?", gesture=talk_more),
             Say(at_s=43.0, text="Can you tell me a joke?", gesture=talk),
             Say(at_s=63.0, text="Ha, that's a good one. Thank you!", gesture=talk_more),
@@ -139,33 +139,33 @@ def greeting(live: Literal["ana", "ben"] | None) -> Scenario:
         ),
     )
     match live:
-        case "ana":
-            ana = Live(idle=ana_idle, steps=())
+        case "mia":
+            mia = Live(idle=mia_idle, steps=())
         case "ben":
             ben = Live(idle=ben_idle, steps=())
         case None:
             pass
-    return Scenario(scene=two_by_the_table(), scripts={"ana": ana, "ben": ben})
+    return Scenario(scene=two_by_the_table(), scripts={"mia": mia, "ben": ben})
 
 
-def newcomer(live: Literal["ana"] | None) -> Scenario:
-    """Ana and Ben chat, then introduce themselves to the robot; Cleo walks in, a stranger.
+def newcomer(live: Literal["mia"] | None) -> Scenario:
+    """Mia and Ben chat, then introduce themselves to the robot; Cleo walks in, a stranger.
 
     What it shows, in order: speech not said to the robot, while the head turns to whoever
-    speaks; Ana engaging and giving her name, the first, who becomes the operator; Ben asking for
-    a story and Ana cutting it short; Cleo walking in from out of view and waving, greeted and
+    speaks; Mia engaging and giving her name, the first, who becomes the operator; Ben asking for
+    a story and Mia cutting it short; Cleo walking in from out of view and waving, greeted and
     asked her name as an unknown face; then who is here, recognized. Lines are at fixed times,
     tuned for the robot's answers to fit between them, with the LLM fed the events expected;
     start with an empty face database. Each turns to the robot and lets it greet them before
     speaking: a line said as they engage would cut the greeting off.
 
     Args:
-        live: Whom you speak for at the microphone. Ana: you replace her lines, chatting with
+        live: Whom you speak for at the microphone. Mia: you replace her lines, chatting with
             Ben, and still turn to the robot at her time.
     """
-    ana_idle = _clips("static/f_idle_neutral_01", "static/f_idle_neutral_02")
-    ana: Script = Scripted(
-        idle=ana_idle,
+    mia_idle = _clips("static/f_idle_neutral_01", "static/f_idle_neutral_02")
+    mia: Script = Scripted(
+        idle=mia_idle,
         steps=(
             Say(
                 at_s=2.0,
@@ -180,7 +180,7 @@ def newcomer(live: Literal["ana"] | None) -> Scenario:
             Play(at_s=13.0, clips=_clips("xyz/f_turn_right_60")),
             Say(
                 at_s=19.5,
-                text="Hi Reachy! I'm Ana.",
+                text="Hi Milo! I'm Mia.",
                 gesture=ClipName.parse("static/f_gestic_talk_relaxed_01"),
             ),
             Say(
@@ -237,20 +237,20 @@ def newcomer(live: Literal["ana"] | None) -> Scenario:
         ),
     )
     match live:
-        case "ana":
-            ana = Live(idle=ana_idle, steps=(Play(at_s=13.0, clips=_clips("xyz/f_turn_right_60")),))
+        case "mia":
+            mia = Live(idle=mia_idle, steps=(Play(at_s=13.0, clips=_clips("xyz/f_turn_right_60")),))
         case None:
             pass
-    return Scenario(scene=chatting_by_the_table(), scripts={"ana": ana, "ben": ben, "cleo": cleo})
+    return Scenario(scene=chatting_by_the_table(), scripts={"mia": mia, "ben": ben, "cleo": cleo})
 
 
 SCENARIOS: Final[Mapping[str, Callable[[], Scenario]]] = {
     "still": still,
     "greeting": functools.partial(greeting, live=None),
-    "greeting_as_ana": functools.partial(greeting, live="ana"),
+    "greeting_as_mia": functools.partial(greeting, live="mia"),
     "greeting_as_ben": functools.partial(greeting, live="ben"),
     "newcomer": functools.partial(newcomer, live=None),
-    "newcomer_as_ana": functools.partial(newcomer, live="ana"),
+    "newcomer_as_mia": functools.partial(newcomer, live="mia"),
 }
 """Every scenario, by the name `--scenario` takes."""
 

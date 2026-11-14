@@ -28,6 +28,10 @@ what exists and why.
   sentence when they only look away. Left as it is for now.
 - **Someone unknown who leaves the view and comes back** is a newcomer: a reply cut short for
   them is not picked up, and they are greeted again.
+- **Other formulas for the attention's score.** It is a weighted mean of the features times the
+  habituation, so speaking can only weigh so much against the rest: the Reachy profile raised
+  its weight to 3 of 7.5 for the speaker to draw the head. A speech onset could spike like
+  novelty does, or speaking could hold a floor while it lasts; to explore.
 - **Someone the head does not look at reads further from eye contact** in the simulation, so
   engages slowly, if at all. It is not the perspective: the gaze's crop is now normalized to a
   virtual camera looking at the face, which takes the image's skew out, but changed the readings
@@ -104,20 +108,20 @@ what exists and why.
     threshold. Steps that wait on events (an answer, an engagement) were judged overkill for now.
 - **The simulated people walk only where their clips take them.** In `greeting` they idle, talk
   with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
-  ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). Ana says her lines at their times, gesturing,
+  ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). Mia says her lines at their times, gesturing,
   synthesized once by Kokoro and played into the `rva_sim_room` PipeWire sink the agent listens
   to, her mouth opening as loud as the line is: one viseme, `AA_VI_10_aa`, not the shapes of the
-  sounds yet. In `greeting_as_ana` or `greeting_as_ben` the real microphone speaks for one of
-  them instead, the mouth following its level, with no gesture. In `newcomer` Ana and Ben turn
+  sounds yet. In `greeting_as_mia` or `greeting_as_ben` the real microphone speaks for one of
+  them instead, the mouth following its level, with no gesture. In `newcomer` Mia and Ben turn
   to the robot with turn clips, and Cleo walks in with a walk's start, a cycle and its stop, then
   a turn, played as one step: she ends where Rocketbox's clips take her, which the scene was
   placed for by hand. `npc walk` still slides one sideways without walk clips, and nobody turns
   only their head or eyes to look at the robot. Clips start and end without blending, so the
   pose jumps when a gesture cuts in or ends.
 - **Onboarding in the simulation.** The Reachy profile makes a new face database for each
-  session, so the avatars are strangers who meet Reachy as new users would, every run, and the
+  session, so the avatars are strangers who meet Milo as new users would, every run, and the
   first person named becomes an operator. The profile sets `active_speaker: null`, which hands each
-  utterance to the face in front. In `greeting` Ana's mouth now follows her lines, so
+  utterance to the face in front. In `greeting` Mia's mouth now follows her lines, so
   Light-ASD could see her speak: **try putting it back in `config/reachy_mini_sim/runtime.yaml`**.
   Someone talking through the real microphone does so as a live person in the scene, whose mouth
   moves with their voice, so Light-ASD sees them speak too; how well it does on a mouth that only
@@ -138,7 +142,7 @@ what exists and why.
   person speaking from their head, with no error, delay or echoes, where the reSpeaker is off
   by several degrees and 60 ms late. Light-ASD is back on in the Reachy profile with it; how
   well the two pick the face speaking among the simulated people is not measured yet.
-- **The attention swings between two people every few seconds.** In `greeting` it goes from Ana
+- **The attention swings between two people every few seconds.** In `greeting` it goes from Mia
   to Ben and back every 2 to 7 s, as habituation wears the one attended down; the head now
   turns smoothly, but often. With nobody in view the head drifts back ahead; exploring would be
   better.

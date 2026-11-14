@@ -134,7 +134,7 @@ vision:
       repo: Heliosoph/da3metric-large-onnx
       file: model_fp16.onnx
   # The simulation's people, apart from the real ones, in a new database each session: everyone
-  # meets Reachy anew each run, and the first named becomes its operator.
+  # meets Milo anew each run, and the first named becomes its operator.
   database:
     kind: session
   max_embeddings_per_person: 10
@@ -157,7 +157,9 @@ attention:
   weights:
     closeness: 1.0
     centrality: 0.5
-    speaking: 1.0
+    # Whoever speaks draws the head, over the others in view: 0.4 of the score, where the
+    # default profile's 1.0 gave 0.18, and the head often stayed on a listener.
+    speaking: 3.0
     eye_contact: 0.7
     moving: 1.0
     known: 0.3
@@ -305,6 +307,4 @@ tts:
   # A young man's voice; am_puck, am_liam and am_echo are others.
   voice: am_fenrir
   speed: 1.0
-  # Kokoro says "Reachy" with a k, like "Reeky".
-  respellings:
-    - {written: Reachy, spoken: Reechy}
+  respellings: []

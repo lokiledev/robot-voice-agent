@@ -32,7 +32,7 @@ def walk(
     scenario: Annotated[
         str | None, cyclopts.Parameter(help=f"One of {sorted(SCENARIOS)}; sim.yaml's by default.")
     ] = None,
-    person: str = "ana",
+    person: str = "mia",
     half_width: float = 0.8,
     speed: float = 0.4,
 ) -> None:
