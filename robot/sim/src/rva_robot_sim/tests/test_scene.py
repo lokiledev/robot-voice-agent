@@ -14,6 +14,7 @@ from rva_robot_sim.config import Rasterizer, SimConfig
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.npc import PersonPose
 from rva_robot_sim.scene import ReachyMiniScene, UnknownJointError, UnknownPersonError
+from rva_robot_sim.scenes import two_by_the_table
 
 SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
 
@@ -27,7 +28,13 @@ def scene() -> ReachyMiniScene:
     # Without people, which would only take downloads and Blender, and rasterized, which needs no
     # ray-tracing GPU.
     return ReachyMiniScene(
-        mjcf, config.table_height, (), Rasterizer(), None, config.physics_dt, viewer=False
+        mjcf,
+        two_by_the_table().table_height,
+        {},
+        Rasterizer(),
+        None,
+        config.physics_dt,
+        viewer=False,
     )
 
 
@@ -82,5 +89,5 @@ def test_a_command_naming_an_unknown_joint_is_refused_whole(scene: ReachyMiniSce
 @pytest.mark.download
 @pytest.mark.timeout(600)
 def test_a_person_who_is_not_there_cannot_be_moved(scene: ReachyMiniScene) -> None:
-    with pytest.raises(UnknownPersonError, match="No person 0; there are 0"):
-        scene.place(PersonPose(person=0, position=(1.0, 0.0), turned_deg=0.0))
+    with pytest.raises(UnknownPersonError, match=r"Nobody named 'ana'; there are \[\]"):
+        scene.place(PersonPose(person="ana", position=(1.0, 0.0), turned_deg=0.0))

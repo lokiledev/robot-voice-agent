@@ -31,6 +31,7 @@ from rva_app.servers import (
     MailboxProbe,
     Server,
     ServersUnavailableError,
+    is_ready,
     require_servers,
 )
 from rva_app.services import Service, ServiceFailedError, services_running
@@ -142,11 +143,13 @@ def everything(
     show: bool = False,
     video: bool = False,
     depth: bool = True,
+    scenario: str | None = None,
 ) -> None:
     """Run everything: the servers the agent needs, then the agent with its session page.
 
     Starts the LLM server, the mock robot and, with the camera, MediaMTX, unless they already
-    run. Their output goes to `servers/` in the captures directory, and they stop with the agent.
+    run, and the simulation for a simulated robot, which must not run already. Their output goes
+    to `servers/` in the captures directory, and they stop with the agent.
 
     Args:
         profile: Robot profile directory.
@@ -156,8 +159,10 @@ def everything(
         show: Also show the camera with the tracked faces in a window.
         video: Record the camera frames and their depth with the session, to replay them in rerun.
         depth: Estimate the camera's depth, if the profile has a depth model.
+        scenario: What happens around the simulated robot, instead of the profile's `sim.yaml`
+            scenario: one of `rva_robot_sim.scenarios.SCENARIOS`, e.g. `greeting_as_ben`.
     """
-    _run(_up(profile, text, camera, viewer, show, video, depth))
+    _run(_up(profile, text, camera, viewer, show, video, depth, scenario))
 
 
 @app.command
@@ -293,19 +298,32 @@ async def _up(
     show: bool,
     video: bool,
     depth: bool,
+    scenario: str | None,
 ) -> None:
     config = RuntimeConfig.load(profile_dir)
+    if scenario is not None and config.robot is None:
+        raise SystemExit(f"--scenario is for a simulated robot, which {profile_dir} has not")
+    # lune starts its own simulation: one running already plays a scenario it cannot know.
+    if config.robot is not None and await is_ready(_robot_server(config.robot)):
+        raise SystemExit(
+            f"A simulation is running already in kickmsg namespace {config.robot.namespace!r}:"
+            " stop it first"
+        )
     logs = config.observability.captures_dir.expanduser() / "servers"
-    async with services_running(_services(config, profile_dir, camera), logs):
+    services = _services(config, profile_dir, camera, scenario)
+    async with services_running(services, logs):
         write(f"Session page: http://{config.ui.host}:{config.ui.port}\n")
         run_agent = _run_text_agent if text else _run_voice_agent
         await run_agent(profile_dir, viewer, camera, show, video, True, depth)
 
 
-def _services(config: RuntimeConfig, profile_dir: Path, camera: bool) -> list[Service]:
+def _services(
+    config: RuntimeConfig, profile_dir: Path, camera: bool, scenario: str | None
+) -> list[Service]:
     """The servers `lune` runs.
 
-    MediaMTX only for the camera, the simulation for a robot, and its head controller if it has one.
+    MediaMTX only for the camera, the simulation for a robot, playing `scenario` if given, and its
+    head controller if it has one. The caller makes sure no simulation runs already.
     """
     llm = config.llm_server
     robot = urlsplit(str(config.vla.base_url))
@@ -348,7 +366,12 @@ def _services(config: RuntimeConfig, profile_dir: Path, camera: bool) -> list[Se
         services.append(
             Service(
                 server=_robot_server(config.robot),
-                command=lambda: [str(sim), "--profile", str(profile_dir)],
+                command=lambda: [
+                    str(sim),
+                    "--profile",
+                    str(profile_dir),
+                    *(["--scenario", scenario] if scenario is not None else []),
+                ],
                 environment={},
                 directory=None,
                 # The robot's description downloads and Genesis compiles its kernels, the first

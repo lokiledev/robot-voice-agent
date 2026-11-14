@@ -21,6 +21,7 @@ from rva_robot_schemas.joints import JointCommand
 from rva_robot_sim.config import Rasterizer, SimConfig
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.scene import ReachyMiniScene
+from rva_robot_sim.scenes import two_by_the_table
 
 SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
 NEUTRAL = 0.177
@@ -32,11 +33,12 @@ HEAD_LINK = "xl_330"
 class _Robot:
     def __init__(self, mjcf: Path, config: SimConfig) -> None:
         # Without people or Nyx: only the robot's joints are looked at.
+        table_height = two_by_the_table().table_height
         self.scene = ReachyMiniScene(
-            mjcf, config.table_height, (), Rasterizer(), None, config.physics_dt, viewer=False
+            mjcf, table_height, {}, Rasterizer(), None, config.physics_dt, viewer=False
         )
         self.geometry = read_head_geometry(mjcf)
-        self.table_height = config.table_height
+        self.table_height = table_height
         self.head_in_link = _head_in_link(mjcf)
 
 

@@ -73,33 +73,33 @@ what exists and why.
   view.
 - **The simulation in four layers**, to be kept apart as it grows:
   - *Describing a scene*: which robots, assets and HDRI to load, at which pose, at the start.
-    Today `sim.yaml` (`SimConfig`) for the Reachy Mini on its fixed table, the renderer and the
-    rates, and `rva_robot_sim.scenes` for the people: scenes written as functions, picked by
-    name by `sim.yaml`'s `scene` (`animated_pair`, or `still_pair`), or by `lune-sim --scene`
-    for one run.
+    Today `rva_robot_sim.scenes` for the table and the people, written as functions, and
+    `sim.yaml` (`SimConfig`) for the Reachy Mini, the renderer and the rates.
   - *Controlling the robots*: bridging their sensors and actuators with outside controllers. Today
     `RobotBus` and `serve`, over the robot's kickmsg topics.
   - *Controlling the NPCs*: today `rva_robot_sim.npc`, which places people through the
-    `person_pose` mailbox of the simulation's `sim` node, and its `npc` CLI. A scene's people play
-    their clips in a loop (`rva_robot_sim.actor`); nothing yet tells them, while the sim runs, to
-    play another, to talk or to look somewhere.
-  - *Executing a scenario*: a script of what the NPCs do, say and look at, and their animations,
-    over time, to test the interactive loops (attention, visual servoing, engagement, the
-    dialogue) by hand and in integration tests. None yet: `npc walk` is a first one, written by
-    hand.
-- **The simulated people move and speak, but do not walk.** In `animated_pair` they idle, talk
+    `person_pose` mailbox of the simulation's `sim` node, by name, and its `npc` CLI. Nothing yet
+    tells them, while the sim runs, to play a clip, to talk or to look somewhere.
+  - *Executing a scenario*: a script per person of what they do and say, over time, to test the
+    interactive loops (attention, visual servoing, engagement, the dialogue) by hand and in
+    integration tests. Built for fixed times (`rva_robot_sim.scenarios`, played by
+    `rva_robot_sim.actor`), picked by name by `sim.yaml`'s `scenario`, `lune --scenario` or
+    `lune-sim --scenario`; a person's script is scripted or live, someone at the microphone
+    speaking for them. Not yet: steps that wait on the robot (its answer, its gaze), walking and
+    looking somewhere, and checks of what the robot did.
+- **The simulated people move and speak, but do not walk.** In `greeting` they idle, talk
   with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
-  ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). She says her scene's lines at their times,
+  ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). Ana says her lines at their times, gesturing,
   synthesized once by Kokoro and played into the `rva_sim_room` PipeWire sink the agent listens
   to, her mouth opening as loud as the line is: one viseme, `AA_VI_10_aa`, not the shapes of the
-  sounds yet. `--live` hands one of them to the real microphone instead, the mouth following its
-  level. `npc walk` still slides one sideways without walk clips, and they do not turn to
-  the robot or look at it. Her talking gestures and her lines are not tied: she may gesture in
-  silence or speak while idling.
+  sounds yet. In `greeting_as_ana` or `greeting_as_ben` the real microphone speaks for one of
+  them instead, the mouth following its level, with no gesture. `npc walk` still slides one
+  sideways without walk clips, and they do not turn to the robot or look at it. Clips start and
+  end without blending, so the pose jumps when a gesture cuts in or ends.
 - **Onboarding in the simulation.** The Reachy profile has a face database and an admins file of
   its own, so the avatar is a stranger who meets Reachy as a new user would, and the first person
   named becomes an operator. The profile sets `active_speaker: null`, which hands each
-  utterance to the face in front. In `animated_pair` her mouth now follows her lines, so
+  utterance to the face in front. In `greeting` Ana's mouth now follows her lines, so
   Light-ASD could see her speak: **try putting it back in `config/reachy_mini_sim/runtime.yaml`**.
   Someone talking through the real microphone does so as a live person in the scene, whose mouth
   moves with their voice, so Light-ASD sees them speak too; how well it does on a mouth that only

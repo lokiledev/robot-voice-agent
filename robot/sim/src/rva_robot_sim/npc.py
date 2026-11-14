@@ -30,8 +30,8 @@ class SimulationStoppedError(RuntimeError):
 class PersonPose(RVABaseModel):
     """Where one of the simulation's people stands, and which way they face."""
 
-    person: int
-    """Which of the scene's `people`, by its index there."""
+    person: str
+    """Which of the scene's people, by their name."""
     position: tuple[float, float]
     """On the floor, in meters, in the robot's frame: it faces +x, +y is its left."""
     turned_deg: float
@@ -94,16 +94,13 @@ def lateral(
     return x, y - half_width * offset
 
 
-async def pace(
-    mover: PeopleMover, index: int, person: Person, half_width: float, speed: float
-) -> None:
-    """Pace `person`, the simulation's person `index`, sideways until cancelled.
+async def pace(mover: PeopleMover, person: Person, half_width: float, speed: float) -> None:
+    """Pace `person` sideways until cancelled.
 
     Once cancelled, they are put back where they started.
 
     Args:
         mover: To the simulation.
-        index: Of the person in the scene's `people`.
         person: As the scene places them: they start there.
         half_width: How far they go each side of where they start, in meters.
         speed: In meters per second.
@@ -113,7 +110,7 @@ async def pace(
     """
     logger.info(
         "{} paces {:g} m each side of {} at {:g} m/s",
-        person.avatar,
+        person.name,
         half_width,
         person.position,
         speed,
@@ -122,10 +119,14 @@ async def pace(
     try:
         while True:
             position = lateral(person.position, half_width, speed, time.monotonic() - start)
-            mover.send(PersonPose(person=index, position=position, turned_deg=person.turned_deg))
+            mover.send(
+                PersonPose(person=person.name, position=position, turned_deg=person.turned_deg)
+            )
             await asyncio.sleep(1 / _RATE_HZ)
     except BlockingIOError as error:
         raise SimulationStoppedError("The simulation stopped taking people's poses") from error
     except asyncio.CancelledError:
-        mover.send(PersonPose(person=index, position=person.position, turned_deg=person.turned_deg))
+        mover.send(
+            PersonPose(person=person.name, position=person.position, turned_deg=person.turned_deg)
+        )
         raise

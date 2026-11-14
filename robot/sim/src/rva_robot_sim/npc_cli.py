@@ -7,7 +7,7 @@ import cyclopts
 from rva_pydantic import load_yaml
 from rva_robot_sim.config import SimConfig
 from rva_robot_sim.npc import SimulationStoppedError, open_people_mover, pace
-from rva_robot_sim.scenes import SCENES, describe
+from rva_robot_sim.scenarios import SCENARIOS, describe
 
 app = cyclopts.App(
     name="npc",
@@ -23,10 +23,10 @@ type ProfileDir = Annotated[
 def walk(
     *,
     profile: ProfileDir = Path("config/reachy_mini_sim"),
-    scene: Annotated[
-        str | None, cyclopts.Parameter(help=f"One of {sorted(SCENES)}; sim.yaml's by default.")
+    scenario: Annotated[
+        str | None, cyclopts.Parameter(help=f"One of {sorted(SCENARIOS)}; sim.yaml's by default.")
     ] = None,
-    person: int = 0,
+    person: str = "ana",
     half_width: float = 0.8,
     speed: float = 0.4,
 ) -> None:
@@ -37,20 +37,19 @@ def walk(
 
     Args:
         profile: Robot profile directory, with the `sim.yaml` the simulation runs.
-        scene: The scene the simulation runs, if `lune-sim --scene` gave it another than
+        scenario: The scenario the simulation runs, if `--scenario` gave it another than
             `sim.yaml`'s.
-        person: Which of the scene's people, by index.
+        person: Which of the scene's people, by name.
         half_width: How far they go each side of where they stand, in meters.
         speed: How fast they walk, in meters per second.
     """
     config = load_yaml(SimConfig, profile / "sim.yaml")
-    name = scene if scene is not None else config.scene
     try:
-        people = describe(name).people
+        walker = describe(scenario if scenario is not None else config.scenario).scene.person(
+            person
+        )
     except KeyError as error:
         raise SystemExit(error.args[0]) from error
-    if not 0 <= person < len(people):
-        raise SystemExit(f"The {name} scene has {len(people)} people, from 0")
     mover = open_people_mover(config.namespace, "npc_walk")
     if mover is None:
         raise SystemExit(
@@ -58,7 +57,7 @@ def walk(
             f" `uv run lune-sim --profile {profile}`"
         )
     try:
-        asyncio.run(pace(mover, person, people[person], half_width, speed))
+        asyncio.run(pace(mover, walker, half_width, speed))
     except SimulationStoppedError as error:
         raise SystemExit(str(error)) from error
     except KeyboardInterrupt:

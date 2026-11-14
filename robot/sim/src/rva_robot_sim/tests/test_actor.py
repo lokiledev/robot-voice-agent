@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from rva_robot_sim.actor import Actor, vertex_order
+from rva_robot_sim.actor import Action, Actor, saying, vertex_order
 from rva_robot_sim.animation_assets import ClipName
 from rva_robot_sim.skinning import Motion, Skin, placement
 
@@ -42,8 +42,10 @@ def _motion(root_rotations: tuple[tuple[float, ...], ...]) -> Motion:
     )
 
 
-def _clip(text: str) -> ClipName:
-    return ClipName.parse(text)
+STILL_2S = _motion((IDENTITY, IDENTITY, IDENTITY))
+TURN_1S = _motion((IDENTITY, QUARTER_TURN_Z))
+IDLE = ClipName.parse("static/f_idle_neutral_01")
+TURN = ClipName.parse("xyz/f_turn_left_90")
 
 
 def _shut(time: float) -> float:
@@ -52,20 +54,15 @@ def _shut(time: float) -> float:
 
 def test_without_clips_they_stand_still_where_placed() -> None:
     skin = _skin()
-    actor = Actor(skin, [], placement(2.0, 0.0, 0.0), _shut)
+    actor = Actor(skin, [], [], placement(2.0, 0.0, 0.0), _shut)
 
     for time in (0.0, 10.0, 1000.0):
         np.testing.assert_allclose(actor.pose(time), placement(2.0, 0.0, 0.0) @ skin.bone_rest)
 
 
-def test_clips_play_one_after_the_other_and_loop() -> None:
+def test_idle_clips_play_one_after_the_other_and_loop() -> None:
     still = _motion((IDENTITY, IDENTITY))
-    actor = Actor(
-        _skin(),
-        [(_clip("static/f_idle_neutral_01"), still), (_clip("static/f_idle_breathe_01"), still)],
-        placement(0.0, 0.0, 0.0),
-        _shut,
-    )
+    actor = Actor(_skin(), [(IDLE, still), (IDLE, still)], [], placement(0, 0, 0), _shut)
 
     actor.pose(1.5)
     actor.pose(4.5)
@@ -74,14 +71,7 @@ def test_clips_play_one_after_the_other_and_loop() -> None:
 
 
 def test_a_turn_leaves_the_next_clip_facing_the_new_way() -> None:
-    turn = _motion((IDENTITY, QUARTER_TURN_Z))
-    still = _motion((IDENTITY, IDENTITY))
-    actor = Actor(
-        _skin(),
-        [(_clip("xyz/f_turn_left_90"), turn), (_clip("static/f_idle_neutral_01"), still)],
-        placement(0.0, 0.0, 0.0),
-        _shut,
-    )
+    actor = Actor(_skin(), [(TURN, TURN_1S), (IDLE, STILL_2S)], [], placement(0, 0, 0), _shut)
 
     bones = actor.pose(1.5)
 
@@ -89,8 +79,56 @@ def test_a_turn_leaves_the_next_clip_facing_the_new_way() -> None:
     np.testing.assert_allclose(bones[0, :3, :3] @ [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], atol=1e-12)
 
 
+def test_an_action_cuts_the_idle_clip_then_idling_goes_on() -> None:
+    turning = Action(at_s=1.0, clips=((TURN, TURN_1S),))
+    actor = Actor(_skin(), [(IDLE, STILL_2S)], [turning], placement(0, 0, 0), _shut)
+
+    actor.pose(0.5)
+    idle_anchor = actor.anchor.copy()
+    actor.pose(1.5)
+    acting_anchor = actor.anchor.copy()
+    bones = actor.pose(2.5)
+
+    np.testing.assert_allclose(idle_anchor, placement(0, 0, 0), atol=1e-12)
+    # Cut a second into the idle clip, which does not move them.
+    np.testing.assert_allclose(acting_anchor, placement(0, 0, 0), atol=1e-12)
+    # Idle again from 2 s, facing where the turn left them.
+    np.testing.assert_allclose(actor.anchor, placement(0, 0, math.pi / 2), atol=1e-12)
+    np.testing.assert_allclose(bones[0, :3, :3] @ [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], atol=1e-12)
+
+
+def test_an_action_starting_before_the_last_ends_is_refused() -> None:
+    first = Action(at_s=1.0, clips=((TURN, TURN_1S), (TURN, TURN_1S)))
+    second = Action(at_s=2.5, clips=((TURN, TURN_1S),))
+
+    with pytest.raises(ValueError, match="step at 2.5 s starts before the one at 1 s ends, at 3"):
+        Actor(_skin(), [], [first, second], placement(0, 0, 0), _shut)
+
+
+@pytest.mark.parametrize(
+    ("line_s", "durations"),
+    [
+        (0.45, [0.4]),  # Cut at its last frame before the line's end.
+        (1.0, [1.0]),
+        (2.5, [1.0, 1.0, 0.5]),
+    ],
+)
+def test_a_gesture_lasts_as_long_as_the_line(line_s: float, durations: list[float]) -> None:
+    # A second long, at 10 frames a second.
+    gesture = Motion(
+        rotations=np.array([[IDENTITY, IDENTITY]] * 11),
+        root_position=np.array([[0.0, 0.0, 1.0]] * 11),
+        fps=10.0,
+    )
+
+    action = saying(3.0, line_s, TURN, gesture)
+
+    assert [motion.duration for _, motion in action.clips] == pytest.approx(durations)
+    assert action.at_s == 3.0
+
+
 def test_placing_them_moves_the_current_clip() -> None:
-    actor = Actor(_skin(), [], placement(0.0, 0.0, 0.0), _shut)
+    actor = Actor(_skin(), [], [], placement(0.0, 0.0, 0.0), _shut)
 
     actor.place(placement(0.0, 3.0, 0.0))
 
@@ -98,8 +136,7 @@ def test_placing_them_moves_the_current_clip() -> None:
 
 
 def test_time_does_not_go_back() -> None:
-    still = _motion((IDENTITY, IDENTITY))
-    actor = Actor(_skin(), [(_clip("static/f_idle_neutral_01"), still)], placement(0, 0, 0), _shut)
+    actor = Actor(_skin(), [(IDLE, _motion((IDENTITY, IDENTITY)))], [], placement(0, 0, 0), _shut)
     actor.pose(2.5)
 
     with pytest.raises(ValueError, match="went back"):
@@ -109,7 +146,7 @@ def test_time_does_not_go_back() -> None:
 @pytest.mark.parametrize(("opening", "opens"), [(0.0, False), (1.0, True)])
 def test_the_mouth_opens_as_its_speech_says(opening: float, opens: bool) -> None:
     skin = _skin()
-    actor = Actor(skin, [], placement(0, 0, 0), lambda time: opening)
+    actor = Actor(skin, [], [], placement(0, 0, 0), lambda time: opening)
 
     mouth = actor.vertices(actor.pose(1.0), 1.0)[1]
 

@@ -3,21 +3,16 @@ namespace: rva  # Same as robot.namespace in runtime.yaml.
 description:
   version: 1.14.0
   directory: ~/.cache/robot-voice-agent/reachy_mini
-# The head camera ends up about 1.25 m above the floor: a seated person's face, a little below a
-# standing one's.
-table_height: 1.1
 avatars:
   commit: 0943055db6ec570bcef9f2c8b41c9e5467c808f9
   directory: ~/.cache/robot-voice-agent/rocketbox
   blender: /snap/bin/blender
-# The people around the robot: a scene of rva_robot_sim/scenes.py, by name. `still_pair` stands
-# two in an A-pose; `animated_pair`, the same two idling, talking and listening. `lune-sim --scene`
-# runs another.
-scene: animated_pair
-# A person by their index in the scene, e.g. 1 for the man of `animated_pair`, whom you speak for
-# into the microphone: your voice opens their mouth and the robot hears it, among the others'
-# lines. Null, and everyone speaks as the scene says; `lune-sim --live` picks one.
-live: null
+# What happens around the robot: a scenario of rva_robot_sim/scenarios.py, by name, which picks
+# its scene (the table and the people) and gives each person a script. `still`: Ana and Ben stand
+# in an A-pose. `greeting`: Ana greets the robot and asks it things, Ben listens. `greeting_as_ben`
+# and `greeting_as_ana`: you speak for one of them into the microphone. `--scenario` runs another,
+# with `lune` or `lune-sim`.
+scenario: greeting
 speech:
   directory: ~/.cache/robot-voice-agent/speech
   sample_rate: 24000  # Kokoro's.

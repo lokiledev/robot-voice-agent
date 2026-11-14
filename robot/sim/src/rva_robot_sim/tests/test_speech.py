@@ -5,7 +5,8 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from rva_robot_sim.scenes import Line
+from rva_robot_sim.animation_assets import ClipName
+from rva_robot_sim.scenarios import Say
 from rva_robot_sim.speech import LiveMouth, LiveMouthConfig, ScriptedMouth, SpokenLine, bake
 from rva_schemas.abc.speech import SpeechSynthesizer
 from rva_schemas.audio import AudioClip
@@ -25,12 +26,16 @@ class _Synthesizer:
             yield AudioClip(samples=samples, sample_rate=1000)
 
 
+def _say(at_s: float, text: str) -> Say:
+    return Say(at_s=at_s, text=text, gesture=ClipName.parse("static/f_gestic_talk_neutral_01"))
+
+
 def _refuse(voice: str) -> SpeechSynthesizer:
     raise AssertionError(f"{voice} was asked to synthesize a line kept already")
 
 
 async def test_lines_are_synthesized_once_then_kept(tmp_path: Path) -> None:
-    lines = (Line(at_s=1.0, text="Hi"), Line(at_s=4.0, text="Bye!"))
+    lines = (_say(1.0, "Hi"), _say(4.0, "Bye!"))
     said: list[tuple[str, str]] = []
 
     first = await bake(lines, "af_bella", lambda voice: _Synthesizer(voice, said), tmp_path)
@@ -45,7 +50,7 @@ async def test_lines_are_synthesized_once_then_kept(tmp_path: Path) -> None:
 
 
 async def test_each_voice_keeps_its_own(tmp_path: Path) -> None:
-    lines = (Line(at_s=0.0, text="Hi"),)
+    lines = (_say(0.0, "Hi"),)
     said: list[tuple[str, str]] = []
 
     await bake(lines, "af_bella", lambda voice: _Synthesizer(voice, said), tmp_path)

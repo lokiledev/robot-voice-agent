@@ -6,8 +6,8 @@ robot or away, gestures, and a mouth that moves while they talk. This proposes h
 them, from what was tried. The first part is built, as an experiment apart from the simulation:
 `uv run animate` plays clips on one avatar, skinned in numpy (`rva_robot_sim.skinning`), shown by
 Genesis' rasterizer or by Nyx through a patch of its plugin (`rva_robot_sim.nyx_skinned`), and
-films it. In the simulation, the Reachy profile's scene, `animated_pair`, has two people play
-their clips in a loop, as `rva_robot_sim.scenes` describes them; `still_pair` keeps them still.
+films it. In the simulation, the Reachy profile's scenario, `greeting`, has two people idle,
+gesture and talk, as `rva_robot_sim.scenarios` scripts them; `still` keeps them still.
 
 ## What was tried
 
@@ -86,9 +86,13 @@ loudness, in steps of 10 ms, or the microphone's level between `speech.live_mout
 blocks of 10 ms; the visemes of the sounds are next: kokoro-onnx's `create_timed` may give their
 timings, else a forced aligner or an audio-to-viseme model, which a live voice would need.
 
-**Told what to do by a scene first.** Built: scenes are functions in `rva_robot_sim.scenes`,
-picked by name, and each person gets clips played in a loop. Not yet: a path to walk with the
-walk clip, facing the robot or a direction. It is deterministic,
+**Told what to do by a scenario first.** Built: a scene (`rva_robot_sim.scenes`) places the
+table and the people, each with a name and a voice; a scenario (`rva_robot_sim.scenarios`),
+picked by name, gives each of them a script. A script loops idle clips and, at fixed times,
+plays a clip or says a line with a gesture; the gesture lasts as long as the line, repeated or
+cut, since Rocketbox's talking clips are takes of half a minute. An action cuts the idle clip
+playing, and idling goes on after it: the pose jumps at both ends, with no blending yet. Not
+yet: a path to walk with the walk clip, facing the robot or a direction. It is deterministic,
 which tests want. Later, a `person_command` mailbox of the sim, like `joint_command`, lets a test
 or an operator drive them: play a clip, walk to a point, face the robot, talk with a given
 loudness. The sim would then publish where each person is, their head and whether they talk, as

@@ -20,7 +20,7 @@ from loguru import logger
 from pydantic import model_validator
 
 from rva_pydantic import RVABaseModel
-from rva_robot_sim.scenes import Line
+from rva_robot_sim.scenarios import Say
 from rva_robot_sim.skinning import Floats
 from rva_schemas.abc.speech import SpeechSynthesizer
 from rva_schemas.audio import AudioClip
@@ -130,7 +130,7 @@ class LiveMouth:
 
 
 async def bake(
-    lines: Sequence[Line],
+    lines: Sequence[Say],
     voice: str,
     synthesizer: Callable[[str], SpeechSynthesizer],
     directory: Path,
@@ -138,7 +138,7 @@ async def bake(
     """The lines as `voice` says them, synthesized the first time and kept in `directory`.
 
     Args:
-        lines: What is said and when.
+        lines: What is said and when; their gestures do not matter.
         voice: Whose voice says them, as the synthesizer names it.
         synthesizer: Gives the synthesizer of a voice; asked only for lines not baked yet.
         directory: Where lines are kept, by voice and text: one per synthesizer and its

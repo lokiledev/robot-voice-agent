@@ -619,9 +619,11 @@ targets.
   (`kind: rasterizer` in `sim.yaml`) needs no ray-tracing GPU, for the tests and other machines.
 - **People to look at.** Microsoft's [Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox)
   avatars, MIT-licensed, with photographed faces that the face detector takes. A scene, written
-  as a function in `rva_robot_sim.scenes` and named by `sim.yaml` (`lune-sim --scene` runs
-  another), places them, facing
-  the robot or turned away, and gives each Rocketbox clips to play in a loop. On first use each
+  as a function in `rva_robot_sim.scenes`, places them, facing the robot or turned away, each
+  with a name and a Kokoro voice. A scenario, written as a function in
+  `rva_robot_sim.scenarios` and named by `sim.yaml` (`--scenario` runs another), picks a scene
+  and gives each person a script: Rocketbox clips to idle with, and steps at fixed times, a
+  clip to play or a line to say with a gesture; or the real microphone, for a live person. On first use each
   avatar and clip is downloaded from GitHub at a pinned commit and baked once by headless
   Blender, since Genesis cannot read their FBX: the face FBX's mesh in its A-pose as a GLB, with
   its skin and face shapes as arrays, and each clip as its bones' rotations. Genesis shows the
@@ -632,8 +634,10 @@ targets.
   scans each need their own fixes. They are the simulation's NPCs: the `npc` CLI moves them
   while it runs, through the `person_pose` mailbox of the simulation's own node, without loading
   Genesis. `npc walk` paces one sideways across the robot's view, back and forth at a steady
-  speed, to watch the head follow. The roadmap has the layers the simulation is to be split into:
-  scene, robots, NPCs and scenarios.
+  speed, to watch the head follow. A scene says who and what is there at the start, a scenario
+  what happens, so the same scene serves several scenarios, and who is live is part of the
+  scenario: one argument names a whole, reproducible run. The roadmap has the layers the
+  simulation is to be split into: scene, robots, NPCs and scenarios.
 - **A room around them.** With Nyx, an HDRI from [Poly Haven](https://polyhaven.com/hdris) (CC0)
   is seen around the world and lights it, with a sun for shadows; downloaded on first use and
   checked against Poly Haven's MD5.

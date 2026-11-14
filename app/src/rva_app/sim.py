@@ -23,8 +23,8 @@ from rva_robot_sim.config import CameraRenderer, NyxRenderer, Rasterizer, SimCon
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.hdri import install_hdri
 from rva_robot_sim.room import Room
+from rva_robot_sim.scenarios import SCENARIOS, Live, Say, Scenario, Script, Scripted, describe
 from rva_robot_sim.scene import ReachyMiniScene
-from rva_robot_sim.scenes import SCENES, Live, SceneDescription, Scripted, describe
 from rva_robot_sim.serve import serve
 from rva_robot_sim.speech import LiveMouth, ScriptedMouth, SpeechConfig, SpokenLine, bake
 from rva_voice_tts.kokoro import KokoroConfig, KokoroSynthesizer
@@ -41,67 +41,73 @@ def main(
     profile: Annotated[Path, cyclopts.Parameter(help="Robot profile directory.")] = Path(
         "config/reachy_mini_sim"
     ),
-    scene: Annotated[
-        str | None, cyclopts.Parameter(help=f"One of {sorted(SCENES)}; sim.yaml's by default.")
-    ] = None,
-    live: Annotated[
-        int | None,
-        cyclopts.Parameter(
-            help="Index of the person the microphone speaks for; sim.yaml's by default."
-        ),
+    scenario: Annotated[
+        str | None,
+        cyclopts.Parameter(help=f"One of {sorted(SCENARIOS)}; sim.yaml's by default."),
     ] = None,
     viewer: bool = False,
 ) -> None:
     """Simulate the robot in real time until Ctrl+C or terminated.
 
     It publishes the joint states and the head camera's frames, and drives the joints to the
-    positions clients send. The people around it are the scene's, playing their clips. Scripted
-    people say their lines into the room, the sound sink the agent listens to, and out of the
-    loudspeaker; a live one speaks with the microphone's voice, relayed into the room. The robot's
-    description, the people's avatars and their clips are downloaded on first use, the avatars and
-    clips baked with Blender, and the lines synthesized with the robot's Kokoro, in each person's
-    voice: the first start of a scene is slow, and the simulation only starts once all of it is
-    ready.
+    positions clients send. The people around it are the scenario's scene's, playing their
+    scripts. Scripted people say their lines into the room, the sound sink the agent listens to,
+    and out of the loudspeaker; a live one speaks with the microphone's voice, relayed into the
+    room. The robot's description, the people's avatars and their clips are downloaded on first
+    use, the avatars and clips baked with Blender, and the lines synthesized with the robot's
+    Kokoro, in each person's voice: the first start of a scenario is slow, and the simulation
+    only starts once all of it is ready.
 
     Args:
         profile: Robot profile directory, with `sim.yaml`, and `runtime.yaml` for Kokoro.
-        scene: Who is around the robot and what they do, a function of `scenes.py`, instead of
+        scenario: What happens around the robot, a function of `scenarios.py`, instead of
             `sim.yaml`'s.
-        live: The person, by their index in the scene, whom someone at the microphone speaks
-            for, instead of their script, instead of `sim.yaml`'s.
         viewer: Open Genesis' viewer, to watch the robot from outside.
     """
     config = load_yaml(SimConfig, profile / "sim.yaml")
-    name = scene if scene is not None else config.scene
-    description = _scene(name, live if live is not None else config.live)
-    logger.info("Setting the {} scene, of {} people", name, len(description.people))
-    lines = asyncio.run(_bake(description, config.speech, RuntimeConfig.load(profile).tts))
+    name = scenario if scenario is not None else config.scenario
+    played = _scenario(name)
+    people = played.scene.people
+    logger.info("Playing the {} scenario, with {}", name, [person.name for person in people])
+    lines = asyncio.run(_bake(played, config.speech, RuntimeConfig.load(profile).tts))
     voice = LiveMouth(config.speech.live_mouth)
-    mouths = [
-        _mouth(person.speech, spoken, voice)
-        for person, spoken in zip(description.people, lines, strict=True)
-    ]
     with httpx.Client(follow_redirects=True, timeout=60) as client:
         mjcf = install_reachy_mini(config.description, client)
-        people = [
-            cast(config.avatars, person, mouth, client)
-            for person, mouth in zip(description.people, mouths, strict=True)
-        ]
+        try:
+            actors = {
+                person.name: cast(
+                    config.avatars,
+                    person,
+                    played.scripts[person.name],
+                    lines[person.name],
+                    _mouth(played.scripts[person.name], lines[person.name], voice),
+                    client,
+                )
+                for person in people
+            }
+        except ValueError as error:
+            raise SystemExit(f"The {name} scenario: {error}") from error
         hdri = _hdri(config.camera_renderer, client)
     # One environment steps faster on the CPU than it takes to launch kernels on a GPU.
     gs.init(backend=backend.cpu, logging_level="warning")
     logging.getLogger("genesis").addFilter(_without_get_trimesh)
     logger.info("Building the scene from {}", mjcf)
     world = ReachyMiniScene(
-        mjcf, config.table_height, people, config.camera_renderer, hdri, config.physics_dt, viewer
+        mjcf,
+        played.scene.table_height,
+        actors,
+        config.camera_renderer,
+        hdri,
+        config.physics_dt,
+        viewer,
     )
     bus = RobotBus(config.namespace, world.camera_size)
     logger.info("Serving the robot in kickmsg namespace {}", config.namespace)
     # Stopped like Ctrl+C when terminated, as a launcher does, so its topics are removed too.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     try:
-        anyone_live = any(isinstance(person.speech, Live) for person in description.people)
-        scripted = [line for spoken in lines for line in spoken]
+        anyone_live = any(isinstance(script, Live) for script in played.scripts.values())
+        scripted = [line for spoken in lines.values() for line in spoken]
         with Room(scripted, voice if anyone_live else None, config.speech) as room:
             serve(world, bus, room, config)
     except KeyboardInterrupt:
@@ -111,9 +117,9 @@ def main(
 
 
 async def _bake(
-    scene: SceneDescription, speech: SpeechConfig, tts: KokoroConfig
-) -> list[list[SpokenLine]]:
-    """Each person's lines, in their voice, synthesized with the robot's Kokoro if not kept yet.
+    scenario: Scenario, speech: SpeechConfig, tts: KokoroConfig
+) -> dict[str, list[SpokenLine]]:
+    """Each person's lines, by name, in their voice, synthesized by the robot's Kokoro if new.
 
     Kept apart by the settings that change how they sound, so changing one synthesizes them anew.
     """
@@ -125,35 +131,34 @@ async def _bake(
     def synthesizer(voice: str) -> KokoroSynthesizer:
         return KokoroSynthesizer(tts.model_copy(update={"voice": voice}))
 
-    spoken: list[list[SpokenLine]] = []
-    for person in scene.people:
-        match person.speech:
-            case Scripted(voice=voice, lines=lines):
-                spoken.append(await bake(lines, voice, synthesizer, directory))
+    spoken: dict[str, list[SpokenLine]] = {}
+    for person in scenario.scene.people:
+        script = scenario.scripts[person.name]
+        match script:
+            case Scripted(steps=steps):
+                says = [step for step in steps if isinstance(step, Say)]
+                spoken[person.name] = await bake(says, person.voice, synthesizer, directory)
             case Live():
-                spoken.append([])
+                spoken[person.name] = []
             case _:
-                assert_never(person.speech)
+                assert_never(script)
     return spoken
 
 
-def _mouth(
-    speech: Scripted | Live, lines: list[SpokenLine], voice: LiveMouth
-) -> Callable[[float], float]:
-    match speech:
+def _mouth(script: Script, lines: list[SpokenLine], voice: LiveMouth) -> Callable[[float], float]:
+    match script:
         case Scripted():
             return ScriptedMouth(lines).opening
         case Live():
             return voice.opening
         case _:
-            assert_never(speech)
+            assert_never(script)
 
 
-def _scene(name: str, live: int | None) -> SceneDescription:
+def _scenario(name: str) -> Scenario:
     try:
-        scene = describe(name)
-        return scene if live is None else scene.with_live(live)
-    except (KeyError, IndexError) as error:
+        return describe(name)
+    except KeyError as error:
         raise SystemExit(error.args[0]) from error
 
 
