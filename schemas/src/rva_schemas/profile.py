@@ -1,6 +1,8 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
+
+from pydantic import model_validator
 
 from rva_pydantic import RVABaseModel, load_yaml
 
@@ -56,8 +58,19 @@ class Capabilities(RVABaseModel):
     the head follows the visual attention on its own, and the agent has no say in it."""
     animations: tuple[str, ...]
     """Body animations that can be played, e.g. "wave_right_hand"."""
+    greeting_animation: str | None
+    """The one of `animations` it greets people with; `None` to greet with words alone."""
     constraints: tuple[str, ...]
     """Things the robot cannot do, e.g. "cannot climb stairs"."""
+
+    @model_validator(mode="after")
+    def _greets_with_an_animation_it_has(self) -> Self:
+        if self.greeting_animation is not None and self.greeting_animation not in self.animations:
+            raise ValueError(
+                f"greeting_animation {self.greeting_animation} is not one of the animations:"
+                f" {', '.join(self.animations)}"
+            )
+        return self
 
 
 class Admins(RVABaseModel):

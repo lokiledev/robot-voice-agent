@@ -54,6 +54,7 @@ animations:
   - sit_down
   - stand_up
   - turn_around
+greeting_animation: wave_right_hand
 constraints:
   - Cannot climb stairs or leave the lab.
   - Cannot lift more than about five kilograms.

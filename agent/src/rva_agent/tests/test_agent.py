@@ -202,8 +202,8 @@ async def test_a_head_that_follows_the_attention_is_not_the_agents_to_turn() -> 
     assert "look_at_user" not in [tool.name for tool in started.tools]
     assert "look_at_user" not in llm.requests[0][0].content
     assert llm.requests[0][-1] == RobotEventMessage(
-        content="An unknown person (track 8) came to you and is looking at you. Greet them and"
-        " wave."
+        content="An unknown person (track 8) came to you and is looking at you. Greet them:"
+        " play your wave_right_hand animation."
     )
 
 
@@ -524,8 +524,8 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
     await running
 
     assert llm.requests[0][-1] == RobotEventMessage(
-        content="An unknown person (track 8) came to you and is looking at you. Greet them: look"
-        " at them and wave."
+        content="An unknown person (track 8) came to you and is looking at you. Greet them:"
+        " play your wave_right_hand animation."
     )
     assert (
         UserLine(text="I'm Alice.", speaker=Speaker(track_id=8, person=None, operator=False))
@@ -628,7 +628,7 @@ async def test_a_quick_return_is_not_greeted_again() -> None:
     assert speech.said == ["Hi Alice.", "You are Alice."]
     assert llm.requests[0][-1] == RobotEventMessage(
         content=f"Alice (track 7, user {ALICE_ID}, one of your operators) came to you and is"
-        " looking at you. Greet them: look at them and wave."
+        " looking at you. Greet them: look at them and play your wave_right_hand animation."
     )
     assert llm.requests[1][-3:-1] == (
         RobotEventMessage(content="Alice (track 7) left."),

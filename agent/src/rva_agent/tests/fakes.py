@@ -253,6 +253,7 @@ PROFILE = Profile(
         ),
         constraints=(),
         animations=("wave_right_hand", "dance"),
+        greeting_animation="wave_right_hand",
     ),
 )
 ADMINS = Admins(user_ids=frozenset({person("Alice").user_id}))

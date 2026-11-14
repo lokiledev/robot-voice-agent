@@ -5,7 +5,7 @@ walks: false
 # Its head follows the visual attention on its own: the agent does not turn it to someone.
 looks_at_people: false
 skills: []
-# Played with the play_animation tool; the first one is how it greets.
+# Played with the play_animation tool.
 animations:
   - wiggle_antennas
   - nod
@@ -13,6 +13,7 @@ animations:
   - tilt_head
   - look_around
   - happy_dance
+greeting_animation: wiggle_antennas
 constraints:
   - Cannot pick up, carry, push or hand over anything, having no arms or hands.
   - Cannot walk or leave the desk; only the head and the base turn.

@@ -144,13 +144,8 @@ class Agent:
             + (() if self._people is None else PeopleTools.specs)
         )
         self._tool_names: Final = frozenset(spec.name for spec in self._tool_specs)
-        # What to do when someone comes: said in the event itself, which the model follows far
-        # more than a rule in its prompt.
-        self._greeting: Final = (
-            "Greet them: look at them and wave."
-            if vision is not None and capabilities.looks_at_people
-            else "Greet them and wave."
-        )
+        self._greeting_animation: Final = capabilities.greeting_animation
+        self._looks_at_people: Final = vision is not None and capabilities.looks_at_people
         self._history: Final = History(
             render_system_prompt(profile, vision=vision is not None), config.max_history_messages
         )
@@ -325,9 +320,25 @@ class Agent:
             return
         self._greeted.add(event.track_id)
         self._history.append(
-            RobotEventMessage(content=f"{who} came to you and is looking at you. {self._greeting}")
+            RobotEventMessage(
+                content=f"{who} came to you and is looking at you. {self._greeting(event.person)}"
+            )
         )
         await self._respond(event.track_id)
+
+    def _greeting(self, person: KnownPerson | None) -> str:
+        """What to do when `person` comes, with what this body has to do it.
+
+        Said in the event itself, which the model follows far more than a rule in its prompt. Told
+        to wave without an animation for it, it writes the wave into what it says; told to look
+        at someone unknown, it makes up the user id that look_at_user needs.
+        """
+        gestures = []
+        if self._looks_at_people and person is not None:
+            gestures.append("look at them")
+        if self._greeting_animation is not None:
+            gestures.append(f"play your {self._greeting_animation} animation")
+        return f"Greet them: {' and '.join(gestures)}." if gestures else "Greet them."
 
     def _was_cut_short_for(self, event: Engaged) -> bool:
         """Whether the reply that stopped in the middle was to whoever engages now."""
