@@ -241,6 +241,11 @@ for the camera's debug window, `--no-video` not to record the camera frames and 
 and `--no-camera`. Every command takes
 `--profile` to use another robot profile than `config/default`.
 
+A profile's `runtime.yaml` can start with `extends: ../default` and then hold only what differs
+from that profile's: `config/thor` and `config/reachy_mini_sim` do. A mapping changes the keys it
+names and keeps the rest; a list, a value, a `null`, or a mapping of another `kind`, replaces
+what was there.
+
 ## Where data lives
 
 Nothing the robot learns or records is written to the source tree. The paths are set in

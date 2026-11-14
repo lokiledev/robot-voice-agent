@@ -198,3 +198,44 @@ def test_the_respeaker_hears_ahead_of_the_camera_behind_its_own_zero(
     # The board is pitched 4 degrees off flat: a bearing turns a little differently from the
     # azimuth.
     assert bearing == pytest.approx(bearing_deg, abs=0.5)
+
+
+def test_a_profile_holds_only_what_differs_from_the_one_it_extends(tmp_path: Path) -> None:
+    default = _REPOSITORY / "config" / "default"
+    profile = tmp_path / "quiet_room"
+    profile.mkdir()
+    (profile / "runtime.yaml").write_text(
+        f"""
+extends: {default}
+llm:
+  temperature: 0.2
+vision:
+  tracker:
+    min_face_height: 0.2
+  database:
+    kind: session
+doa: null
+transforms: []
+"""
+    )
+
+    base, config = RuntimeConfig.load(default), RuntimeConfig.load(profile)
+
+    # A value changes alone in its mapping, at any depth.
+    assert config.llm == base.llm.model_copy(update={"temperature": 0.2})
+    assert config.vision.tracker == base.vision.tracker.model_copy(update={"min_face_height": 0.2})
+    # A mapping of another kind replaces the one under it, whose path it has no use for.
+    assert config.vision.database == SessionFaces()
+    # A null and a list replace what was there.
+    assert config.doa is None
+    assert config.transforms == ()
+    # The rest is the default's, its camera's intrinsics still found next to it.
+    assert config.vision.camera == base.vision.camera
+    assert config.audio == base.audio
+
+
+def test_a_profile_s_own_intrinsics_are_found_next_to_it() -> None:
+    thor = RuntimeConfig.load(_REPOSITORY / "config" / "thor")
+
+    assert thor.vision.camera.intrinsics == _REPOSITORY / "config" / "thor" / "cameras/d455.yaml"
+    assert thor.agent == RuntimeConfig.load(_REPOSITORY / "config" / "default").agent

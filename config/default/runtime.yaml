@@ -1,3 +1,6 @@
+# The machine side of the default profile: models, devices, thresholds and endpoints. The other
+# profiles' runtime.yaml extend this one and only hold what differs: change here what is true of
+# every robot, there what is true of one.
 agent:
   max_history_messages: 60
   max_tool_rounds: 4
@@ -63,8 +66,9 @@ vision:
     min_face_height: 0.12
     iou_threshold: 0.3
     # A face that overlaps its last box too little, a small one turning fast, still keeps its
-    # track when it moved no faster than this many of its heights per second: 0.75 of a height
-    # between two frames at 30 a second.
+    # track when it moved no faster than this many of its heights per second, 0.75 of a height
+    # between two frames at 30 a second: in the simulation, Ben's 53-pixel face moved 25 in a
+    # frame as he turned to the robot.
     max_speed: 22.5
     reid_threshold: 0.5
     confirm_after_s: 0.5

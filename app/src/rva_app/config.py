@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import Self
+from typing import Final, Self
 
+import yaml
 from loguru import logger
-from pydantic import Field, model_validator
+from pydantic import Field, JsonValue, TypeAdapter, model_validator
 
 from rva_agent.config import AgentConfig
 from rva_app.doa import DoaConfig, RobotDoaConfig
@@ -27,6 +28,13 @@ from rva_vla_client.client import HttpVlaClientConfig
 from rva_voice_asr.parakeet import ParakeetConfig
 from rva_voice_audio.config import AudioConfig
 from rva_voice_tts.kokoro import KokoroConfig
+
+_EXTENDS: Final = "extends"
+"""The key of a `runtime.yaml` that names the directory of the profile it is laid over, relative
+to its own."""
+_KIND: Final = "kind"
+"""The tag that tells the variants of a setting apart."""
+_SETTINGS: Final = TypeAdapter(dict[str, JsonValue])
 
 
 class HeadControllerConfig(RVABaseModel):
@@ -104,15 +112,55 @@ class RuntimeConfig(RVABaseModel):
 
     @classmethod
     def load(cls, profile: Path) -> "RuntimeConfig":
-        """The profile's runtime config, with the paths it gives relative to it made whole."""
-        config = load_yaml(cls, profile / "runtime.yaml")
-        camera = config.vision.camera
-        if camera.intrinsics is None:
-            return config
-        camera = camera.model_copy(update={"intrinsics": profile / camera.intrinsics})
-        return config.model_copy(
-            update={"vision": config.vision.model_copy(update={"camera": camera})}
+        """The profile's runtime config, with the paths it gives relative to it made whole.
+
+        A `runtime.yaml` that names another profile's directory under `extends` only holds what
+        differs from that profile's, and is laid over it: see `_laid_over`.
+
+        Raises:
+            FileNotFoundError: Without a `runtime.yaml` in `profile`, or in a profile it extends.
+            pydantic.ValidationError: If the settings, once laid over each other, do not fit.
+        """
+        return cls.model_validate(_settings(profile))
+
+
+def _settings(profile: Path) -> dict[str, JsonValue]:
+    """What the profile's `runtime.yaml` holds, over that of the profile it extends, if any."""
+    path = profile / "runtime.yaml"
+    own = _SETTINGS.validate_python(yaml.safe_load(path.read_text()))
+    # Relative to the profile that names it, which may not be the one loaded.
+    match own:
+        case {"vision": {"camera": {"intrinsics": str(intrinsics)}}}:
+            whole: JsonValue = {"camera": {"intrinsics": str(profile / intrinsics)}}
+            own = _laid_over(own, {"vision": whole})
+    match own.pop(_EXTENDS, None):
+        case None:
+            return own
+        case str(base):
+            return _laid_over(_settings(profile / base), own)
+        case other:
+            raise ValueError(f"{path}: {_EXTENDS} is a profile's directory, not {other!r}")
+
+
+def _laid_over(base: dict[str, JsonValue], override: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """`override` over `base`: what it says replaces what `base` says, the rest is `base`'s.
+
+    Mappings are laid over each other key by key, all the way down, so a profile changes one
+    threshold without saying the others again. A list, a value or a null replaces whatever was
+    there. So does a mapping of another `kind` than the one it lies over: the fields of one kind
+    of camera or of microphone array mean nothing to another.
+    """
+    if _KIND in base and _KIND in override and base[_KIND] != override[_KIND]:
+        return override
+    laid = dict(base)
+    for key, value in override.items():
+        under = base.get(key)
+        laid[key] = (
+            _laid_over(under, value)
+            if isinstance(under, dict) and isinstance(value, dict)
+            else value
         )
+    return laid
 
 
 def load_admins(path: Path) -> Admins:

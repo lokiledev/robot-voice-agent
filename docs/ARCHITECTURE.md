@@ -90,7 +90,11 @@ any, so the agent knows nothing of scenarios. It stops on exit what it started, 
 The profile is the robot's story (`character.yaml`, `environment.yaml`, `capabilities.yaml`,
 rendered into the system prompt) plus the machine (`runtime.yaml`: models, devices, thresholds,
 paths). `capabilities.yaml` matters most: the LLM should phrase VLA tasks the way the policy was
-trained.
+trained. One `runtime.yaml` is whole, the default profile's; the others name it under `extends`
+and hold only what differs, laid over it key by key before anything is validated, so a threshold
+tuned for every robot is changed in one file and a profile shows at a glance what is its own. A
+mapping of another `kind` replaces the one under it rather than mixing with it: a camera read
+from the robot has no use for a webcam's device.
 
 ## 3. Inside the agent process
 
