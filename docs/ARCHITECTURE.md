@@ -333,7 +333,9 @@ flowchart LR
   z forward, in metres). Only the main user's hands are fitted, as below: gestures are read from
   the main user alone, and a hand's fit is paid per hand, so a crowd in view costs little more.
   Everyone else's hands lie flat at their wrist's depth, which tells the attention where a hand
-  is, not its shape. A keypoint's depth is the 25th percentile of a 5x5 patch of the depth map
+  is, not its shape. Every hand is held no nearer than an arm's length, 0.6 m, in front of its
+  owner's eyes: the depth read Cleo's raised arm 0.9 m in front of her face, 0.42 m from the
+  camera, and the head swung up to look at it and lost everyone. A keypoint's depth is the 25th percentile of a 5x5 patch of the depth map
   around it: keypoints sit on the edges of limbs and fingers, where the patch also holds the room
   behind, and the person is the nearer side. The gaze angles are measured from the line from the
   eyes to the camera, so the ray turns that line by the yaw towards the image's right and the
@@ -798,7 +800,9 @@ the point would be placed further along its turn, which it would then chase. So 
 point, and the loop does not chase its own lag. The aim keeps the head at the profile's
 `gaze_position` and level, and solves its pitch and yaw for the camera's axis, read from the
 MJCF's `camera_optical` site, to pass through the point; the camera sits 7 cm off the head's
-centre, so a few rounds from where the last put it converge. Targets out of reach are left out,
+centre, so a few rounds from where the last put it converge. A point nearer the camera than half
+a meter, which no one in view should be, is aimed at half a meter along its line of sight, where
+the rounds still converge. Targets out of reach are left out,
 logged once until they come back. The viewer shows the target's point too.
 
 At each joint state, it also publishes where the head camera is in the base frame, by the same

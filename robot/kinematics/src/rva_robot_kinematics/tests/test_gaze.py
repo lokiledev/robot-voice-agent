@@ -37,6 +37,19 @@ def test_a_point_seen_right_and_below_is_right_and_below_in_the_base() -> None:
     assert point == pytest.approx((1.0395, -0.2, NEUTRAL + 0.0525 - 0.1), abs=1e-5)
 
 
+def test_a_point_nearer_than_half_a_meter_is_placed_half_a_meter_along_its_line() -> None:
+    # A hand misread 20 cm in front of the camera, up and to the right.
+    near = GazeTarget(timestamp=0.0, x=0.06, y=-0.08, z=0.0)
+    on_axis = GazeTarget(timestamp=0.0, x=0.0, y=0.0, z=0.2)
+
+    placed = GAZE.place(near, _upright(0))
+    ahead = GAZE.place(on_axis, _upright(0))
+
+    # 0.1 m off the camera, scaled to 0.5 m: 0.3 to the right and 0.4 up.
+    assert placed == pytest.approx((0.0395, -0.3, NEUTRAL + 0.0525 + 0.4), abs=1e-5)
+    assert ahead == pytest.approx((0.5395, 0.0, NEUTRAL + 0.0525), abs=1e-5)
+
+
 def test_a_point_at_the_cameras_height_straight_ahead_needs_no_turn() -> None:
     pose = GAZE.aim(np.array((1.5, 0.0, NEUTRAL + 0.0525)))
 

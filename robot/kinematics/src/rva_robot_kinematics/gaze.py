@@ -16,6 +16,11 @@ head turns about: for a point 0.5 m away or more, each round is at least seven t
 the last, and the fourth within a hundredth of a degree."""
 
 
+_NEAREST_M: Final = 0.5
+"""The nearest a point is aimed at, along its line of sight: the aim converges from there on, and
+a nearer one, a hand misread a few tens of centimetres from the camera, swung the head far."""
+
+
 class HeadPoseUnknownError(LookupError):
     pass
 
@@ -81,9 +86,20 @@ class Gaze:
         return pose_matrix(head) @ self._camera
 
     def place(self, target: GazeTarget, head: HeadPose) -> npt.NDArray[np.float64]:
-        """The target's point in the base frame, seen with the head at `head`, in meters."""
-        seen = np.array((target.x, target.y, target.z, 1.0))
-        return (pose_matrix(head) @ self._camera @ seen)[:3]
+        """The target's point in the base frame, seen with the head at `head`, in meters.
+
+        A point nearer the camera than half a meter is placed half a meter away along its line of
+        sight.
+        """
+        seen = np.array((target.x, target.y, target.z))
+        distance = float(np.linalg.norm(seen))
+        if distance < _NEAREST_M:
+            seen = (
+                np.array((0.0, 0.0, _NEAREST_M))
+                if distance == 0
+                else seen * (_NEAREST_M / distance)
+            )
+        return (pose_matrix(head) @ self._camera @ np.array((*seen, 1.0)))[:3]
 
     def aim(self, point: npt.NDArray[np.float64]) -> HeadPose:
         """The head pose that puts `point`, in the base frame, in the middle of the image.

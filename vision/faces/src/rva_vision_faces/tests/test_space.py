@@ -212,6 +212,36 @@ def test_every_skeleton_is_placed_and_only_the_main_user_s_hands_fitted() -> Non
     assert lifted.bodies[2].left_hand != flat, "the main user's is fitted"
 
 
+def test_a_hand_read_far_in_front_of_its_owner_s_face_is_held_an_arm_s_length_from_it() -> None:
+    # Their eyes are 3 m away; their raised arm's wrist reads 1 m, which no arm reaches.
+    depth = _depth(3.0)
+    depth.metres[190:205, 360:370] = 1.0
+    landmarks = [(0.0, 0.0)] * 478
+    landmarks[468], landmarks[473] = (900.0, 540.0), (1020.0, 540.0)
+    face = FaceFeatures(
+        landmarks=tuple(landmarks),
+        left_eye_open=1.0,
+        right_eye_open=1.0,
+        mouth_open=0.0,
+        gaze=Gaze(yaw=0.0, pitch=0.0),
+        in_3d=None,
+        expression="neutral",
+        expression_score=0.9,
+    )
+    body = _body({10: (1460, 790)}, _hand({}))
+    body = body.model_copy(update={"right_hand": _hand({0: (1500, 700), 5: (1520, 690)})})
+    scene = Scene(faces={1: face}, bodies={1: body}, unmatched_bodies=(), speakers={})
+
+    lifted = Lifter(INTRINSICS).lift(scene, depth, None)
+
+    hand = lifted.bodies[1].right_hand
+    assert hand is not None
+    wrist = hand.keypoints[0]
+    assert wrist is not None and wrist.position is not None
+    # 0.6 m in front of the eyes: 2.4 m away.
+    assert _xyz(wrist.position) == pytest.approx((1.296, 0.384, 2.4), abs=1e-6)
+
+
 def test_someone_else_s_hand_is_at_its_arm_s_wrist_depth() -> None:
     # The forearm ends at the arm's wrist, 1 m away; the wall, 3 m, is seen through the fingers.
     depth = _depth(3.0)

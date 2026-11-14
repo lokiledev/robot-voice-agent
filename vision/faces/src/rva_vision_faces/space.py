@@ -37,6 +37,9 @@ _SIDES: Final[tuple[Side, Side]] = ("left", "right")
 _SIZE_SAMPLES: Final = 90
 """Fitted sizes of a track's hands kept, about 3 s: their median is the size its hands are held
 near."""
+_ARM_M: Final = 0.6
+"""How far in front of its owner's face a hand may be: an arm's length. Read from the depth, a
+raised hand's wrist came out 0.9 m in front of the face, and the head swung to look at it."""
 _FIT_KEPT_FRAMES: Final = 15
 """Frames a hand's last fit is kept through while it is not seen, about half a second: a hand
 missed for a frame starts again from where it was, not from scratch."""
@@ -71,8 +74,19 @@ class Lifter:
             for key, (params, age) in self._hands.items()
             if age + 1 < _FIT_KEPT_FRAMES
         }
+        faces = {
+            track_id: _lift_face(face, depth, intrinsics) for track_id, face in scene.faces.items()
+        }
+        # How near each person's hands may be: an arm's length in front of their eyes.
+        nearest = {
+            track_id: face.in_3d.gaze.origin.z - _ARM_M
+            for track_id, face in faces.items()
+            if face.in_3d is not None
+        }
         bodies = {
-            track_id: _place_hands(_lift_body(body, depth, intrinsics), depth, intrinsics)
+            track_id: _place_hands(
+                _lift_body(body, depth, intrinsics), depth, intrinsics, nearest.get(track_id)
+            )
             for track_id, body in scene.bodies.items()
             if track_id != main_user
         }
@@ -84,18 +98,12 @@ class Lifter:
                 for side in _SIDES
             }
             lifted = _lift_body(body, depth, intrinsics)
-            bodies[main_user], fits = _lift_hands(lifted, depth, intrinsics, size, previous)
+            bodies[main_user], fits = _lift_hands(
+                lifted, depth, intrinsics, size, previous, nearest.get(main_user)
+            )
             self._hands |= {(main_user, side): (params, 0) for side, params in fits.items()}
             sizes.extend(math.exp(params[3]) for params in fits.values())
-        return scene.model_copy(
-            update={
-                "faces": {
-                    track_id: _lift_face(face, depth, intrinsics)
-                    for track_id, face in scene.faces.items()
-                },
-                "bodies": bodies,
-            }
-        )
+        return scene.model_copy(update={"faces": faces, "bodies": bodies})
 
 
 def back_project(x: float, y: float, depth: DepthMap, intrinsics: CameraIntrinsics) -> Point3D:
@@ -186,6 +194,7 @@ def _lift_hands(
     intrinsics: CameraIntrinsics,
     size: float,
     previous: Mapping[Side, Params | None],
+    nearest: float | None,
 ) -> tuple[Body, dict[Side, Params]]:
     """The body with its hands placed in the camera's frame, and the fit of each.
 
@@ -198,6 +207,7 @@ def _lift_hands(
         intrinsics: The camera at the frame's resolution.
         size: The size against the average hand the hands are held near.
         previous: The last fit of each of the person's hands, if any.
+        nearest: The nearest a hand's wrist may be, from the person's face; `None` without it.
     """
     lifted: dict[Side, Hand | None] = {}
     fits: dict[Side, Params] = {}
@@ -206,7 +216,7 @@ def _lift_hands(
         if hand is None or wrist is None:
             lifted[side] = hand
             continue
-        z = _hand_depth(hand, _position(body.keypoints, arm), depth, intrinsics)
+        z = _hand_depth(hand, _position(body.keypoints, arm), depth, intrinsics, nearest)
         found = {index: k for index, k in enumerate(hand.keypoints) if k is not None}
         at = _unproject(np.array([[wrist.x, wrist.y]]), np.array([z]), intrinsics)[0]
         points, fits[side] = fit(found, at, side, intrinsics, size, previous[side])
@@ -231,18 +241,21 @@ def _lift_hands(
     ), fits
 
 
-def _place_hands(body: Body, depth: DepthMap, intrinsics: CameraIntrinsics) -> Body:
+def _place_hands(
+    body: Body, depth: DepthMap, intrinsics: CameraIntrinsics, nearest: float | None
+) -> Body:
     """The body with each hand's points placed at the depth of its wrist, as on a flat hand.
 
     Cheaper than a fit, and good enough to tell where the hand is: its depth around the fingers
-    is often the wall's behind.
+    is often the wall's behind. `nearest` is the nearest a wrist may be, from the person's face;
+    `None` without it.
     """
     placed: dict[Side, Hand | None] = {}
     for side, hand, arm in zip(_SIDES, (body.left_hand, body.right_hand), _ARM_WRISTS, strict=True):
         if hand is None or not (found := [k for k in hand.keypoints if k is not None]):
             placed[side] = hand
             continue
-        wrist_z = _hand_depth(hand, _position(body.keypoints, arm), depth, intrinsics)
+        wrist_z = _hand_depth(hand, _position(body.keypoints, arm), depth, intrinsics, nearest)
         pixels = np.array([(k.x, k.y) for k in found])
         points = _unproject(pixels, np.full(len(found), wrist_z), intrinsics).tolist()
         positions = iter(Point3D(x=x, y=y, z=z) for x, y, z in points)
@@ -256,16 +269,25 @@ def _place_hands(body: Body, depth: DepthMap, intrinsics: CameraIntrinsics) -> B
 
 
 def _hand_depth(
-    hand: Hand, arm_wrist: Point3D | None, depth: DepthMap, intrinsics: CameraIntrinsics
+    hand: Hand,
+    arm_wrist: Point3D | None,
+    depth: DepthMap,
+    intrinsics: CameraIntrinsics,
+    nearest: float | None,
 ) -> float:
-    """How far the hand's wrist is: its arm's wrist's depth, or else its palm's."""
+    """How far the hand's wrist is: its arm's wrist's depth, or else its palm's.
+
+    No nearer than `nearest`, when known: the depth model reads a raised arm too near.
+    """
     if arm_wrist is not None:
-        return arm_wrist.z
-    found = [k for k in hand.keypoints if k is not None]
-    on_palm = [k for index, k in enumerate(hand.keypoints) if k is not None and index in _PALM]
-    # A hand seen without its palm, e.g. only fingertips, is placed at all its points' depth.
-    pixels = np.array([(k.x, k.y) for k in on_palm or found])
-    return float(np.median(_depths(pixels, depth, intrinsics)))
+        z = arm_wrist.z
+    else:
+        found = [k for k in hand.keypoints if k is not None]
+        on_palm = [k for index, k in enumerate(hand.keypoints) if k is not None and index in _PALM]
+        # A hand seen without its palm, e.g. only fingertips, is placed at all its points' depth.
+        pixels = np.array([(k.x, k.y) for k in on_palm or found])
+        z = float(np.median(_depths(pixels, depth, intrinsics)))
+    return z if nearest is None else max(z, nearest)
 
 
 def _position(keypoints: tuple[Keypoint | None, ...], index: int) -> Point3D | None:
