@@ -157,7 +157,8 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
     asked her name as an unknown face; then who is here, recognized. Lines are at fixed times,
     tuned for the robot's answers to fit between them, with the LLM fed the events expected;
     start with an empty face database. Each turns to the robot and lets it greet them before
-    speaking: a line said as they engage would cut the greeting off.
+    speaking: a line said as they engage would cut the greeting off. Cleo gives her name soon
+    after she engages, greeted or not: kept waiting, she looks away and disengages.
 
     Args:
         live: Whom you speak for at the microphone. Mia: you replace her lines, chatting with
@@ -205,7 +206,7 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
                 gesture=ClipName.parse("static/m_gestic_talk_relaxed_01"),
             ),
             Say(
-                at_s=85.0,
+                at_s=77.0,
                 text="Right, back to work. See you later!",
                 gesture=ClipName.parse("static/m_gestic_talk_neutral_02"),
             ),
@@ -225,12 +226,12 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
                 ),
             ),
             Say(
-                at_s=66.0,
+                at_s=58.0,
                 text="Hi, I'm Cleo. I just joined the team.",
                 gesture=ClipName.parse("static/f_gestic_talk_relaxed_02"),
             ),
             Say(
-                at_s=75.0,
+                at_s=67.0,
                 text="Nice to meet you. Who else is here?",
                 gesture=ClipName.parse("static/f_gestic_talk_neutral_03"),
             ),

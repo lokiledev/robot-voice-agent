@@ -67,9 +67,9 @@ def test_mia_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
         (19.5, "mia", "Hi Milo! I'm Mia."),
         (34.0, "ben", "And I'm Ben. Can you tell us a story about a robot who learns to dance?"),
         (50.0, "mia", "Sorry, hold on. Someone's coming."),
-        (66.0, "cleo", "Hi, I'm Cleo. I just joined the team."),
-        (75.0, "cleo", "Nice to meet you. Who else is here?"),
-        (85.0, "ben", "Right, back to work. See you later!"),
+        (58.0, "cleo", "Hi, I'm Cleo. I just joined the team."),
+        (67.0, "cleo", "Nice to meet you. Who else is here?"),
+        (77.0, "ben", "Right, back to work. See you later!"),
     ]
     cleo = scenario.scripts["cleo"]
     assert isinstance(cleo, Scripted)

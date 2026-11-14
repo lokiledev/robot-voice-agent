@@ -106,9 +106,10 @@ what exists and why.
     (its answer, its gaze), walking to a given point and looking somewhere, and checks of what
     the robot did. Fixed times make `newcomer` fragile: an answer longer than in the pretest
     runs into the next line, which then cuts it off as a barge-in would, and a short one leaves
-    a silence. Cleo engages 10 to 18 s after she faces the robot: avatars do not look at the
-    camera with their eyes, and her eye contact at the edge of the image stays under the
-    threshold. Steps that wait on events (an answer, an engagement) were judged overkill for now.
+    a silence. Cleo engages 4 to 8 s after her wave, 52 to 56 s in, and the robot asks her name
+    within a few seconds; she gives it at 58 s. At 66 s, in three runs, she had stopped looking
+    at the robot by then, disengaged, and once her name was dropped as not said to it. Steps
+    that wait on events (an answer, an engagement) were judged overkill for now.
 - **The simulated people walk only where their clips take them.** In `greeting` they idle, talk
   with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
   ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). Mia says her lines at their times, gesturing,

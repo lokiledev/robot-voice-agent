@@ -183,7 +183,7 @@ uv run lune --profile config/reachy_mini_sim --scenario newcomer_as_mia
 
 | Scenario | What happens |
 |---|---|
-| `newcomer` | The default, about 90 s. Mia and Ben chat, turned to each other, which Milo does not answer; Mia turns to it and gives her name, becoming its operator; Ben gives his and asks for a story, which Mia cuts short as Cleo walks in from out of view and waves; Milo asks the stranger her name, and she asks who else is here |
+| `newcomer` | The default, about 80 s. Mia and Ben chat, turned to each other, which Milo does not answer; Mia turns to it and gives her name, becoming its operator; Ben gives his and asks for a story, which Mia cuts short as Cleo walks in from out of view and waves; Milo asks the stranger her name, and she asks who else is here |
 | `newcomer_as_mia` | The same, with you speaking for Mia: chat with Ben's lines, introduce yourself after she turns to Milo, interrupt its story |
 | `greeting` | Mia greets Milo, asks what it can do and for a joke, 20 s apart; Ben listens |
 | `greeting_as_ben` | The same, with you speaking for Ben among her lines |
