@@ -1,7 +1,7 @@
 import math
 from collections import deque
 from collections.abc import Callable, Sequence
-from typing import Final
+from typing import Final, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
@@ -21,13 +21,30 @@ from rva_vision_faces.embedder import Embedding
 from rva_vision_faces.gallery import Gallery, Match
 
 
+class Viewpoint(NamedTuple):
+    """Where a turning camera was when it took a frame, and how it sees."""
+
+    pose: CameraPose
+    intrinsics: CameraIntrinsics
+
+
 class Track:
     """One face followed across frames. Owned and changed by the `Tracker` only."""
 
-    def __init__(self, track_id: int, detection: Detection, now: float, samples: int) -> None:
+    def __init__(
+        self,
+        track_id: int,
+        detection: Detection,
+        seen_from: Viewpoint | None,
+        now: float,
+        samples: int,
+    ) -> None:
         self.track_id: Final = track_id
         self.detection = detection
         """The face's last detection."""
+        self.seen_from = seen_from
+        """Where the camera was at the face's last detection; `None` for a camera that does not
+        turn, or not known to then."""
         self.expected = detection.box
         """Where the face would be in the latest frame, had it not moved: its last box, moved
         with the image as the camera turned since."""
@@ -49,11 +66,12 @@ class Tracker:
     Detections continue a track when they overlap its last box, or else when their centre is
     close to it for the face's size and the time since the last frame: a small face far away
     overlaps little after a quick turn.
-    With the camera's own turn since the last frame, each last box is first moved by it, so the
-    head's motion does not tear the tracks. A
-    detection that neither overlaps nor is close to any is compared by embedding with the tracks
-    that did not find their face in this frame, so that a face keeps its track across a short
-    occlusion or a fast move.
+    Where the camera turns, each last box is first moved by its turn since that box was seen, so
+    the head's motion does not tear the tracks: since then, not since the last frame, so a frame
+    whose pose is not known, or a face missed while the head turned, loses nothing. A detection
+    that neither overlaps nor is close to any is compared by embedding with the tracks that did
+    not find their face in this frame, so that a face keeps its track across a short occlusion or
+    a fast move.
 
     Once a track is recognized it keeps its person for as long as it lives, and its face is no
     longer embedded: a track that stays continuous is the same face. Unrecognized tracks are
@@ -78,7 +96,7 @@ class Tracker:
         detections: Sequence[Detection],
         embed: Callable[[Detection], Embedding],
         gallery: Gallery,
-        turn: npt.NDArray[np.float64] | None,
+        viewpoint: Viewpoint | None,
     ) -> list[FaceEvent]:
         """Advance to a new frame.
 
@@ -87,12 +105,11 @@ class Tracker:
             detections: Faces large enough to track.
             embed: Embedding of a detected face; called only when a sample is due.
             gallery: Known people, to recognize the tracks.
-            turn: How the image moved with the camera since the last frame, as the homography
-                `image_turn` gives; `None` for a camera that does not turn, or not known to.
+            viewpoint: Where the camera was at the frame; `None` for a camera that does not
+                turn, or not known to.
         """
-        if turn is not None:
-            for track in self._tracks:
-                track.expected = _moved(track.expected, turn)
+        for track in self._tracks:
+            track.expected = _expected(track, viewpoint)
         elapsed = 0.0 if self._updated_at is None else now - self._updated_at
         self._updated_at = now
         matched = self._match_by_overlap(detections)
@@ -108,13 +125,14 @@ class Tracker:
             else:
                 embedding = embed(detection)
                 track = self._reidentify(embedding, set(matched.values())) or self._new_track(
-                    detection, now
+                    detection, viewpoint, now
                 )
                 track.embeddings.append(embedding)
                 track.last_embedded = now
                 sampled.append(track)
                 matched[index] = track
             track.detection = detection
+            track.seen_from = viewpoint
             track.expected = detection.box
             track.last_seen = now
         self._seen_now = {track.track_id for track in matched.values()}
@@ -219,8 +237,8 @@ class Tracker:
         score, track = max(candidates, key=lambda candidate: candidate[0])
         return track if score >= self._config.reid_threshold else None
 
-    def _new_track(self, detection: Detection, now: float) -> Track:
-        track = Track(self._next_id, detection, now, self._config.embeddings_per_track)
+    def _new_track(self, detection: Detection, viewpoint: Viewpoint | None, now: float) -> Track:
+        track = Track(self._next_id, detection, viewpoint, now, self._config.embeddings_per_track)
         self._next_id += 1
         self._tracks.append(track)
         return track
@@ -279,6 +297,16 @@ def image_turn(
         ((intrinsics.fx, 0.0, intrinsics.cx), (0.0, intrinsics.fy, intrinsics.cy), (0.0, 0.0, 1.0))
     )
     return camera @ np.array(now.turn_since(earlier)) @ np.linalg.inv(camera)
+
+
+def _expected(track: Track, viewpoint: Viewpoint | None) -> BoundingBox:
+    """Where the track's face would be seen from `viewpoint`, had it not moved.
+
+    Its last box as it is, without both viewpoints: the camera's turn between them is not known.
+    """
+    if viewpoint is None or track.seen_from is None:
+        return track.box
+    return _moved(track.box, image_turn(track.seen_from.pose, viewpoint.pose, viewpoint.intrinsics))
 
 
 def _moved(box: BoundingBox, turn: npt.NDArray[np.float64]) -> BoundingBox:

@@ -229,9 +229,11 @@ flowchart LR
   be close are ignored. A new track gets an SFace embedding, then one every second until it is
   recognized.
 - **Tracking.** A face keeps its track number across frames by box overlap, or else by its centre
-  moving less than 0.75 of its height, and across a longer move or an occlusion by embedding. On a
-  robot whose head turns, each track's last box first moves with the image by the camera's turn
-  since the last frame (see the robot's section). Overlap alone lost small faces turning: in the
+  moving slower than 22.5 of its heights a second (0.75 of one between two frames at 30 a second),
+  and across a longer move or an occlusion by embedding. On a robot whose head turns, each track's
+  last box first moves with the image by the camera's turn since that box was seen (see the
+  robot's section): a frame without the head's pose, or a face missed mid-turn, loses none of
+  the turn. Overlap alone lost small faces turning: in the
   simulation, Ben's 53-pixel face moved 25 pixels in a frame as he turned to the robot, an overlap
   of 0.22, and his side view did not match his turning face's embedding, so he became someone new.
   A face is announced after 0.5 s in view and said to have left after 3 s out of view.
@@ -807,7 +809,7 @@ logged once until they come back. The viewer shows the target's point too.
 At each joint state, it also publishes where the head camera is in the base frame, by the same
 forward kinematics, on its `camera_pose` topic. The perception, with a robot's camera and a head
 controller in the profile, takes the pose nearest each frame's time, within 50 ms: the face
-tracker moves each track's last box with the image as the camera turned since the frame before,
+tracker moves each track's last box with the image as the camera turned since that box was seen,
 so a turn of the head does not tear the tracks, and the attention and the engagement measure
 motion in the base frame, so a head turn no longer makes every face in view seem to move. Without a pose, as
 before the controller is up, both work in the camera's frame, with a warning.

@@ -8,8 +8,6 @@ from typing import Final
 from uuid import UUID
 
 import cv2
-import numpy as np
-import numpy.typing as npt
 from loguru import logger
 from opentelemetry import trace
 
@@ -46,7 +44,7 @@ from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
 from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.space import Lifter
-from rva_vision_faces.tracker import Tracker, image_turn
+from rva_vision_faces.tracker import Tracker, Viewpoint
 
 _tracer: Final = trace.get_tracer("rva_vision_faces")
 _SMOOTHING: Final = 0.1
@@ -123,21 +121,14 @@ class _Models:
 
 
 class _CameraMotion:
-    """Where a moving camera was at each frame, and how it turned since the frame before."""
+    """Where a moving camera was at each frame."""
 
     def __init__(self, poses: CameraPoses) -> None:
         self._poses: Final = poses
-        self._last: CameraPose | None = None
         self._known = True
 
-    def at(
-        self, time: float, intrinsics: CameraIntrinsics | None
-    ) -> tuple[CameraPose | None, npt.NDArray[np.float64] | None]:
-        """The camera's pose at the frame taken at `time`, and its turn since the last frame.
-
-        The turn is the image's homography, as `image_turn` gives it; `None` for what is not
-        known.
-        """
+    def at(self, time: float) -> CameraPose | None:
+        """The camera's pose at the frame taken at `time`; `None` when it is not known."""
         pose = self._poses.at(time)
         if (pose is not None) != self._known:
             self._known = pose is not None
@@ -145,13 +136,7 @@ class _CameraMotion:
                 logger.info("The camera's pose is known again: its turns are followed")
             else:
                 logger.warning("The camera's pose is not known: its turns look like motion")
-        turn = (
-            None
-            if pose is None or self._last is None or intrinsics is None
-            else image_turn(self._last, pose, intrinsics)
-        )
-        self._last = pose
-        return pose, turn
+        return pose
 
 
 class FaceVision:
@@ -362,10 +347,11 @@ class FaceVision:
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
             frame, captured_at = camera.read()
-        pose, turn = (
-            (None, None)
-            if self._motion is None
-            else self._motion.at(captured_at, models.intrinsics)
+        pose = None if self._motion is None else self._motion.at(captured_at)
+        viewpoint = (
+            None
+            if pose is None or models.intrinsics is None
+            else Viewpoint(pose, models.intrinsics)
         )
         captured = time.perf_counter()
         # Skeletons need no face: they are estimated meanwhile, on the other thread.
@@ -390,7 +376,9 @@ class FaceVision:
             return embedding
 
         with self._lock:
-            events = self._tracker.update(time.monotonic(), detections, embed, self._gallery, turn)
+            events = self._tracker.update(
+                time.monotonic(), detections, embed, self._gallery, viewpoint
+            )
             visible = [(track.track_id, track.detection) for track in self._tracker.visible()]
             seen_ids = {track_id for track_id, _ in visible}
             hidden = [
@@ -435,7 +423,7 @@ class FaceVision:
         if depth is not None and models.lifter is not None:
             with _tracer.start_as_current_span("vision:lift"):
                 scene = models.lifter.lift(
-                    scene, depth, None if main_user is None else main_user.track_id
+                    scene, depth, None if main_user is None else main_user.track_id, captured_at
                 )
         return (
             frame,

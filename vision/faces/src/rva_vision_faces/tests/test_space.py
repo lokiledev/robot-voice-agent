@@ -107,7 +107,7 @@ def test_lifting_places_keypoints_and_gazes_and_leaves_the_rest() -> None:
     )
     scene = Scene(faces={1: face}, bodies={1: body}, unmatched_bodies=(body,), speakers={})
 
-    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0), 1)
+    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0), 1, 0.0)
 
     nose = lifted.bodies[1].keypoints[0]
     assert nose is not None and nose.position is not None
@@ -181,7 +181,7 @@ def test_a_hand_is_fitted_with_its_wrist_at_its_arm_s_wrist_depth() -> None:
         right_hand=_hand(pixels),
     )
 
-    lifted = Lifter(INTRINSICS).lift(_scene(body), depth, 1)
+    lifted = Lifter(INTRINSICS).lift(_scene(body), depth, 1, 0.0)
 
     right_hand = lifted.bodies[1].right_hand
     assert right_hand is not None
@@ -195,7 +195,7 @@ def test_every_skeleton_is_placed_and_only_the_main_user_s_hands_fitted() -> Non
     body = _body({0: (960, 540)}, _hand({0: (1460, 790), 5: (1480, 760)}))
     scene = Scene(faces={}, bodies={1: body, 2: body}, unmatched_bodies=(), speakers={})
 
-    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0), 2)
+    lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0), 2, 0.0)
 
     for track_id in (1, 2):
         nose = lifted.bodies[track_id].keypoints[0]
@@ -232,7 +232,7 @@ def test_a_hand_read_far_in_front_of_its_owner_s_face_is_held_an_arm_s_length_fr
     body = body.model_copy(update={"right_hand": _hand({0: (1500, 700), 5: (1520, 690)})})
     scene = Scene(faces={1: face}, bodies={1: body}, unmatched_bodies=(), speakers={})
 
-    lifted = Lifter(INTRINSICS).lift(scene, depth, None)
+    lifted = Lifter(INTRINSICS).lift(scene, depth, None, 0.0)
 
     hand = lifted.bodies[1].right_hand
     assert hand is not None
@@ -249,7 +249,7 @@ def test_someone_else_s_hand_is_at_its_arm_s_wrist_depth() -> None:
     body = _body({10: (1460, 790)}, _hand({}))
     body = body.model_copy(update={"right_hand": _hand({0: (1500, 700), 5: (1520, 690)})})
 
-    lifted = Lifter(INTRINSICS).lift(_scene(body), depth, None)
+    lifted = Lifter(INTRINSICS).lift(_scene(body), depth, None, 0.0)
 
     hand = lifted.bodies[1].right_hand
     assert hand is not None

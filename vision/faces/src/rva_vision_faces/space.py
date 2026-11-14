@@ -34,15 +34,15 @@ _ARM_WRISTS: Final = (9, 10)
 _PALM: Final = (0, 1, 5, 9, 13, 17)
 """`Hand.keypoints` on the palm: the wrist and the base of each finger."""
 _SIDES: Final[tuple[Side, Side]] = ("left", "right")
-_SIZE_SAMPLES: Final = 90
-"""Fitted sizes of a track's hands kept, about 3 s: their median is the size its hands are held
-near."""
+_SIZES_KEPT_S: Final = 3.0
+"""How long the fitted sizes of a track's hands are kept: their median is the size its hands are
+held near."""
 _ARM_M: Final = 0.6
 """How far in front of its owner's face a hand may be: an arm's length. Read from the depth, a
 raised hand's wrist came out 0.9 m in front of the face, and the head swung to look at it."""
-_FIT_KEPT_FRAMES: Final = 15
-"""Frames a hand's last fit is kept through while it is not seen, about half a second: a hand
-missed for a frame starts again from where it was, not from scratch."""
+_FIT_KEPT_S: Final = 0.5
+"""How long a hand's last fit is kept while it is not seen: a hand missed for a frame starts again
+from where it was, not from scratch."""
 
 
 class Lifter:
@@ -57,22 +57,26 @@ class Lifter:
     def __init__(self, intrinsics: CameraIntrinsics) -> None:
         """Set up the lifter; `intrinsics` are the camera's at the frame's resolution."""
         self._intrinsics: Final = intrinsics
-        self._hands: dict[tuple[int, Side], tuple[Params, int]] = {}
-        """The last fit of each person's hands, and how many frames ago it was."""
-        self._sizes: dict[int, deque[float]] = {}
-        """The latest fitted sizes of each person's hands."""
+        self._hands: dict[tuple[int, Side], tuple[Params, float]] = {}
+        """The last fit of each person's hands, and the time of its frame."""
+        self._sizes: dict[int, deque[tuple[float, float]]] = {}
+        """The latest fitted sizes of each person's hands, each with the time of its frame."""
 
-    def lift(self, scene: Scene, depth: DepthMap, main_user: int | None) -> Scene:
+    def lift(self, scene: Scene, depth: DepthMap, main_user: int | None, time: float) -> Scene:
         """The scene placed in the camera's frame: every face, gaze, skeleton and hand.
 
-        The hands of the track `main_user` are fitted, if it has a skeleton.
+        Args:
+            scene: What was seen in a frame, in its pixels.
+            depth: The frame's depth.
+            main_user: The track whose hands are fitted, if it has a skeleton.
+            time: When the frame was taken, in seconds on a monotonic clock.
         """
         intrinsics = self._intrinsics
         self._sizes = {id_: sizes for id_, sizes in self._sizes.items() if id_ in scene.bodies}
         self._hands = {
-            key: (params, age + 1)
-            for key, (params, age) in self._hands.items()
-            if age + 1 < _FIT_KEPT_FRAMES
+            key: (params, fitted_at)
+            for key, (params, fitted_at) in self._hands.items()
+            if time - fitted_at < _FIT_KEPT_S
         }
         faces = {
             track_id: _lift_face(face, depth, intrinsics) for track_id, face in scene.faces.items()
@@ -91,8 +95,10 @@ class Lifter:
             if track_id != main_user
         }
         if main_user is not None and (body := scene.bodies.get(main_user)) is not None:
-            sizes = self._sizes.setdefault(main_user, deque(maxlen=_SIZE_SAMPLES))
-            size = statistics.median(sizes) if sizes else 1.0
+            sizes = self._sizes.setdefault(main_user, deque())
+            while sizes and time - sizes[0][0] > _SIZES_KEPT_S:
+                sizes.popleft()
+            size = statistics.median(size for _, size in sizes) if sizes else 1.0
             previous = {
                 side: None if (kept := self._hands.get((main_user, side))) is None else kept[0]
                 for side in _SIDES
@@ -101,8 +107,8 @@ class Lifter:
             bodies[main_user], fits = _lift_hands(
                 lifted, depth, intrinsics, size, previous, nearest.get(main_user)
             )
-            self._hands |= {(main_user, side): (params, 0) for side, params in fits.items()}
-            sizes.extend(math.exp(params[3]) for params in fits.values())
+            self._hands |= {(main_user, side): (params, time) for side, params in fits.items()}
+            sizes.extend((time, math.exp(params[3])) for params in fits.values())
         return scene.model_copy(update={"faces": faces, "bodies": bodies})
 
 

@@ -31,7 +31,7 @@ from rva_vision_faces.detector import Detection, decode_yunet
 from rva_vision_faces.embedder import Embedding, align
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.scene import Scene, people_in_view
-from rva_vision_faces.tracker import Track, Tracker, image_turn
+from rva_vision_faces.tracker import Track, Tracker, Viewpoint, image_turn
 
 MATCHING = MatchConfig(threshold=0.363, margin=0.05)
 TRACKING = TrackerConfig(
@@ -288,35 +288,53 @@ def test_tracker_keeps_a_track_at_the_same_speed_whatever_the_frame_rate() -> No
     assert [(track.track_id, track.box.x) for track in tracker.tracks] == [(1, 200.0)]
 
 
+INTRINSICS = CameraIntrinsics(
+    calibrated=True, width=1920, height=1080, fx=1000.0, fy=1000.0, cx=960.0, cy=540.0
+)
+
+
+def _camera_turned_left(degrees: float) -> CameraPose:
+    """A camera looking along the fixed frame's x, turned left about its z, up."""
+    ahead = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
+    c, s = math.cos(math.radians(degrees)), math.sin(math.radians(degrees))
+    rows = (np.array(((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))) @ np.array(ahead)).tolist()
+    return CameraPose(
+        position=(0.0, 0.0, 0.2), rotation=(tuple(rows[0]), tuple(rows[1]), tuple(rows[2]))
+    )
+
+
 def test_tracker_moves_its_tracks_with_the_image_as_the_camera_turns() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([], MATCHING)
-    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
-    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None)
-    # The head turned left: everything in view slid 300 pixels to the right of the image.
-    slid = np.array(((1.0, 0.0, 300.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+    ahead = Viewpoint(_camera_turned_left(0), INTRINSICS)
+    tracker.update(0.0, [_detection(860, 0.0)], _embed_by_score, gallery, ahead)
+    tracker.update(0.6, [_detection(860, 0.0)], _embed_by_score, gallery, ahead)
 
-    # The face slid with it, and turned a little: it no longer looks the same to the embedder.
-    tracker.update(0.7, [_detection(410, 0.05)], _embed_by_score, gallery, slid)
+    # The head turned 10 degrees left: the face slid 175 pixels to the right of the image, more
+    # than its height, and turned a little: it no longer looks the same to the embedder.
+    left = Viewpoint(_camera_turned_left(10), INTRINSICS)
+    tracker.update(0.7, [_detection(1035, 0.05)], _embed_by_score, gallery, left)
 
-    assert [(face.track_id, face.box.x) for face in tracker.faces()] == [(1, 410.0)]
+    assert [(face.track_id, face.box.x) for face in tracker.faces()] == [(1, 1035.0)]
+
+
+def test_tracker_follows_the_camera_s_turn_through_a_frame_without_its_pose() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([], MATCHING)
+    ahead = Viewpoint(_camera_turned_left(0), INTRINSICS)
+    tracker.update(0.0, [_detection(860, 0.0)], _embed_by_score, gallery, ahead)
+    tracker.update(0.6, [_detection(860, 0.0)], _embed_by_score, gallery, ahead)
+
+    # Mid-turn, the face is blurred and the head's pose came late.
+    tracker.update(0.7, [], _embed_by_score, gallery, None)
+    left = Viewpoint(_camera_turned_left(10), INTRINSICS)
+    tracker.update(0.8, [_detection(1035, 0.05)], _embed_by_score, gallery, left)
+
+    assert [(face.track_id, face.box.x) for face in tracker.faces()] == [(1, 1035.0)]
 
 
 def test_a_camera_turning_left_moves_what_was_ahead_to_the_right_of_the_image() -> None:
-    intrinsics = CameraIntrinsics(
-        calibrated=True, width=1920, height=1080, fx=1000.0, fy=1000.0, cx=960.0, cy=540.0
-    )
-    # Looking along the fixed frame's x, then turned 10 degrees left, about its z, up.
-    ahead = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
-    c, s = math.cos(math.radians(10)), math.sin(math.radians(10))
-    rows = (np.array(((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))) @ np.array(ahead)).tolist()
-    left = (tuple(rows[0]), tuple(rows[1]), tuple(rows[2]))
-
-    turn = image_turn(
-        CameraPose(position=(0.0, 0.0, 0.2), rotation=ahead),
-        CameraPose(position=(0.0, 0.0, 0.2), rotation=left),
-        intrinsics,
-    )
+    turn = image_turn(_camera_turned_left(0), _camera_turned_left(10), INTRINSICS)
 
     u, v, w = turn @ np.array((960.0, 540.0, 1.0))
     # 1000 pixels of focal length times tan(10 degrees), to the right.
@@ -412,8 +430,8 @@ def test_database_renames_and_grants_without_changing_the_user(tmp_path: Path) -
 
 
 def test_people_in_view_are_scaled_and_carry_what_the_speaker_said() -> None:
-    speaker = Track(track_id=3, detection=_detection(100, 0.0), now=0, samples=1)
-    other = Track(track_id=4, detection=_detection(400, 0.0), now=0, samples=1)
+    speaker = Track(track_id=3, detection=_detection(100, 0.0), seen_from=None, now=0, samples=1)
+    other = Track(track_id=4, detection=_detection(400, 0.0), seen_from=None, now=0, samples=1)
     hand = Hand(
         keypoints=(Keypoint(x=10, y=20, score=0.9, position=Point3D(x=-0.4, y=-0.2, z=1.6)), None)
     )
