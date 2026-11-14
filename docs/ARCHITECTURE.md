@@ -651,7 +651,9 @@ targets.
   inertia and friction are Pollen's estimate, to identify on a robot. The rods' ball joints are
   nearly free. The body then turns at about 350 degrees/s at most, the platform's motors at
   about 140, and each stops within a few degrees of its goal, where its gearbox's friction
-  outweighs its P gain: a P-only servo's dead band, as on the robot.
+  outweighs its P gain: a P-only servo's dead band, as on the robot. The robot's parts do not
+  collide with each other: Genesis collides them as the convex hulls of their meshes, much
+  bigger than the body's shell, which the head would bump into.
 - **People to look at.** Microsoft's [Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox)
   avatars, MIT-licensed, with photographed faces that the face detector takes. A scene, written
   as a function in `rva_robot_sim.scenes`, places them, facing the robot or turned away, each
@@ -723,14 +725,21 @@ down or pauses with it, and sends nothing once it stops. Each axis moves at a
 speed that falls as it nears its goal, within 120 degrees/s, changing by 600 degrees/s² at
 most, about what Pollen's default half-second minimum-jerk moves reach. So the head starts and
 stops smoothly however the targets jump: a camera turning as fast as the servos can loses the
-faces it tracks, and the tracker takes them back as new ones. Once gaze targets stop coming,
+faces it tracks, and the tracker takes them back as new ones. It first wakes the head as
+Pollen's SDK does, lifting it from its rest pose, 28 mm lower, to the neutral pose ahead, and
+only then follows what it is sent: lifting, pitching and turning at once from the rest pose,
+the weak servos let the platform go where they cannot bring it back from, pitched up 45
+degrees and stuck. Once gaze targets stop coming,
 for 3 s, the head drifts back to looking ahead at 20 degrees/s, where the people likely are. A
 pose out of reach stops the head where it last could go. Like the robot, it
 creates its mailbox when it starts and removes it when stopped, Ctrl+C or terminated, so that a
-sender can tell whether it runs. `lune` starts it after the simulation when the profile has one. With `--open-rerun` it shows in rerun the robot as its joints put it:
-the meshes of the base, of the body turned by its yaw, and of the head where forward kinematics
-finds it from each joint state, warm-started from the last estimate, with the head's estimated
-pose and its target as axes. The Stewart platform's arms and rods are not drawn.
+sender can tell whether it runs. `lune` starts it after the simulation when the profile has one. Its telemetry goes to rerun, not to its log, which keeps only what changes, such as waking
+up or a pose out of reach: a `head` session in the captures directory records, on the agent's
+wall timeline, the robot as its joints put it, the meshes of the base, of the body turned by
+its yaw, and of the head where forward kinematics finds it from each joint state, warm-started
+from the last estimate; and at each state, angle by angle, where the joints put the head, where
+it is sent and where it heads for, with each target. `--open-rerun`, which `lune --open-rerun`
+passes on, streams it to the viewer too. The Stewart platform's arms and rods are not drawn.
 
 It also points the head camera at the gaze targets of its `gaze_target` mailbox: the attention's
 target, which `lune see`, `lune run` and the other commands that attend send with the time the

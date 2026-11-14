@@ -86,6 +86,10 @@ class ReachyMiniScene:
         self._scene: Final = gs.Scene(
             show_viewer=viewer,
             sim_options=gs.options.SimOptions(dt=physics_dt),
+            # The robot's parts collide as the convex hulls of their meshes, much bigger than the
+            # body's shell: the head would bump into hulls that are not there. The table and the
+            # floor still hold it.
+            rigid_options=gs.options.RigidOptions(enable_self_collision=False),
             viewer_options=gs.options.ViewerOptions(
                 camera_pos=(1.0, -0.6, table_height + 0.5),
                 camera_lookat=(0.0, 0.0, table_height + 0.15),

@@ -28,19 +28,13 @@ def start_session(
     The directory holds `session.rrd` and `agent.log`. With `viewer`, the recording also streams to
     a rerun viewer, opened if none is.
     """
-    directory = config.captures_dir.expanduser() / f"{datetime.now():%Y-%m-%dT%H%M%S}-{name}"
-    directory.mkdir(parents=True)
+    directory = _session_directory(config, name)
 
     logger.remove()
     logger.add(sys.stderr, level=console_level)
     logger.add(directory / "agent.log", level="DEBUG")
 
-    recording = rr.RecordingStream(_APPLICATION_ID)
-    sinks: list[rr.FileSink | rr.GrpcSink] = [rr.FileSink(directory / _RECORDING)]
-    if viewer:
-        open_viewer()
-        sinks.append(rr.GrpcSink())
-    recording.set_sinks(*sinks)
+    recording = _recording(directory, viewer)
 
     provider = TracerProvider()
     provider.add_span_processor(RerunSpanProcessor(recording))
@@ -48,6 +42,33 @@ def start_session(
 
     logger.info("Recording session to {}", directory)
     return RerunRecorder(recording)
+
+
+def record_session(config: ObservabilityConfig, name: str, viewer: bool) -> rr.RecordingStream:
+    """A rerun recording of its own, for a process other than the agent's to log its telemetry.
+
+    Written to `session.rrd` in a session directory, as the agent's is; with `viewer`, streamed to
+    a rerun viewer too, opened if none is.
+    """
+    directory = _session_directory(config, name)
+    logger.info("Recording {} to {}", name, directory)
+    return _recording(directory, viewer)
+
+
+def _session_directory(config: ObservabilityConfig, name: str) -> Path:
+    directory = config.captures_dir.expanduser() / f"{datetime.now():%Y-%m-%dT%H%M%S}-{name}"
+    directory.mkdir(parents=True)
+    return directory
+
+
+def _recording(directory: Path, viewer: bool) -> rr.RecordingStream:
+    recording = rr.RecordingStream(_APPLICATION_ID)
+    sinks: list[rr.FileSink | rr.GrpcSink] = [rr.FileSink(directory / _RECORDING)]
+    if viewer:
+        open_viewer()
+        sinks.append(rr.GrpcSink())
+    recording.set_sinks(*sinks)
+    return recording
 
 
 def open_viewer() -> None:

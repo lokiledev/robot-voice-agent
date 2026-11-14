@@ -151,7 +151,8 @@ its head and antennas, and sees people standing in front of it through its head 
 uv run lune --profile config/reachy_mini_sim
 ```
 
-It starts the simulation and the head controller with the other servers. The simulated person
+It starts the simulation and the head controller with the other servers; `--open-sim-viewer`
+opens Genesis' viewer of the simulation too. The simulated person
 is kept apart from the people Lune knows, in a face database of the profile's own, so they meet
 Reachy as a stranger, and the first one Reachy learns the name of becomes its operator. To become
 Reachy's admin, follow "Become an operator" below with `--profile config/reachy_mini_sim` and its
@@ -213,7 +214,7 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
 | `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; what they do is a scenario of `rva_robot_sim/scenarios.py`, `sim.yaml`'s `scenario` or `--scenario`, their lines synthesized by Kokoro on first use; the people idle until the agent or `npc start` starts it; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
-| `lune head --profile config/reachy_mini_sim` | The head controller: moves the simulated head smoothly, within speed limits, to the poses it is sent, and points its camera at the attention's target when `lune see` or the agent runs, drifting back ahead when there is none; `--open-rerun` shows in rerun the robot as its joints put it, with the head's estimated pose, its target and the gaze target's point; start `lune-sim` first |
+| `lune head --profile config/reachy_mini_sim` | The head controller: moves the simulated head smoothly, within speed limits, to the poses it is sent, and points its camera at the attention's target when `lune see` or the agent runs, drifting back ahead when there is none; it records its telemetry in rerun, in a `head` session: the robot as its joints put it, and the head's measured, sent and goal poses at each state, with the targets; `--open-rerun` streams it to the viewer too; start `lune-sim` first |
 | `animate` | An experiment, apart from `lune-sim`: one Rocketbox avatar playing Rocketbox clips one after the other (`--clips static/<name> xyz/<name>...`, `--seconds-each`), blinking, skinned in numpy and rendered by Genesis' rasterizer under studio lights, or by Nyx with `--renderer nyx` and `sim.yaml`'s panorama; writes `animation_body.mp4` and a close-up of the face, `animation_face.mp4` (`--output`). The avatar and the clips download and bake with Blender on first use |
 | `npc walk` | Paces one of the simulated people sideways across the robot's view, back and forth (`--person ana`, `--half-width`, `--speed`; `--scenario` if `lune-sim` was given one), to watch the head follow them with `lune head` and `lune see`; Ctrl+C puts them back; start `lune-sim` first |
 | `npc start` | Starts the scenario of a running `lune-sim`, whose people idle until then, when no agent does: with `lune see` or `lune sense` |

@@ -109,6 +109,10 @@ what exists and why.
   head, which follows the attention alone: a body client over kickmsg is to replace it, and to
   decide with the attention who has the head.
 - **The head controller does not notice a robot that stopped** until its commands pile up.
+- **The head looks up 7 to 10 degrees more than it is sent** while it looks up at people: its
+  weight pulls it back, and P-only servos hold it within their dead band. Faces sit a little low
+  in the image. Correcting the aim by the measured error, or servos identified on a robot, would
+  tell whether the real one does the same.
 - **The servos' gearboxes are guessed.** Their inertia and friction are Pollen's estimate for the
   XC330 ("would need to re-identify"), which leaves each simulated servo a dead band of about
   3 degrees and the head a few degrees off its goal; their speed and torque are ROBOTIS'. A step

@@ -13,12 +13,12 @@ from typing import Final
 import httpx
 import numpy as np
 import numpy.typing as npt
-import rerun as rr
 from loguru import logger
 
 from rva_app.config import HeadControllerConfig
 from rva_app.head_view import HeadView, read_meshes
 from rva_app.ready import notify_ready
+from rva_observability.session import ObservabilityConfig, record_session
 from rva_robot_client.client import RobotClient, RobotClientConfig, open_robot
 from rva_robot_client.head import gaze_targets, head_targets
 from rva_robot_kinematics.controller import HeadController
@@ -43,7 +43,10 @@ _MAX_GAP_S: Final = 0.05
 
 
 async def control_head(
-    config: HeadControllerConfig, robot_config: RobotClientConfig, viewer: bool
+    config: HeadControllerConfig,
+    robot_config: RobotClientConfig,
+    observability: ObservabilityConfig,
+    viewer: bool,
 ) -> None:
     """Move the head towards each pose received, and its camera towards each gaze target.
 
@@ -58,13 +61,15 @@ async def control_head(
     Args:
         config: The head controller's.
         robot_config: Where the robot is.
-        viewer: Show the robot, as the joints put it, and the targets in a rerun viewer.
+        observability: Where its telemetry is recorded: the robot as its joints put it, the
+            poses sent and the targets, in rerun.
+        viewer: Stream the telemetry to a rerun viewer too.
     """
     mjcf = await asyncio.to_thread(_mjcf, config)
     geometry = read_head_geometry(mjcf)
     kinematics = HeadKinematics(geometry, math.radians(config.max_head_yaw_deg))
     gaze = Gaze(geometry.camera, config.gaze_position)
-    view = await asyncio.to_thread(_view, mjcf) if viewer else None
+    view = await asyncio.to_thread(_view, mjcf, observability, viewer)
     async with (
         open_robot(robot_config, "head_controller_robot") as robot,
         robot.joint_states() as states,
@@ -77,7 +82,7 @@ async def control_head(
         start = kinematics.forward({joint.name: joint.position for joint in state.joints}, None)
         x, y, z = config.gaze_position
         ahead = HeadPose(x=x, y=y, z=z, roll=0.0, pitch=0.0, yaw=0.0)
-        goal = _Goal(start, ahead, config.recentre_after_s)
+        goal = _Goal(ahead, config.recentre_after_s)
         trail = HeadTrail(_TRAIL_S, _MAX_GAP_S)
         driver = _Driver(
             kinematics,
@@ -100,29 +105,47 @@ async def control_head(
 class _Goal:
     """Where the head heads for.
 
-    The last pose or gaze target sent, or ahead once gaze targets have stopped coming a while.
+    First ahead, at the neutral pose, as Pollen's SDK wakes the robot: from its rest pose, 28 mm
+    lower, a move that lifts, pitches and turns the head at once can lead the platform where its
+    servos cannot bring it back. Then the last pose or gaze target sent, or ahead again once gaze
+    targets have stopped coming a while.
     """
 
-    def __init__(self, start: HeadPose, ahead: HeadPose, recentre_after_s: float) -> None:
-        self._pose = start
+    def __init__(self, ahead: HeadPose, recentre_after_s: float) -> None:
+        self._pose = ahead
         self._ahead: Final = ahead
         self._recentre_after_s: Final = recentre_after_s
+        self._awake = False
         self._gazed_at: float | None = None
         """When the frame of the last gaze target was taken, on the robot's clock; `None` after a
         pose."""
 
+    def wake(self) -> None:
+        """The head is ahead: follow what is sent from now."""
+        self._awake = True
+
+    @property
+    def awake(self) -> bool:
+        return self._awake
+
+    @property
+    def ahead(self) -> HeadPose:
+        return self._ahead
+
     def send(self, pose: HeadPose) -> None:
-        """A pose to hold until another comes, e.g. from `lune robot`."""
-        self._pose = pose
-        self._gazed_at = None
+        """A pose to hold until another comes, e.g. from `lune robot`; left out until awake."""
+        if self._awake:
+            self._pose = pose
+            self._gazed_at = None
 
     def gaze(self, pose: HeadPose, seen: float) -> None:
         """Where a gaze target puts the head, seen at `seen` on the robot's clock.
 
-        Gaze targets keep coming while there is one.
+        Gaze targets keep coming while there is one. Left out until awake.
         """
-        self._pose = pose
-        self._gazed_at = seen
+        if self._awake:
+            self._pose = pose
+            self._gazed_at = seen
 
     def at(self, now: float) -> tuple[HeadPose, bool]:
         """The pose to head for at `now`, on the robot's clock.
@@ -146,7 +169,7 @@ class _Driver:
         trail: HeadTrail,
         robot: RobotClient,
         recentre_speed_deg_s: float,
-        view: HeadView | None,
+        view: HeadView,
     ) -> None:
         self._kinematics: Final = kinematics
         self._controller: Final = controller
@@ -185,15 +208,18 @@ class _Driver:
             self._estimate = None
             return
         self._trail.add(state.timestamp, self._estimate)
-        if self._view is not None:
-            self._view.show_estimate(state.timestamp, positions["yaw_body"], self._estimate)
+        self._view.show_estimate(state.timestamp, positions["yaw_body"], self._estimate)
 
     def _step(self, now: float, dt: float) -> None:
+        if not self._goal.awake and _near(self._motion.pose, self._goal.ahead):
+            logger.info("Head up and ahead: following what it is sent")
+            self._goal.wake()
         target, back = self._goal.at(now)
         if back != self._recentring:
             logger.info("{}", "No gaze target: looking ahead again" if back else "Gazing again")
             self._recentring = back
         pose = self._motion.step(target, dt, self._recentre_speed_deg_s if back else None)
+        self._view.show_sent(now, pose, target)
         try:
             command = self._controller.aim(pose)
         except UnreachableHeadPoseError as error:
@@ -207,10 +233,9 @@ class _Driver:
         self._robot.command(command)
 
 
-async def _aim(targets: AsyncIterator[HeadPose], goal: _Goal, view: HeadView | None) -> None:
+async def _aim(targets: AsyncIterator[HeadPose], goal: _Goal, view: HeadView) -> None:
     async for target in targets:
-        if view is not None:
-            view.show_target(time.monotonic(), target)
+        view.show_target(time.monotonic(), target)
         goal.send(target)
         logger.info("Head to {}", _describe(target))
 
@@ -220,7 +245,7 @@ async def _look(
     gaze: Gaze,
     trail: HeadTrail,
     goal: _Goal,
-    view: HeadView | None,
+    view: HeadView,
 ) -> None:
     """Head the camera for each target, placed from where the head was when the camera saw it."""
     async for target in targets:
@@ -231,8 +256,7 @@ async def _look(
             continue
         point = gaze.place(target, head)
         pose = gaze.aim(point)
-        if view is not None:
-            view.show_gaze(time.monotonic(), point, pose)
+        view.show_gaze(target.timestamp, point, pose)
         goal.gaze(pose, target.timestamp)
 
 
@@ -241,13 +265,22 @@ def _mjcf(config: HeadControllerConfig) -> Path:
         return install_reachy_mini(config.description, client)
 
 
-def _view(mjcf: Path) -> HeadView:
-    rr.init("lune head", spawn=True)
-    return HeadView(read_meshes(mjcf))
+def _view(mjcf: Path, observability: ObservabilityConfig, viewer: bool) -> HeadView:
+    return HeadView(read_meshes(mjcf), record_session(observability, "head", viewer))
 
 
 def _position(state: JointState, joint: str) -> float:
     return next(reading.position for reading in state.joints if reading.name == joint)
+
+
+def _near(pose: HeadPose, other: HeadPose) -> bool:
+    """Within a millimetre and a tenth of a degree on each axis."""
+    return all(
+        abs(getattr(pose, axis) - getattr(other, axis)) < 0.001 for axis in ("x", "y", "z")
+    ) and all(
+        abs(getattr(pose, axis) - getattr(other, axis)) < math.radians(0.1)
+        for axis in ("roll", "pitch", "yaw")
+    )
 
 
 def _describe(pose: HeadPose) -> str:

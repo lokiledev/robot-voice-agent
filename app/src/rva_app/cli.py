@@ -152,6 +152,7 @@ def everything(
     video: bool = False,
     depth: bool = True,
     scenario: str | None = None,
+    open_sim_viewer: bool = False,
 ) -> None:
     """Run everything: the servers the agent needs, then the agent with its session page.
 
@@ -169,8 +170,22 @@ def everything(
         depth: Estimate the camera's depth, if the profile has a depth model.
         scenario: What happens around the simulated robot, instead of the profile's `sim.yaml`
             scenario: one of `rva_robot_sim.scenarios.SCENARIOS`, e.g. `greeting_as_ben`.
+        open_sim_viewer: Open Genesis' viewer of the simulation, to watch the robot and the
+            people from outside: `lune-sim --viewer`.
     """
-    _run(_up(profile, text, camera, open_rerun, show_debug_ui, video, depth, scenario))
+    _run(
+        _up(
+            profile,
+            text,
+            camera,
+            open_rerun,
+            show_debug_ui,
+            video,
+            depth,
+            scenario,
+            open_sim_viewer,
+        )
+    )
 
 
 @app.command
@@ -308,6 +323,7 @@ async def _up(
     video: bool,
     depth: bool,
     scenario: str | None,
+    open_sim_viewer: bool,
 ) -> None:
     """Launch everything, one after the other, each once the one before is ready.
 
@@ -318,8 +334,10 @@ async def _up(
         SystemExit: With the agent's code, if it fails.
     """
     config = RuntimeConfig.load(profile_dir)
-    if scenario is not None and config.robot is None:
-        raise SystemExit(f"--scenario is for a simulated robot, which {profile_dir} has not")
+    if (scenario is not None or open_sim_viewer) and config.robot is None:
+        raise SystemExit(
+            f"--scenario and --open-sim-viewer are for a simulated robot, which {profile_dir} has not"
+        )
     # lune starts its own simulation: one running already plays a scenario it cannot know.
     if config.robot is not None and await is_ready(_robot_server(config.robot)):
         raise SystemExit(
@@ -331,7 +349,7 @@ async def _up(
         logger.info("Opening the rerun viewer")
         await asyncio.to_thread(open_viewer)
     logs = config.observability.captures_dir.expanduser() / "servers"
-    services = _services(config, profile_dir, camera, scenario)
+    services = _services(config, profile_dir, camera, scenario, open_sim_viewer, open_rerun)
     async with services_running(services, logs):
         agent = _agent_command(profile_dir, text, camera, open_rerun, show_debug_ui, video, depth)
         code = await run_last("The agent", agent, _AGENT_STARTUP_S, lambda: _on_agent_up(config))
@@ -369,12 +387,18 @@ def _on_agent_up(config: RuntimeConfig) -> None:
 
 
 def _services(
-    config: RuntimeConfig, profile_dir: Path, camera: bool, scenario: str | None
+    config: RuntimeConfig,
+    profile_dir: Path,
+    camera: bool,
+    scenario: str | None,
+    sim_viewer: bool,
+    open_rerun: bool,
 ) -> list[Service]:
     """The servers `lune` runs.
 
-    MediaMTX only for the camera, the simulation for a robot, playing `scenario` if given, and its
-    head controller if it has one. The caller makes sure no simulation runs already.
+    MediaMTX only for the camera, the simulation for a robot, playing `scenario` if given, with
+    Genesis' viewer if `sim_viewer`, and its head controller if it has one, streaming its
+    telemetry to the rerun viewer if `open_rerun`. The caller makes sure no simulation runs already.
     """
     llm = config.llm_server
     robot = urlsplit(str(config.vla.base_url))
@@ -425,6 +449,7 @@ def _services(
                     "--profile",
                     str(profile_dir),
                     *(["--scenario", scenario] if scenario is not None else []),
+                    *(["--viewer"] if sim_viewer else []),
                 ],
                 notifies=True,
                 environment={},
@@ -441,7 +466,13 @@ def _services(
             Service(
                 # Started after the robot, which it drives: services start one after the other.
                 server=_head_controller_server(config.robot),
-                command=lambda: [str(lune), "head", "--profile", str(profile_dir)],
+                command=lambda: [
+                    str(lune),
+                    "head",
+                    "--profile",
+                    str(profile_dir),
+                    *(["--open-rerun"] if open_rerun else []),
+                ],
                 notifies=True,
                 environment={},
                 directory=None,
@@ -913,12 +944,13 @@ def robot(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
 def head(*, profile: ProfileDir = _DEFAULT_PROFILE, open_rerun: bool = False) -> None:
     """Run the head controller: put the robot's head at the poses it is sent, e.g. by `lune robot`.
 
-    Start the simulated robot first with `uv run lune-sim`. Ctrl+C stops it.
+    Start the simulated robot first with `uv run lune-sim`. Ctrl+C stops it. Its telemetry is
+    recorded in rerun, in a `head` session of the captures directory: the robot as its joints put
+    it, and the head's measured, sent and goal poses at each state, and the targets.
 
     Args:
         profile: Robot profile directory.
-        open_rerun: Open a rerun viewer, and show in it the robot as its joints put it, the
-            head's estimated pose and the targets.
+        open_rerun: Stream the telemetry to a rerun viewer too, opened if none is.
     """
     config = RuntimeConfig.load(profile)
     if config.head_controller is None or config.robot is None:
@@ -926,7 +958,7 @@ def head(*, profile: ProfileDir = _DEFAULT_PROFILE, open_rerun: bool = False) ->
     # Stopped like Ctrl+C when terminated, as a launcher does, so its mailbox is removed too: a
     # mailbox left behind would pass for a running controller.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
-    _run(control_head(config.head_controller, config.robot, open_rerun))
+    _run(control_head(config.head_controller, config.robot, config.observability, open_rerun))
 
 
 @app.command

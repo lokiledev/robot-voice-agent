@@ -1,7 +1,9 @@
 """The head controller in rerun: the robot's meshes where its joints put them, and the target."""
 
 import math
+import time
 import xml.etree.ElementTree as ET
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Literal
 
@@ -20,6 +22,8 @@ _HEAD: Final = "xl_330"
 """Carries the head site, the camera and the antennas."""
 _HEAD_SITE: Final = "head"
 _ROOT: Final = "robot"
+_TIMELINE: Final = "wall"
+"""The agent's recording's, `rva_observability`'s."""
 type Part = Literal["base", "body", "head"]
 
 
@@ -72,35 +76,66 @@ def read_meshes(mjcf: Path) -> RobotMeshes:
 
 
 class HeadView:
-    """Shows, in rerun, the robot as the controller believes it is, and where the head should be.
+    """The head controller's telemetry in rerun.
 
-    The robot's meshes are logged once; then each estimate moves the body and the head.
+    The robot as the controller believes it is, and where it sends the head and why. The robot's meshes are logged once; then each estimate moves the body and the head. Each
+    pose is also plotted, angle by angle: where the joints put the head, where it is sent, and
+    where it heads for. On the agent's wall timeline, its times turned from the robot's
+    monotonic clock, so the two recordings line up.
     """
 
-    def __init__(self, meshes: RobotMeshes) -> None:
+    def __init__(self, meshes: RobotMeshes, recording: rr.RecordingStream) -> None:
         self._meshes: Final = meshes
+        self._recording: Final = recording
         self._site_inverse: Final = np.linalg.inv(meshes.head_site)
-        rr.log(_ROOT, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+        # The wall clock's time at the monotonic clock's zero.
+        self._epoch: Final = time.time() - time.monotonic()
+        recording.log(_ROOT, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
         for index, mesh in enumerate(meshes.meshes):
             path = f"{_ROOT}/{mesh.part}/mesh_{index}"
-            rr.log(path, _transform(mesh.pose), static=True)
-            rr.log(path, rr.Asset3D(path=mesh.file, albedo_factor=mesh.rgba), static=True)
+            recording.log(path, _transform(mesh.pose), static=True)
+            recording.log(path, rr.Asset3D(path=mesh.file, albedo_factor=mesh.rgba), static=True)
 
     def show_estimate(self, timestamp: float, body_yaw: float, head: HeadPose) -> None:
         """Move the body and the head where the joints put them."""
-        rr.set_time("time", duration=timestamp)
-        rr.log(f"{_ROOT}/body", _transform(self._meshes.body @ _rotation_z(body_yaw)))
-        rr.log(f"{_ROOT}/head", _transform(pose_matrix(head) @ self._site_inverse))
-        rr.log(f"{_ROOT}/head_estimate", _transform(pose_matrix(head)), rr.TransformAxes3D(0.05))
+        self._at(timestamp)
+        self._recording.log(f"{_ROOT}/body", _transform(self._meshes.body @ _rotation_z(body_yaw)))
+        self._recording.log(f"{_ROOT}/head", _transform(pose_matrix(head) @ self._site_inverse))
+        self._recording.log(
+            f"{_ROOT}/head_estimate", _transform(pose_matrix(head)), rr.TransformAxes3D(0.05)
+        )
+        self._plot("measured", head)
+
+    def show_sent(self, timestamp: float, sent: HeadPose, goal: HeadPose) -> None:
+        """Show where the head is sent this step, and where it heads for."""
+        self._at(timestamp)
+        self._recording.log(
+            f"{_ROOT}/head_sent", _transform(pose_matrix(sent)), rr.TransformAxes3D(0.06)
+        )
+        self._plot("sent", sent)
+        self._plot("goal", goal)
 
     def show_target(self, timestamp: float, target: HeadPose) -> None:
-        rr.set_time("time", duration=timestamp)
-        rr.log(f"{_ROOT}/head_target", _transform(pose_matrix(target)), rr.TransformAxes3D(0.08))
+        self._at(timestamp)
+        self._recording.log(
+            f"{_ROOT}/head_target", _transform(pose_matrix(target)), rr.TransformAxes3D(0.08)
+        )
 
     def show_gaze(self, timestamp: float, point: npt.NDArray[np.float64], target: HeadPose) -> None:
         """Show a gaze target's point, in the base frame, and the head pose that looks at it."""
         self.show_target(timestamp, target)
-        rr.log(f"{_ROOT}/gaze_target", rr.Points3D([point], radii=0.02))
+        self._recording.log(f"{_ROOT}/gaze_target", rr.Points3D([point], radii=0.02))
+
+    def _at(self, timestamp: float) -> None:
+        wall = datetime.fromtimestamp(self._epoch + timestamp, UTC)
+        self._recording.set_time(_TIMELINE, timestamp=wall)
+
+    def _plot(self, name: str, pose: HeadPose) -> None:
+        for axis in ("roll", "pitch", "yaw"):
+            self._recording.log(
+                f"head/{axis}_deg/{name}", rr.Scalars(math.degrees(getattr(pose, axis)))
+            )
+        self._recording.log(f"head/z_mm/{name}", rr.Scalars(pose.z * 1000))
 
 
 def _geoms(
