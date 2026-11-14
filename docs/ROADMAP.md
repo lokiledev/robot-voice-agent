@@ -87,19 +87,22 @@ what exists and why.
     over time, to test the interactive loops (attention, visual servoing, engagement, the
     dialogue) by hand and in integration tests. None yet: `npc walk` is a first one, written by
     hand.
-- **The simulated people move, but do not walk.** In `animated_pair` they idle, talk with
-  gestures and listen, blinking, their mouth opening in syllables while they talk, skinned in
-  numpy and shown by Nyx through a patch ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). `npc walk`
-  still slides one sideways without walk clips, their mouth does not follow any sound, and they
-  do not turn to the robot or look at it.
+- **The simulated people move and speak, but do not walk.** In `animated_pair` they idle, talk
+  with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
+  ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). She says her scene's lines at their times,
+  synthesized once by Kokoro and played into the `rva_sim_room` PipeWire sink the agent listens
+  to, her mouth opening as loud as the line is: one viseme, `AA_VI_10_aa`, not the shapes of the
+  sounds yet. `npc walk` still slides one sideways without walk clips, and they do not turn to
+  the robot or look at it. Her talking gestures and her lines are not tied: she may gesture in
+  silence or speak while idling.
 - **Onboarding in the simulation.** The Reachy profile has a face database and an admins file of
   its own, so the avatar is a stranger who meets Reachy as a new user would, and the first person
   named becomes an operator. The profile sets `active_speaker: null`, which hands each
-  utterance to the face in front, because a still mouth is never seen speaking. In
-  `animated_pair` the mouth moves while she talks, but in syllables of its own, not those of the
-  voice the test plays: **put Light-ASD back in `config/reachy_mini_sim/runtime.yaml` once the
-  mouth follows the speech** (see [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)); until then
-  nothing tells whether Reachy was spoken to, and anyone's voice may interrupt it.
+  utterance to the face in front. In `animated_pair` her mouth now follows her lines, so
+  Light-ASD could see her speak: **try putting it back in `config/reachy_mini_sim/runtime.yaml`**.
+  Someone talking to the simulated robot through the real microphone, mixed into the room by
+  `62-rva-sim-room-mic.conf`, is in no camera's view, though, and Light-ASD would find nobody
+  speaking: a live session wants it off, a scripted one on.
 - **Reachy's gestures and the agent's gaze go to the mock's body API**, not to the simulated
   head, which follows the attention alone: a body client over kickmsg is to replace it, and to
   decide with the attention who has the head.

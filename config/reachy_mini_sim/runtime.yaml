@@ -240,10 +240,12 @@ respeaker: null
 transforms: []
 
 audio:
-  # The reSpeaker XVF3800 cancels the echo on its chip, against what it plays from its own jack,
-  # so both go through it. Without it: rva_ec_source and rva_ec_sink, the echo-cancelled nodes from
-  # config/pipewire/60-rva-echo-cancel.conf, or null for the system defaults.
-  input_device: alsa_input.usb-Seeed_Studio_reSpeaker_XVF3800
+  # The simulated room, config/pipewire/61-rva-sim-room.conf: what the simulated people say, and
+  # the reSpeaker XVF3800 mixed in by 62-rva-sim-room-mic.conf, to talk to the robot too. The
+  # reSpeaker cancels the robot's voice on its chip, against what it plays from its own jack, so
+  # the robot speaks through it. Without the room: the reSpeaker's input,
+  # alsa_input.usb-Seeed_Studio_reSpeaker_XVF3800.
+  input_device: rva_sim_room.monitor
   output_device: alsa_output.usb-Seeed_Studio_reSpeaker_XVF3800
   echo_window_ms: 2000
   endpoint:
@@ -267,5 +269,9 @@ asr:
 tts:
   model_path: ~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx
   voices_path: ~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin
-  voice: af_heart
+  # A young man's voice; am_puck, am_liam and am_echo are others.
+  voice: am_fenrir
   speed: 1.0
+  # Kokoro says "Reachy" with a k, like "Reeky".
+  respellings:
+    - {written: Reachy, spoken: Reechy}

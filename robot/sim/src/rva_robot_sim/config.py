@@ -7,6 +7,7 @@ from rva_pydantic import RVABaseModel
 from rva_robot_sim.hdri import HdriConfig
 from rva_robot_sim.people import AvatarsConfig
 from rva_robot_sim.scenes import SCENES
+from rva_robot_sim.speech import SpeechConfig
 
 
 class ReachyMiniDescriptionConfig(RVABaseModel):
@@ -54,6 +55,8 @@ class SimConfig(RVABaseModel):
     scene: str
     """Who is around the robot and what they do: one of `scenes.SCENES`, by name, e.g.
     `animated_pair`. `lune-sim --scene` runs another."""
+    speech: SpeechConfig
+    """What the people say: where it is kept once synthesized, and where it is played."""
     physics_dt: float
     """Seconds of simulated time per physics step."""
     state_rate: float

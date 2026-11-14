@@ -159,6 +159,15 @@ which needs an NVIDIA GPU with ray tracing; set `camera_renderer` to `kind: rast
 [Blender](https://www.blender.org) bakes once on first use: set `avatars.blender` in `sim.yaml` to
 its executable.
 
+The simulated people speak into a PipeWire sink, the simulated room, which the profile listens to
+as its microphone; a second file mixes the reSpeaker into it, to talk to the robot too (set its
+`target.object` for another microphone):
+
+```bash
+cp config/pipewire/61-rva-sim-room.conf config/pipewire/62-rva-sim-room-mic.conf ~/.config/pipewire/pipewire.conf.d/
+systemctl --user restart pipewire pipewire-pulse wireplumber
+```
+
 ### Become an operator
 
 Lune talks with anyone but only acts for operators it recognizes. The first person it learns the
@@ -179,9 +188,9 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune` | Everything: the servers below, then the voice agent with its session page |
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
-| `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; the people are a scene of `rva_robot_sim/scenes.py`, `sim.yaml`'s `scene`: `animated_pair` has two idle, talk and listen, `still_pair` stands them in an A-pose, and `--scene` runs another for once; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
+| `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; the people are a scene of `rva_robot_sim/scenes.py`, `sim.yaml`'s `scene`: `animated_pair` has two idle, talk and listen, and her say lines into the simulated room, synthesized by Kokoro on first use, `still_pair` stands them in an A-pose, and `--scene` runs another for once; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
 | `lune head --profile config/reachy_mini_sim` | The head controller: puts the simulated head at the poses it is sent, and points its camera at the attention's target when `lune see` or the agent runs; `--viewer` shows in rerun the robot as its joints put it, with the head's estimated pose, its target and the gaze target's point; start `lune-sim` first |
-| `animate` | An experiment, apart from `lune-sim`: one Rocketbox avatar playing Rocketbox clips one after the other (`--clips static/<name> xyz/<name>...`, `--seconds-each`), blinking, her mouth moving in the talking ones, skinned in numpy and rendered by Genesis' rasterizer under studio lights, or by Nyx with `--renderer nyx` and `sim.yaml`'s panorama; writes `animation_body.mp4` and a close-up of the face, `animation_face.mp4` (`--output`). The avatar and the clips download and bake with Blender on first use |
+| `animate` | An experiment, apart from `lune-sim`: one Rocketbox avatar playing Rocketbox clips one after the other (`--clips static/<name> xyz/<name>...`, `--seconds-each`), blinking, skinned in numpy and rendered by Genesis' rasterizer under studio lights, or by Nyx with `--renderer nyx` and `sim.yaml`'s panorama; writes `animation_body.mp4` and a close-up of the face, `animation_face.mp4` (`--output`). The avatar and the clips download and bake with Blender on first use |
 | `npc walk` | Paces one of the simulated people sideways across the robot's view, back and forth (`--half-width`, `--speed`; `--scene` if `lune-sim` was given one), to watch the head follow them with `lune head` and `lune see`; Ctrl+C puts them back; start `lune-sim` first |
 | `lune robot --profile config/reachy_mini_sim` | Drives the simulated robot's joints, or its head through `lune head`, with sliders, and shows its head camera; start `lune-sim` first |
 | `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |

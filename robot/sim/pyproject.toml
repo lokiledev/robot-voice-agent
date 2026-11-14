@@ -20,6 +20,9 @@ dependencies = [
   "pydantic>=2.11",
   "rva-pydantic",
   "rva-robot-schemas",
+  "rva-schemas",
+  # Plays the people's lines into the simulated room's sound device.
+  "sounddevice>=0.5",
   # Genesis imports torch without declaring it, and Nyx needs its CUDA build.
   "torch>=2.8",
 ]
@@ -33,8 +36,8 @@ build-backend = "uv_build"
 [tool.uv.sources]
 rva-pydantic = {workspace = true}
 rva-robot-schemas = {workspace = true}
+rva-schemas = {workspace = true}
 
 [project.scripts]
-lune-sim = "rva_robot_sim.cli:app"
 npc = "rva_robot_sim.npc_cli:app"
 animate = "rva_robot_sim.animate_cli:app"

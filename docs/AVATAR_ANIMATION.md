@@ -74,11 +74,14 @@ physics step, the sim samples each person's clip, turns their head as asked, com
 and their skin, adds the mouth's shape, and writes the vertices. About 0.5 ms a person, in a frame
 of 33 ms. The patch for Nyx loads with the scene; the rasterizer needs none.
 
-**A talking mouth.** The weight of `AA_VI_10_aa` follows the loudness of the speech: of a clip the
-test plays into the agent's microphone, on the same clock, or a syllable-like 4 to 5 Hz
-modulation. The sim plays no sound yet, which a test of the active speaker needs. Once the
-mouth moves, the Reachy profile gets its active speaker back: it is left out (`active_speaker:
-null`) only because a still mouth is never seen speaking.
+**A talking mouth.** Built: a scene's people have a Kokoro voice and lines, each said at a time
+of the simulation. `lune-sim` synthesizes them before it starts, kept under `speech.directory`
+by voice and text (`rva_robot_sim.speech`), and plays them into `speech.sink`, the `rva_sim_room`
+PipeWire sink of `config/pipewire/61-rva-sim-room.conf`, as they come due (`rva_robot_sim.room`).
+The agent listens to the sink's monitor as its microphone, which is recorded as any other; a real
+microphone is mixed in by `62-rva-sim-room-mic.conf`. The weight of `AA_VI_10_aa` follows the
+line's loudness, in steps of 10 ms; the visemes of its sounds are next: kokoro-onnx's
+`create_timed` may give their timings, else a forced aligner or an audio-to-viseme model.
 
 **Told what to do by a scene first.** Built: scenes are functions in `rva_robot_sim.scenes`,
 picked by name, and each person gets clips played in a loop. Not yet: a path to walk with the

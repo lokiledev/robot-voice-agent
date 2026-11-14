@@ -54,6 +54,7 @@ async def test_synthesized_request_is_heard_back() -> None:
             voices_path=KOKORO / "voices-v1.0.bin",
             voice="am_michael",
             speed=1.0,
+            respellings=(),
         )
     )
     (clip,) = [clip async for clip in tts.synthesize("Please put the red cup on the shelf.")]

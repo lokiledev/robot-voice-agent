@@ -5,18 +5,26 @@ from loguru import logger
 
 from rva_robot_sim.bus import RobotBus
 from rva_robot_sim.config import SimConfig
+from rva_robot_sim.room import Room
 from rva_robot_sim.scene import ReachyMiniScene, UnknownJointError, UnknownPersonError
 
 _MAX_LAG_S: Final = 0.1
 """How far behind real time the simulation may fall before it gives up catching up."""
 
 
-def serve(scene: ReachyMiniScene, bus: RobotBus, config: SimConfig) -> None:
+def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room | None, config: SimConfig) -> None:
     """Simulate in real time, publishing joint states and frames, until interrupted.
 
-    Each step first applies the commands and moves the people as received since the last one. States and frames are due
-    on simulated time, so they keep their rates on average whatever the physics step. A synchronous
-    loop: the process does nothing else, and Genesis steps on this thread.
+    Each step first applies the commands and moves the people as received since the last one, and
+    starts the people's lines due by then. States and frames are due on simulated time, so they
+    keep their rates on average whatever the physics step. A synchronous loop: the process does
+    nothing else, and Genesis steps on this thread; the room plays on its audio thread.
+
+    Args:
+        scene: The robot and the people.
+        bus: The robot's topics.
+        room: Where the people's lines are played; None, and they are not.
+        config: The rates.
     """
     state_due = _Due(1 / config.state_rate)
     frame_due = _Due(1 / config.camera_fps)
@@ -41,6 +49,8 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, config: SimConfig) -> None:
         scene.step()
         step += 1
         simulated = step * config.physics_dt
+        if room is not None:
+            room.speak(simulated)
         now = time.monotonic()
         if state_due.passed(simulated):
             bus.publish_state(scene.joint_state(now))

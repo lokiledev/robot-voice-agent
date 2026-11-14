@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from rva_pydantic import load_yaml
 from rva_robot_sim.config import SimConfig
-from rva_robot_sim.scenes import SCENES, describe
+from rva_robot_sim.scenes import SCENES, Line, Person, describe
 
 SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
 
@@ -25,10 +25,20 @@ def test_the_pair_is_still_or_animated_in_the_same_places() -> None:
     assert [person.position for person in animated.people] == [(1.1, 0.0), (0.8, -0.65)]
     assert all(not person.clips for person in still.people)
     assert all(person.clips for person in animated.people)
+    assert all(not person.lines for person in still.people)
     # She talks to the robot; he only listens.
     her, him = animated.people
-    assert any(clip.talking for clip in her.clips)
-    assert not any(clip.talking for clip in him.clips)
+    assert [line.at_s for line in her.lines] == [3.0, 23.0, 43.0, 63.0]
+    assert not him.lines
+    assert her.voice != him.voice
+
+
+def test_lines_are_said_in_order() -> None:
+    person = describe("animated_pair").people[0]
+    later, sooner = Line(at_s=10.0, text="Later."), Line(at_s=5.0, text="Sooner.")
+
+    with pytest.raises(ValidationError, match="not in order"):
+        Person.model_validate({**person.model_dump(), "lines": [later, sooner]})
 
 
 def test_an_unknown_scene_lists_the_others() -> None:

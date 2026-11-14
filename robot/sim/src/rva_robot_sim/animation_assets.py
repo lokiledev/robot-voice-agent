@@ -184,11 +184,6 @@ class ClipName(RVABaseModel):
     """The FBX's name without `.max.fbx`, e.g. `f_idle_neutral_01`; `f_` for women, `m_` for
     men."""
 
-    @property
-    def talking(self) -> bool:
-        """Whether its actor talks, by its name: `f_gestic_talk_neutral_01`, `m_trolley_talk`."""
-        return "_talk" in self.name
-
     @classmethod
     def parse(cls, text: str) -> "ClipName":
         """From `motion/name`, e.g. `static/f_idle_neutral_01`.

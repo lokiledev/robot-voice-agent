@@ -105,15 +105,11 @@ def test_bakes_a_clip_from_its_set_once(tmp_path: Path) -> None:
     assert baked.read_text() == "clip fbx"
 
 
-@pytest.mark.parametrize(
-    ("text", "talking"),
-    [("static/f_gestic_talk_neutral_01", True), ("static/m_gestic_listen_neutral_01", False)],
-)
-def test_clips_are_named_by_their_set_and_say_whether_they_talk(text: str, talking: bool) -> None:
+@pytest.mark.parametrize("text", ["static/f_gestic_talk_neutral_01", "xyz/m_turn_left_90"])
+def test_clips_are_named_by_their_set(text: str) -> None:
     clip = ClipName.parse(text)
 
     assert f"{clip.motion}/{clip.name}" == text
-    assert clip.talking is talking
 
 
 @pytest.mark.parametrize("text", ["f_idle_neutral_01", "walk/f_walk_neutral_01", "static/"])

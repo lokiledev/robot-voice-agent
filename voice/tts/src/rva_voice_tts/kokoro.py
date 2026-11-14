@@ -1,4 +1,5 @@
 import asyncio
+import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Final
@@ -12,6 +13,15 @@ from rva_pydantic import RVABaseModel
 from rva_schemas.audio import AudioClip
 
 
+class Respelling(RVABaseModel):
+    """A word Kokoro mispronounces, and a spelling it says right."""
+
+    written: str
+    """As the robot writes it, e.g. `Reachy`, which Kokoro says like "Reeky"."""
+    spoken: str
+    """As Kokoro should read it, e.g. `Reechy`."""
+
+
 class KokoroConfig(RVABaseModel):
     model_path: Path
     """kokoro-v1.0.onnx from the kokoro-onnx releases; `~` is expanded."""
@@ -20,6 +30,9 @@ class KokoroConfig(RVABaseModel):
     voice: str
     """Voice name, e.g. am_michael or af_heart."""
     speed: float = Field(gt=0)
+    respellings: tuple[Respelling, ...]
+    """Words replaced before synthesis only: what the robot writes, logs and remembers keeps
+    their spelling."""
 
 
 class KokoroSynthesizer:
@@ -40,6 +53,17 @@ class KokoroSynthesizer:
 
     async def synthesize(self, text: str) -> AsyncGenerator[AudioClip]:
         samples, sample_rate = await asyncio.to_thread(
-            self._kokoro.create, text, voice=self._config.voice, speed=self._config.speed
+            self._kokoro.create,
+            respell(text, self._config.respellings),
+            voice=self._config.voice,
+            speed=self._config.speed,
         )
         yield AudioClip(samples=samples.astype(np.float32), sample_rate=sample_rate)
+
+
+def respell(text: str, respellings: tuple[Respelling, ...]) -> str:
+    """`text` with each respelled word replaced where it stands as a whole word, in any case."""
+    for respelling in respellings:
+        word = re.compile(rf"\b{re.escape(respelling.written)}\b", re.IGNORECASE)
+        text = word.sub(respelling.spoken, text)
+    return text

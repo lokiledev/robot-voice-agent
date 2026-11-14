@@ -279,3 +279,4 @@ tts:
   voices_path: ~/.cache/robot-voice-agent/kokoro/voices-v1.0.bin
   voice: af_heart
   speed: 1.0
+  respellings: []

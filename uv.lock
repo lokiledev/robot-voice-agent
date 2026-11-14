@@ -3824,6 +3824,8 @@ dependencies = [
     { name = "pydantic" },
     { name = "rva-pydantic" },
     { name = "rva-robot-schemas" },
+    { name = "rva-schemas" },
+    { name = "sounddevice" },
     { name = "torch" },
 ]
 
@@ -3841,6 +3843,8 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11" },
     { name = "rva-pydantic", editable = "common/pydantic" },
     { name = "rva-robot-schemas", editable = "robot/schemas" },
+    { name = "rva-schemas", editable = "schemas" },
+    { name = "sounddevice", specifier = ">=0.5" },
     { name = "torch", specifier = ">=2.8", index = "https://download.pytorch.org/whl/cu130" },
 ]
 

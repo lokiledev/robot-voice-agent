@@ -1,3 +1,4 @@
+import atexit
 import io
 import math
 import threading
@@ -51,8 +52,9 @@ from rva_schemas.vision import (
 _TIMELINE: Final = "wall"
 _LEVEL_HOP_S: Final = 0.032
 """How long each point of a sound's level covers: a frame of the microphone."""
-_MICROPHONE_CLIP_S: Final = 1.0
-"""How long the clips are that the microphone's frames are joined into."""
+_MICROPHONE_CLIP_S: Final = 15.0
+"""How long the clips are that the microphone's frames are joined into: long enough to hear a
+turn or two in one, short enough for a live viewer to hear the room soon after."""
 _CAMERA: Final = "camera"
 """Image and people share this entity, so rerun draws them in one 2D view; with the camera's
 intrinsics, it is also the camera's pinhole in the 3D view."""
@@ -130,7 +132,19 @@ class RerunRecorder:
         # from the event loop's thread, but nothing says they always will.
         self._heard: list[npt.NDArray[np.float32]] = []
         self._heard_since = datetime.now(UTC)
+        self._heard_rate: int | None = None
         self._sound_lock: Final = threading.Lock()
+        # Registered after rerun's own exit hook, so it runs first, while the recording takes
+        # data still.
+        atexit.register(self.flush_heard)
+
+    def flush_heard(self) -> None:
+        """Log what the microphone heard since its last clip, as a shorter clip.
+
+        Called at exit, so the session's last seconds are kept; with nothing left, does nothing.
+        """
+        with self._sound_lock:
+            self._log_heard()
 
     def record(self, entry: Record) -> None:
         now = datetime.now(UTC)
@@ -222,7 +236,7 @@ class RerunRecorder:
         """Log a sound's level over time and the sound itself, from when it started.
 
         The robot's clips are logged one by one. The microphone's frames are logged joined into
-        clips of a second: the last one, still filling as the session ends, is lost.
+        clips of `_MICROPHONE_CLIP_S`, the last one when the session ends.
         """
         clip = entry.clip
         hop = round(_LEVEL_HOP_S * clip.sample_rate)
@@ -237,16 +251,21 @@ class RerunRecorder:
             case "microphone":
                 if not self._heard:
                     self._heard_since = start
+                    self._heard_rate = clip.sample_rate
                 self._heard.append(clip.samples)
                 samples = sum(len(frame) for frame in self._heard)
                 if samples >= _MICROPHONE_CLIP_S * clip.sample_rate:
-                    joined = AudioClip(
-                        samples=np.concatenate(self._heard), sample_rate=clip.sample_rate
-                    )
-                    self._log_audio("audio/microphone", joined, self._heard_since)
-                    self._heard.clear()
+                    self._log_heard()
             case _:
                 assert_never(entry.source)
+
+    def _log_heard(self) -> None:
+        if not self._heard:
+            return
+        assert self._heard_rate is not None, "set with the first frame heard"
+        joined = AudioClip(samples=np.concatenate(self._heard), sample_rate=self._heard_rate)
+        self._log_audio("audio/microphone", joined, self._heard_since)
+        self._heard.clear()
 
     def _log_audio(self, path: str, clip: AudioClip, start: datetime) -> None:
         self._recording.set_time(_TIMELINE, timestamp=start)

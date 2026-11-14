@@ -66,3 +66,4 @@ rva-vision-viewer = {workspace = true}
 
 [project.scripts]
 lune = "rva_app.cli:app"
+lune-sim = "rva_app.sim:app"

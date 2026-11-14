@@ -14,6 +14,11 @@ avatars:
 # two in an A-pose; `animated_pair`, the same two idling, talking and listening. `lune-sim --scene`
 # runs another.
 scene: animated_pair
+speech:
+  directory: ~/.cache/robot-voice-agent/speech
+  # The PipeWire sink of config/pipewire/61-rva-sim-room.conf, whose monitor the agent listens to
+  # (audio.input_device in runtime.yaml); null to leave the people silent.
+  sink: rva_sim_room
 physics_dt: 0.005
 state_rate: 100
 camera_fps: 30

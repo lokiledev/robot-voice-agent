@@ -1,6 +1,5 @@
 """The simulation's people, played: their clips one after the other, blinking, talking."""
 
-import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
@@ -26,24 +25,28 @@ from rva_robot_sim.skinning import (
     retarget,
     sample,
 )
+from rva_robot_sim.speech import SpokenLine
 
 STILL_BONES: Final = frozenset({"Bip01 REye", "Bip01 LEye", "Bip01 MJaw"})
 """Bones of the face the clips would move from their own rest pose, which is not the avatar's: the
 eyes and the jaw keep the avatar's, and the face shapes move them."""
 _BLINK_PERIOD_S: Final = 3.7
 _BLINK_S: Final = 0.16
-_SYLLABLE_HZ: Final = 4.5
 
 
 class Actor:
     """One person playing clips one after the other, over and over, from where they are placed.
 
-    They blink, and their mouth moves like syllables while a clip of talking plays. The clips'
+    They blink, and their mouth opens as loud as their lines are while they say them. The clips'
     root motion carries over: a clip that turns them leaves the next facing the new way.
     """
 
     def __init__(
-        self, skin: Skin, clips: Sequence[tuple[ClipName, Motion]], placement: Floats
+        self,
+        skin: Skin,
+        clips: Sequence[tuple[ClipName, Motion]],
+        placement: Floats,
+        lines: Sequence[SpokenLine],
     ) -> None:
         """Start the first clip.
 
@@ -51,9 +54,11 @@ class Actor:
             skin: The avatar.
             clips: Retargeted to `skin`, each with its name; none, and they stand still at rest.
             placement: 4×4, where they stand on the floor at the start, from `people.standing`.
+            lines: What they say, which the simulation plays too.
         """
         self.skin: Final = skin
         self._clips: Final = list(clips)
+        self._lines: Final = list(lines)
         self._still: Final = rest(skin)
         self._blinks: Final = [
             skin.shape_index("AK_09_EyeBlinkLeft"),
@@ -85,8 +90,7 @@ class Actor:
     def vertices(self, bones: Floats, time: float) -> Floats:
         """V×3: the skin's vertices posed by `bones`, the face as it is at `time`."""
         self._weights[self._blinks] = _blink(time)
-        talking = bool(self._clips) and self._clips[self._index][0].talking
-        self._weights[self._mouth] = _syllables(time) if talking else 0.0
+        self._weights[self._mouth] = max((line.opening(time) for line in self._lines), default=0.0)
         return deform(self.skin, bones, self._weights)
 
     def _advance(self, time: float) -> Motion:
@@ -103,8 +107,10 @@ class Actor:
             logger.debug("Playing {}/{}", upcoming.motion, upcoming.name)
 
 
-def cast(config: AvatarsConfig, person: Person, client: httpx.Client) -> tuple[Path, Actor]:
-    """The person's avatar, to load in Genesis, and the actor that plays its clips.
+def cast(
+    config: AvatarsConfig, person: Person, lines: Sequence[SpokenLine], client: httpx.Client
+) -> tuple[Path, Actor]:
+    """The person's avatar, to load in Genesis, and the actor that plays its clips and lines.
 
     The avatar and the clips are downloaded and baked with Blender on first use.
 
@@ -118,7 +124,7 @@ def cast(config: AvatarsConfig, person: Person, client: httpx.Client) -> tuple[P
         (name, retarget(skin, load_clip(install_clip(config, name, client)), STILL_BONES))
         for name in person.clips
     ]
-    return glb, Actor(skin, clips, standing(person.position, person.turned_deg))
+    return glb, Actor(skin, clips, standing(person.position, person.turned_deg), lines)
 
 
 def vertex_order(skin: Skin, loaded: Floats) -> npt.NDArray[np.intp]:
@@ -145,10 +151,3 @@ def vertex_order(skin: Skin, loaded: Floats) -> npt.NDArray[np.intp]:
 def _blink(time: float) -> float:
     phase = time % _BLINK_PERIOD_S
     return max(0.0, 1.0 - abs(phase - _BLINK_S / 2) / (_BLINK_S / 2))
-
-
-def _syllables(time: float) -> float:
-    """The mouth's opening while talking: syllables, louder and softer over a phrase."""
-    syllable = math.pow(max(0.0, math.sin(2 * math.pi * _SYLLABLE_HZ * time)), 0.7)
-    phrase = 0.6 + 0.4 * math.sin(2 * math.pi * 0.37 * time)
-    return 0.8 * syllable * phrase

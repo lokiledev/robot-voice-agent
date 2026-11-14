@@ -125,7 +125,7 @@ def main(
         (name, truncate(retarget(skin, load_clip(path), STILL_BONES), seconds_each))
         for name, path in zip(names, clip_paths, strict=True)
     ]
-    actor = Actor(skin, played, placement(0.0, 0.0, 0.0))
+    actor = Actor(skin, played, placement(0.0, 0.0, 0.0), [])
     length = sum(motion.duration for _, motion in played)
 
     gs.init(backend=backend.cpu, logging_level="warning")

@@ -6,6 +6,8 @@ import pytest
 from rva_robot_sim.actor import Actor, vertex_order
 from rva_robot_sim.animation_assets import ClipName
 from rva_robot_sim.skinning import Motion, Skin, placement
+from rva_robot_sim.speech import SpokenLine
+from rva_schemas.audio import AudioClip
 
 IDENTITY = (1.0, 0.0, 0.0, 0.0)
 QUARTER_TURN_Z = (math.cos(math.pi / 4), 0.0, 0.0, math.sin(math.pi / 4))
@@ -48,7 +50,7 @@ def _clip(text: str) -> ClipName:
 
 def test_without_clips_they_stand_still_where_placed() -> None:
     skin = _skin()
-    actor = Actor(skin, [], placement(2.0, 0.0, 0.0))
+    actor = Actor(skin, [], placement(2.0, 0.0, 0.0), [])
 
     for time in (0.0, 10.0, 1000.0):
         np.testing.assert_allclose(actor.pose(time), placement(2.0, 0.0, 0.0) @ skin.bone_rest)
@@ -60,6 +62,7 @@ def test_clips_play_one_after_the_other_and_loop() -> None:
         _skin(),
         [(_clip("static/f_idle_neutral_01"), still), (_clip("static/f_idle_breathe_01"), still)],
         placement(0.0, 0.0, 0.0),
+        [],
     )
 
     actor.pose(1.5)
@@ -75,6 +78,7 @@ def test_a_turn_leaves_the_next_clip_facing_the_new_way() -> None:
         _skin(),
         [(_clip("xyz/f_turn_left_90"), turn), (_clip("static/f_idle_neutral_01"), still)],
         placement(0.0, 0.0, 0.0),
+        [],
     )
 
     bones = actor.pose(1.5)
@@ -84,7 +88,7 @@ def test_a_turn_leaves_the_next_clip_facing_the_new_way() -> None:
 
 
 def test_placing_them_moves_the_current_clip() -> None:
-    actor = Actor(_skin(), [], placement(0.0, 0.0, 0.0))
+    actor = Actor(_skin(), [], placement(0.0, 0.0, 0.0), [])
 
     actor.place(placement(0.0, 3.0, 0.0))
 
@@ -93,22 +97,20 @@ def test_placing_them_moves_the_current_clip() -> None:
 
 def test_time_does_not_go_back() -> None:
     still = _motion((IDENTITY, IDENTITY))
-    actor = Actor(_skin(), [(_clip("static/f_idle_neutral_01"), still)], placement(0, 0, 0))
+    actor = Actor(_skin(), [(_clip("static/f_idle_neutral_01"), still)], placement(0, 0, 0), [])
     actor.pose(2.5)
 
     with pytest.raises(ValueError, match="went back"):
         actor.pose(0.5)
 
 
-@pytest.mark.parametrize(
-    ("clip", "opens"),
-    [("static/f_gestic_talk_neutral_01", True), ("static/f_gestic_listen_neutral_01", False)],
-)
-def test_the_mouth_moves_in_talking_clips_only(clip: str, opens: bool) -> None:
+@pytest.mark.parametrize(("time", "opens"), [(2.2, False), (2.7, True), (3.5, False)])
+def test_the_mouth_opens_as_loud_as_their_line(time: float, opens: bool) -> None:
     skin = _skin()
-    actor = Actor(skin, [(_clip(clip), _motion((IDENTITY, IDENTITY)))], placement(0, 0, 0))
-    # A quarter of a syllable in: the mouth at its widest.
-    time = 1 / (4 * 4.5)
+    # A second from 2 s: silent, then loud for its second half.
+    samples = np.concatenate([np.zeros(8000), np.full(8000, 0.5)]).astype(np.float32)
+    line = SpokenLine(at_s=2.0, clip=AudioClip(samples=samples, sample_rate=16000))
+    actor = Actor(skin, [], placement(0, 0, 0), [line])
 
     mouth = actor.vertices(actor.pose(time), time)[1]
 

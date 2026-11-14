@@ -146,8 +146,9 @@ def test_sound_is_logged_as_clips_and_as_its_level_over_time(tmp_path: Path) -> 
     recorder = RerunRecorder(recording)
     frame = AudioClip(samples=np.full(512, 0.5, np.float32), sample_rate=16000)
 
-    # A second and a half of the microphone, in frames of 32 ms: one clip of a second.
-    for _ in range(47):
+    # Sixteen seconds of the microphone, in frames of 32 ms: one clip of 15 s, then the rest, as
+    # the session ends.
+    for _ in range(500):
         recorder.record(Sound(source="microphone", clip=frame))
     # Half a second of the robot's voice: one clip.
     recorder.record(
@@ -155,6 +156,7 @@ def test_sound_is_logged_as_clips_and_as_its_level_over_time(tmp_path: Path) -> 
             source="robot", clip=AudioClip(samples=np.zeros(12000, np.float32), sample_rate=24000)
         )
     )
+    recorder.flush_heard()
     recording.flush()
     recording.disconnect()
 
@@ -162,8 +164,8 @@ def test_sound_is_logged_as_clips_and_as_its_level_over_time(tmp_path: Path) -> 
     for chunk in RrdReader(path).stream():
         rows[chunk.entity_path] = rows.get(chunk.entity_path, 0) + chunk.num_rows
     assert {name: count for name, count in rows.items() if name.startswith("/audio")} == {
-        "/audio/microphone": 1,
-        "/audio/microphone/level": 47,
+        "/audio/microphone": 2,
+        "/audio/microphone/level": 500,
         "/audio/robot": 1,
         # 0.5 s in steps of 32 ms.
         "/audio/robot/level": 16,
