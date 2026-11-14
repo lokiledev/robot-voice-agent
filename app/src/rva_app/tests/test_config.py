@@ -14,7 +14,7 @@ from rva_schemas.frames import StaticTransforms
 from rva_schemas.profile import Admins
 from rva_schemas.sound import HeardDirection
 from rva_schemas.vision import CameraIntrinsics
-from rva_vision_faces.config import RobotSource
+from rva_vision_faces.config import KeptFaces, RobotSource, SessionFaces
 
 _REPOSITORY = Path(__file__).parents[4]
 
@@ -39,16 +39,17 @@ def test_the_admins_template_lists_nobody() -> None:
 def test_the_default_profile_keeps_its_data_outside_the_source_tree() -> None:
     config = RuntimeConfig.load(_REPOSITORY / "config" / "default")
 
+    assert config.vision.database == KeptFaces(
+        path=Path("~/.local/share/robot-voice-agent/faces.sqlite3")
+    )
     assert [
         config.admins,
-        config.vision.database,
         config.media_server.directory,
         config.observability.captures_dir,
         config.tts.model_path,
         config.tts.voices_path,
     ] == [
         Path("~/.config/robot-voice-agent/admins.yaml"),
-        Path("~/.local/share/robot-voice-agent/faces.sqlite3"),
         Path("~/.local/share/robot-voice-agent/mediamtx"),
         Path("~/Captures/robot-voice-agent"),
         Path("~/.cache/robot-voice-agent/kokoro/kokoro-v1.0.onnx"),
@@ -99,15 +100,12 @@ def test_a_head_controller_needs_a_robot() -> None:
         )
 
 
-def test_the_simulated_people_are_kept_apart_from_the_real_ones() -> None:
+def test_the_simulated_people_meet_the_robot_anew_each_session() -> None:
     default = RuntimeConfig.load(_REPOSITORY / "config" / "default")
     reachy = RuntimeConfig.load(_REPOSITORY / "config" / "reachy_mini_sim")
 
-    assert [reachy.vision.database, reachy.admins] == [
-        Path("~/.local/share/robot-voice-agent/reachy_mini_sim/faces.sqlite3"),
-        Path("~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml"),
-    ]
-    assert reachy.vision.database != default.vision.database
+    assert reachy.vision.database == SessionFaces()
+    assert reachy.admins == Path("~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml")
     assert reachy.admins != default.admins
 
 

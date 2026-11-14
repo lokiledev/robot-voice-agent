@@ -108,7 +108,9 @@ vision:
     model:
       repo: Heliosoph/da3metric-large-onnx
       file: model_fp16.onnx
-  database: ~/.local/share/robot-voice-agent/faces.sqlite3
+  database:
+    kind: kept
+    path: ~/.local/share/robot-voice-agent/faces.sqlite3
   max_embeddings_per_person: 10
   # Used with --video: camera frames recorded with the session, to replay in rerun.
   video:

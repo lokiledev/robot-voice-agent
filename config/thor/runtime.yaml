@@ -107,7 +107,9 @@ vision:
     keypoint_threshold: 0.3
   # Not tried on Thor yet.
   depth: null
-  database: ~/.local/share/robot-voice-agent/faces.sqlite3
+  database:
+    kind: kept
+    path: ~/.local/share/robot-voice-agent/faces.sqlite3
   max_embeddings_per_person: 10
   # Used with --video: camera frames recorded with the session, to replay in rerun.
   video:

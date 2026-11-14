@@ -86,7 +86,13 @@ from rva_ui.media import (
 )
 from rva_ui.server import UiServer
 from rva_vision_faces.camera import Camera, FrameSource, VideoFile
-from rva_vision_faces.config import FaceVisionConfig, RobotSource, V4l2Source
+from rva_vision_faces.config import (
+    FaceVisionConfig,
+    KeptFaces,
+    RobotSource,
+    SessionFaces,
+    V4l2Source,
+)
 from rva_vision_faces.database import FaceDatabase
 from rva_vision_faces.vision import FaceVision
 from rva_vision_viewer.monitor import CameraMonitor
@@ -108,6 +114,8 @@ TensorRT engines are built."""
 """Size of the camera image in the debug window."""
 _DOA_PRINT_S: Final = 0.25
 """How often `lune doa` prints where speech comes from, at most."""
+_SESSION_FACES: Final = "faces.sqlite3"
+"""In a session's directory, when the profile keeps faces per session."""
 
 
 @app.command
@@ -584,7 +592,7 @@ async def _listen(
     config = RuntimeConfig.load(profile_dir)
     session = start_session(config.observability, "listen", viewer=viewer, console_level="WARNING")
     monitor = _monitor(config, camera, show, stream=False, on_key=None)
-    recorder = _recorder(session, None, monitor)
+    recorder = _recorder(session.recorder, None, monitor)
     # Nothing is played here, so the robot never speaks and no transcript is an echo.
     silent = robot_speech(config.audio)
     if camera and config.active_speaker is None:
@@ -620,6 +628,7 @@ async def _listen(
         vision = await asyncio.to_thread(
             _face_vision,
             config,
+            session.directory,
             recorder,
             False,
             depth=True,
@@ -674,7 +683,9 @@ async def _print_doa(profile_dir: Path, viewer: bool) -> None:
     config = RuntimeConfig.load(profile_dir)
     if config.doa is None:
         raise SystemExit(f"{profile_dir / 'runtime.yaml'} has no doa")
-    recorder = start_session(config.observability, "doa", viewer=viewer, console_level="WARNING")
+    recorder = start_session(
+        config.observability, "doa", viewer=viewer, console_level="WARNING"
+    ).recorder
     camera = config.vision.camera.frame
     transforms = _transforms(config)
     async with open_sound_directions(config.doa, config.robot, recorder) as doa:
@@ -695,7 +706,9 @@ async def _print_doa(profile_dir: Path, viewer: bool) -> None:
 
 async def _say(profile_dir: Path, voice_name: str | None) -> None:
     config = RuntimeConfig.load(profile_dir)
-    recorder = start_session(config.observability, "say", viewer=False, console_level="WARNING")
+    recorder = start_session(
+        config.observability, "say", viewer=False, console_level="WARNING"
+    ).recorder
     tts = config.tts if voice_name is None else config.tts.model_copy(update={"voice": voice_name})
     speaking = robot_speech(config.audio)
     async with open_voice_output(config.audio, tts, speaking, recorder) as voice:
@@ -725,12 +738,13 @@ async def _run_voice_agent(
         HttpBodyClient(config.body) as body,
     ):
         monitor = _monitor(config, camera, show, stream=page is not None, on_key=None)
-        recorder = _recorder(session, page, monitor)
+        recorder = _recorder(session.recorder, page, monitor)
         speaker = await _speaker(config.active_speaker) if camera else None
         vision = (
             await asyncio.to_thread(
                 _face_vision,
                 config,
+                session.directory,
                 recorder,
                 video,
                 depth=depth,
@@ -896,10 +910,17 @@ async def _run_text_agent(
         HttpBodyClient(config.body) as body,
     ):
         monitor = _monitor(config, camera, show, stream=page is not None, on_key=None)
-        recorder = _recorder(session, page, monitor)
+        recorder = _recorder(session.recorder, page, monitor)
         vision = (
             await asyncio.to_thread(
-                _face_vision, config, recorder, video, depth=depth, speaker=None, replay=None
+                _face_vision,
+                config,
+                session.directory,
+                recorder,
+                video,
+                depth=depth,
+                speaker=None,
+                replay=None,
             )
             if camera
             else None
@@ -975,9 +996,16 @@ def rerun(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
 
 @app.command
 def people(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
-    """List the user id and name of everyone the robot knows, marking admins and operators."""
+    """List the user id and name of everyone the robot knows, marking admins and operators.
+
+    With faces kept per session, those the latest session met.
+    """
     config = RuntimeConfig.load(profile)
-    database = _face_database(config.vision)
+    captures = config.observability.captures_dir.expanduser()
+    met = sorted(captures.glob(f"*/{_SESSION_FACES}"), key=lambda faces: faces.stat().st_mtime)
+    if isinstance(config.vision.database, SessionFaces) and not met:
+        raise SystemExit(f"No session met anyone yet in {captures}")
+    database = _face_database(config.vision, met[-1].parent if met else None)
     admins = load_admins(config.admins).user_ids
     granted = database.granted_operators()
     known = database.people()
@@ -1022,7 +1050,7 @@ async def _see(
             keys.put_nowait(key)
 
     monitor = _monitor(config, True, window, stream=stream, on_key=on_key)
-    recorder = _recorder(session, None, monitor)
+    recorder = _recorder(session.recorder, None, monitor)
     interaction = Interaction(
         config.interaction,
         None if config.active_speaker is None or not listen else config.active_speaker.delay_s,
@@ -1030,7 +1058,14 @@ async def _see(
         recorder,
     )
     vision = await asyncio.to_thread(
-        _face_vision, config, recorder, video, depth=depth, speaker=speaker, replay=None
+        _face_vision,
+        config,
+        session.directory,
+        recorder,
+        video,
+        depth=depth,
+        speaker=speaker,
+        replay=None,
     )
     if stream:
         logger.info("Streaming the window to {}", config.ui.video_page)
@@ -1167,6 +1202,7 @@ async def _name_nearest_face(vision: FaceVision, keys: asyncio.Queue[str]) -> No
 
 def _face_vision(
     config: RuntimeConfig,
+    session: Path,
     recorder: Recorder,
     record_video: bool,
     *,
@@ -1182,7 +1218,7 @@ def _face_vision(
     vision = config.vision
     return FaceVision(
         vision if depth else vision.model_copy(update={"depth": None}),
-        _face_database(vision),
+        _face_database(vision, session),
         recorder=recorder,
         record_video=record_video,
         speaker=speaker,
@@ -1236,8 +1272,22 @@ class _CaptionedInput:
             yield utterance
 
 
-def _face_database(config: FaceVisionConfig) -> FaceDatabase:
-    return FaceDatabase(config.database.expanduser(), config.max_embeddings_per_person)
+def _face_database(config: FaceVisionConfig, session: Path | None) -> FaceDatabase:
+    """Known people: those of every session, or of `session` alone, a session's directory.
+
+    Raises:
+        ValueError: If faces are kept per session, without one.
+    """
+    match config.database:
+        case KeptFaces(path=path):
+            file = path.expanduser()
+        case SessionFaces():
+            if session is None:
+                raise ValueError("Faces are kept per session, and there is none")
+            file = session / _SESSION_FACES
+        case _:
+            assert_never(config.database)
+    return FaceDatabase(file, config.max_embeddings_per_person)
 
 
 async def _with_vision(

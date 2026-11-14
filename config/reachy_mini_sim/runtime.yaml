@@ -133,8 +133,10 @@ vision:
     model:
       repo: Heliosoph/da3metric-large-onnx
       file: model_fp16.onnx
-  # The simulation's people, apart from the real ones: everyone meets Reachy anew.
-  database: ~/.local/share/robot-voice-agent/reachy_mini_sim/faces.sqlite3
+  # The simulation's people, apart from the real ones, in a new database each session: everyone
+  # meets Reachy anew each run, and the first named becomes its operator.
+  database:
+    kind: session
   max_embeddings_per_person: 10
   # Used with --video: camera frames recorded with the session, to replay in rerun.
   video:
@@ -178,7 +180,8 @@ attention:
   min_score: 0.036
   lifetime_s: 2.0
 
-# The simulation's own, since the ids are those of its face database.
+# The simulation's own, and best left missing: the ids are those of a face database made anew
+# each session.
 admins: ~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml
 
 # Light-ASD: which face speaks, from its lips and the microphone together: the simulated people's

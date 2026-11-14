@@ -184,6 +184,27 @@ class VideoRecordingConfig(RVABaseModel):
     jpeg_quality: int = Field(ge=1, le=100)
 
 
+class KeptFaces(RVABaseModel):
+    """One database for every session: the robot knows people again from one run to the next."""
+
+    kind: Literal["kept"] = "kept"
+    path: Path
+    """SQLite file of known people and their face embeddings; `~` is expanded."""
+
+
+class SessionFaces(RVABaseModel):
+    """A new, empty database in each session's directory, kept with its recording.
+
+    Everyone meets the robot anew each run, as the simulation's scenarios want; the first person
+    named becomes its operator.
+    """
+
+    kind: Literal["session"] = "session"
+
+
+type FacesConfig = Annotated[KeptFaces | SessionFaces, Field(discriminator="kind")]
+
+
 class FaceVisionConfig(RVABaseModel):
     device: Device
     """Where the ONNX models run."""
@@ -198,8 +219,8 @@ class FaceVisionConfig(RVABaseModel):
     """`None` to leave out skeletons."""
     depth: DepthConfig | None
     """`None` to leave out depth."""
-    database: Path
-    """SQLite file of known people and their face embeddings; `~` is expanded."""
+    database: FacesConfig
+    """Where known people and their face embeddings are kept."""
     max_embeddings_per_person: int = Field(gt=0)
     """The oldest samples are dropped beyond this."""
     video: VideoRecordingConfig

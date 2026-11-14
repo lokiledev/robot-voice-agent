@@ -20,13 +20,18 @@ class ObservabilityConfig(RVABaseModel):
     """Where session directories are created; `~` is expanded."""
 
 
+class Session(RVABaseModel, arbitrary_types_allowed=True):
+    directory: Path
+    """Holds `session.rrd` and `agent.log`, and whatever else belongs with this run."""
+    recorder: RerunRecorder
+
+
 def start_session(
     config: ObservabilityConfig, name: str, viewer: bool, console_level: str
-) -> RerunRecorder:
+) -> Session:
     """Create a session directory and send logs, spans and records into it.
 
-    The directory holds `session.rrd` and `agent.log`. With `viewer`, the recording also streams to
-    a rerun viewer, opened if none is.
+    With `viewer`, the recording also streams to a rerun viewer, opened if none is.
     """
     directory = _session_directory(config, name)
 
@@ -41,7 +46,7 @@ def start_session(
     trace.set_tracer_provider(provider)
 
     logger.info("Recording session to {}", directory)
-    return RerunRecorder(recording)
+    return Session(directory=directory, recorder=RerunRecorder(recording))
 
 
 def record_session(config: ObservabilityConfig, name: str, viewer: bool) -> rr.RecordingStream:

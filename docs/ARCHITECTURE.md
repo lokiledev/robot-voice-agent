@@ -226,7 +226,9 @@ flowchart LR
   matched again when the known people change: someone is named, renamed or forgotten. The largest
   face is taken as the person in front of the robot.
 - **Memory.** The database is pseudonymous: people are user ids, names sit in a table of their
-  own, and embeddings, operators and admins refer to ids only. No image is stored.
+  own, and embeddings, operators and admins refer to ids only. No image is stored. The profile
+  keeps it across sessions (`kind: kept`, a path), or makes a new one in each session's
+  directory (`kind: session`), so that the simulation's people meet the robot anew every run.
 - **Face features**, on every face detected in the frame: MediaPipe's face mesh (478 points,
   irises included) on a crop levelled on the eyes; MediaPipe's blendshapes on those points, for
   how open each eye and the mouth are; L2CS-Net (Gaze360) for where the eyes point, 0 degrees
@@ -775,8 +777,9 @@ of the mock, until the head controller drives the simulated head.
 Its camera is the robot's: `vision.camera.source` is `kind: robot`, and the pipeline reads the
 head camera's frames over kickmsg instead of a V4L2 device, with the simulated camera's exact
 intrinsics. Its field of view is wider than the webcam's, so faces count from 0.06 of the frame
-height rather than 0.12: the same 1.8 m. Its face database and admins are its own, apart from the
-real people's: the avatar meets Reachy as a stranger. `lune --profile config/reachy_mini_sim` starts the
+height rather than 0.12: the same 1.8 m. Its face database is made anew for each session, apart
+from the real people's: the avatars meet Reachy as strangers every run. Its admins file is its
+own, best left missing: the ids would be a past session's. `lune --profile config/reachy_mini_sim` starts the
 simulation with the other servers, and waits until it serves its topics, then the head
 controller.
 

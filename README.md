@@ -152,11 +152,11 @@ uv run lune --profile config/reachy_mini_sim
 ```
 
 It starts the simulation and the head controller with the other servers; `--open-sim-viewer`
-opens Genesis' viewer of the simulation too. The simulated person
-is kept apart from the people Lune knows, in a face database of the profile's own, so they meet
-Reachy as a stranger, and the first one Reachy learns the name of becomes its operator. To become
-Reachy's admin, follow "Become an operator" below with `--profile config/reachy_mini_sim` and its
-own admins file, `~/.config/robot-voice-agent/reachy_mini_sim/admins.yaml`. The simulation's camera is path traced by Nyx,
+opens Genesis' viewer of the simulation too. The simulated people
+are kept apart from the people Lune knows, in a face database made anew for each session, in its
+directory: they meet Reachy as strangers every run, and the first one Reachy learns the name of
+becomes its operator. `lune people --profile config/reachy_mini_sim` lists those the latest
+session met. The simulation's camera is path traced by Nyx,
 which needs an NVIDIA GPU with ray tracing; set `camera_renderer` to `kind: rasterizer` in
 `config/reachy_mini_sim/sim.yaml` without one. The people are Rocketbox avatars that
 [Blender](https://www.blender.org) bakes once on first use: set `avatars.blender` in `sim.yaml` to
@@ -247,7 +247,7 @@ Nothing the robot learns or records is written to the source tree. The paths are
 | What | Where |
 |---|---|
 | Admins' user ids | `~/.config/robot-voice-agent/admins.yaml` |
-| Known faces, names and operators | `~/.local/share/robot-voice-agent/faces.sqlite3` |
+| Known faces, names and operators | `~/.local/share/robot-voice-agent/faces.sqlite3`; per session for `config/reachy_mini_sim`, `faces.sqlite3` in the session's directory |
 | Session recordings and logs | `~/Captures/robot-voice-agent/` |
 | Servers' output, with `lune` | `~/Captures/robot-voice-agent/servers/` |
 | MediaMTX | `~/.local/share/robot-voice-agent/mediamtx/` |
