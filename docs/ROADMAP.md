@@ -188,3 +188,122 @@ what exists and why.
 - **The session page does not follow a replayed video**; only the debug window does.
 - **`lune rerun` opens the latest session only.**
 - **The debug window's checkboxes all start ticked.**
+
+## Beyond the simulation
+
+Left from a review of what only holds in the `newcomer` scenario: its exact timestamps, steady
+30 frames a second, microphone without echo, and Qwen's habits. Found by reading the code, not
+by a failure seen, unless said.
+
+### Dialogue
+
+- **A turn ends when the LLM calls a tool without a word**, which fits Qwen writing its words and
+  its calls in one message: asked again, it made up an event and said it. A model that calls
+  first and speaks after would gesture and say nothing. To measure against the LLM before
+  changing: one more round only when a person spoke and nothing was said.
+- **A line said while the robot spoke is told "that reply already answered it"**, written for
+  "Someone's coming" as the robot greets the newcomer. A real question asked meanwhile is told
+  the same. It also compares the wall clock to the recognizer's times, so it fires more with a
+  slower recognizer. To measure: stating only the fact answered the same again 5 times in 10.
+- **Someone else's name is taken for the speaker's.** Asked their name, "Ben said you tell good
+  stories." was remembered as Ben every time, by the reply and by the check: the name was said,
+  so it passes.
+- **Stage directions are taken out by their asterisks**, with emphasis and "2 * 3" too, and not
+  "(waves)" or "[nods]", which other models write. With the greeting naming an animation the
+  robot has, the log tells whether any are still written.
+- **English is in the code**: the lines said without the LLM ("Stopping.", "Okay.", "I can talk
+  again."), Parakeet's English model, Kokoro's `en-us`, and a sentence splitter that knows no
+  Chinese or Japanese punctuation, so such a reply is said only once whole.
+- **A stop word is the whole utterance or nothing**: "please stop" goes to the LLM. It also
+  waits for the turn under way to end, the name check included, before the body stops.
+- **The history drops a message per message** once full, so the start of what the LLM server
+  has read changes every turn and it reads everything again: drop them by blocks.
+- **A reply cut at `max_tokens` in the middle of a call** comes back as invalid arguments, the
+  reason unread; and no request to the LLM times out.
+- **A call repeated in a turn ends it without a word**, right after the robot said it was
+  doing it.
+
+### Voice
+
+- **Barge-in is only armed when a turn starts.** A cough that opens a turn just before the
+  robot speaks leaves nobody able to interrupt that reply. It was also only tried in the
+  simulation, whose microphone hears nothing of the robot's voice: 0.8 and 400 ms are unproven
+  against an echo. And the robot counts as silent once its samples are handed to the sound
+  card, not once they are heard: late by 100 to 200 ms over Bluetooth or HDMI. A timeline of what
+  is played, with the output's latency, would serve all three.
+- **A one-word answer the robot just said is dropped as its echo** ("You." after "you"): text
+  cannot tell them apart, the timeline could.
+- **Speech is timed when it is processed**, not when it was captured, and the voice activity
+  and end-of-turn models run in the event loop: on a slower machine the frames queue up and the
+  times drift from the camera's and the array's, which are matched within 0.2 s.
+- **16 kHz, 512 samples and Kokoro's 24 kHz are opened as they are** on the device: Thor needs
+  an ALSA plug outside the repository for it. Resample in the microphone and take the rate from
+  the synthesizer.
+
+### Perception
+
+- **A recognized track is never checked again.** One swap as two people cross, or one wrong
+  match, keeps the wrong name for the track's life, denies the right person theirs, and
+  `remember` then stores it. Embed recognized tracks now and then, and drop a match that keeps
+  disagreeing.
+- **`min_face_height` is both how far to care and how small the models can read.** The Reachy
+  profile's 0.06 lets in faces of 43 pixels, with the thresholds of recognition, gaze and lips
+  unchanged: fine on rendered faces, unlikely on a real camera's. Separate a range, from the
+  intrinsics, from a smallest size per model.
+- **A new track dies on one missed detection** before it is announced: 15 in a row at 30 frames
+  a second, which a real face far away or in profile may never give. Loosening it makes ghosts:
+  to judge on real footage.
+- **Overlap, then distance, then embedding, each greedy.** After a long stall the distance gate
+  is wide, and a face that came during it can take the track of one that left. One cost, solved
+  once, on bearings rather than pixels.
+- **The camera's pose is only known for the robot's own camera with a head controller**, at the
+  frame's time as the simulation stamps it. A webcam on a moving head gets no compensation, and
+  no warning; a real camera's 50 to 100 ms of latency has no setting; and the robot's clock is
+  taken for this machine's.
+- **The fixed frame is the robot's base**, so a base that moves makes everyone move, and the
+  camera's travel is left out of the turn.
+- **Monocular depth is trusted for where to look**, then held back by two constants: a hand no
+  more than 0.6 m in front of its owner's face, in depth only and on the near side only, and a
+  point no nearer than 0.5 m. Aim by bearing, with depth for the parallax alone.
+- **A pinhole camera with guessed intrinsics**: no distortion, and the C920's and D455's are
+  from their datasheets, which every distance scales with. Thor has no depth at all, so nothing
+  is placed in 3D and the attention finds nobody.
+- **Two people of the same name are merged** by the face database, and a face is embedded
+  inside the lock the event loop takes to read the faces.
+
+### Attention and the head
+
+- **People are tracks in the image, forgotten after 2 s out of it.** With a narrower camera, or
+  people spread wide, looking at one makes another leave: disengaged, greeted again, and new to
+  the attention. Keep people in the base frame, and tell out of view from gone. It is the cause
+  of "someone unknown who leaves the view and comes back", above.
+- **The attention's `moving` adds up the path of raw 3D points**, so depth noise reads as speed
+  (1.7 cm of jitter a frame is 0.5 m/s) and half the frame rate halves it. The path is meant: a
+  hand waving in place goes nowhere. To tune on recordings, on bearings rather than depth.
+- **A raised hand is a pose, not an event**: a phone at the ear or a chin on a hand scores like
+  a wave, and takes the head back each time its habituation recovers.
+- **A pose the head cannot reach holds every axis**: someone close to a tabletop robot
+  saturates the pitch, and the yaw stops following too.
+- **The head controller's waking, recentring and holding are in `rva-app`, untested**, and it
+  wakes on the pose it sent, not the one measured.
+- **Three angles for eye contact** (12 and 18 degrees, 15, 20) in the vision, the interaction and
+  the attention, and a second, older attention in `rva-vision-faces` that picks whose hands are
+  fitted, apart from the one the head follows.
+- **A step of the head covers 0.1 s at most**, a constant: a robot that reports slower than 10
+  times a second would move slower than its limits.
+- **Whoever speaks draws the head three times as much in the Reachy profile only.** The default
+  profile's weight of 1 "often left the head on a listener", and was not changed.
+
+### Starting it all
+
+- **A robot in the profile means a simulation to `lune`**: it refuses to start if the robot's
+  topics exist, starts `lune-sim` and its scenario. The real Reachy Mini's bridge would be
+  refused. `rva-app` and the head controller also import `rva-robot-sim`, Genesis and all, for
+  the robot's description. Say in the profile whether the robot is simulated or there already,
+  and move the description out of the simulation's package.
+- **What `lune` starts is a list in the code**, the mock among it: probed at the body's address
+  and started at the VLA's, so a body slow to answer gets a mock on a real VLA's address. `lune`
+  does not handle SIGTERM either, and under systemd would leave the LLM server and the
+  simulation running.
+- **`cli.py` builds the perception four times**, a little differently each, and the voice and
+  text agents repeat each other.
