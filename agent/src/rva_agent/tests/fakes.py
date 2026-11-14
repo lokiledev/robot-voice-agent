@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Final, assert_never
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from rva_pydantic import RVABaseModel
 from rva_schemas.dialogue import (
     LlmOutput,
     Message,
@@ -33,11 +34,17 @@ from rva_vla_mock.runner import TaskRunner
 
 
 class ScriptedLanguageModel:
-    """Answers each call with the next scripted turn and keeps the messages it was given."""
+    """Answers each call with the next scripted turn and keeps the messages it was given.
+
+    Questions are answered with the next of `answers`, as JSON, and with an empty answer, every
+    field null, once there are none left.
+    """
 
     def __init__(self, turns: Sequence[Sequence[LlmOutput]]) -> None:
         self._turns: Final = list(turns)
         self.requests: Final[list[tuple[Message, ...]]] = []
+        self.answers: Final[list[str]] = []
+        self.questions: Final[list[tuple[Message, ...]]] = []
 
     async def stream(
         self, messages: Sequence[Message], tools: Sequence[ToolSpec]
@@ -47,6 +54,14 @@ class ScriptedLanguageModel:
             raise AssertionError(f"Unexpected LLM call after: {messages[-1]!r}")
         for output in self._turns.pop(0):
             yield output
+
+    async def answer[Answer: RVABaseModel](
+        self, messages: Sequence[Message], tools: Sequence[ToolSpec], form: type[Answer]
+    ) -> Answer:
+        self.questions.append(tuple(messages))
+        if self.answers:
+            return form.model_validate_json(self.answers.pop(0))
+        return form.model_validate(dict.fromkeys(form.model_fields))
 
 
 class QueueUserInput:

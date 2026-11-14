@@ -85,6 +85,29 @@ class OpenAiLanguageModel:
             call_id, name, arguments = calls[index]
             yield ToolCall(id=call_id, name=name, arguments="".join(arguments))
 
+    async def answer[Answer: RVABaseModel](
+        self, messages: Sequence[Message], tools: Sequence[ToolSpec], form: type[Answer]
+    ) -> Answer:
+        response = await self._client.chat.completions.create(
+            model=self._config.model,
+            messages=[_to_openai(message) for message in messages],
+            tools=[_tool_to_openai(tool) for tool in tools],
+            tool_choice="none",
+            # A fact, not a line of dialogue: the likeliest answer, the same every time.
+            temperature=0.0,
+            max_tokens=self._config.max_tokens,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": form.__name__,
+                    "schema": form.model_json_schema(),
+                    "strict": True,
+                },
+            },
+            extra_body={"chat_template_kwargs": self._config.chat_template_kwargs},
+        )
+        return form.model_validate_json(response.choices[0].message.content or "")
+
 
 def _to_openai(message: Message) -> ChatCompletionMessageParam:
     match message:

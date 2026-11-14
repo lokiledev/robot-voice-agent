@@ -16,6 +16,7 @@ from rva_agent.tests.fakes import (
     idle_body,
     person,
 )
+from rva_pydantic import RVABaseModel
 from rva_schemas.abc.llm import LanguageModel
 from rva_schemas.dialogue import (
     AssistantMessage,
@@ -319,6 +320,7 @@ async def test_a_name_told_with_a_question_is_remembered_though_the_question_cut
 ):
     llm = ScriptedLanguageModel(
         [
+            # The reply to the name, talked over by the question: its calls are never written.
             [
                 TextDelta(text="Nice to meet you, Ben. Let me think of a story."),
                 ToolCall(
@@ -329,47 +331,8 @@ async def test_a_name_told_with_a_question_is_remembered_though_the_question_cut
             [TextDelta(text="Once upon a time.")],
         ]
     )
-    vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
-    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=1), ListRecorder()
-    user.say("And I'm Ben,")
-    user.say("can you tell us a story?")
-    user.leave()
-
-    await _agent(
-        llm,
-        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
-        user,
-        speech,
-        recorder,
-        vision,
-        None,
-    ).run()
-
-    remember = ToolCall(
-        id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Ben"}'
-    )
-    assert llm.requests[1][-3] == AssistantMessage(
-        content="Nice to meet you, Ben.", tool_calls=(remember,)
-    )
-    assert [entry.name for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
-        "remember_person"
-    ]
-    assert vision.faces()[0].person == person("Ben")
-
-
-async def test_a_name_the_reply_skipped_is_remembered_by_a_check_nobody_hears() -> None:
-    remember = ToolCall(
-        id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Ben"}'
-    )
-    llm = ScriptedLanguageModel(
-        [
-            # The reply to the name, talked over by the question, without remember_person.
-            [TextDelta(text="Hi there. Welcome.")],
-            # The check, after it: the name was told. Its words are not said.
-            [TextDelta(text="Remembering Ben."), remember],
-            [TextDelta(text="Once upon a time.")],
-        ]
-    )
+    # The check, after the reply: the name was told.
+    llm.answers.append('{"name": "Ben"}')
     vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=1), ListRecorder()
     user.say("And I'm Ben,")
@@ -387,28 +350,33 @@ async def test_a_name_the_reply_skipped_is_remembered_by_a_check_nobody_hears() 
     ).run()
 
     check = RobotEventMessage(
-        content="Did the unknown person on track 9 just tell you their name? If they did, call"
-        " remember_person with it now. If they did not, call nothing. Answer with no words:"
-        " nobody hears this."
+        content="Did the unknown person on track 9 just say what their own name is? Answer with"
+        " their name as they said it, or null if they did not say their name. A place, a feeling"
+        " or someone else's name is not their name. Nobody hears this."
     )
-    assert llm.requests[1][-1] == check
-    # Then the result of remember_person, and the question.
-    assert llm.requests[2][-6:-2] == (
-        UserMessage(content="[unknown person, track 9] And I'm Ben,"),
-        AssistantMessage(content="Hi there.", tool_calls=()),
-        check,
-        AssistantMessage(content="", tool_calls=(remember,)),
-    )
-    # Ben, known by then, is not checked again.
-    assert len(llm.requests) == 3
-    assert speech.said == ["Hi there.", "Once upon a time."]
+    assert llm.questions == [
+        (
+            *llm.requests[0],
+            AssistantMessage(content="Nice to meet you, Ben.", tool_calls=()),
+            check,
+        )
+    ]
+    # Then the call made for the answer and its result, and the question.
+    remembered = llm.requests[1][-3]
+    assert isinstance(remembered, AssistantMessage)
+    assert llm.requests[1][-4] == check
+    assert [(call.name, call.arguments) for call in remembered.tool_calls] == [
+        ("remember_person", '{"track_id": 9, "name": "Ben"}')
+    ]
+    assert [entry.name for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
+        "remember_person"
+    ]
+    assert speech.said == ["Nice to meet you, Ben.", "Once upon a time."]
     assert vision.faces()[0].person == person("Ben")
 
 
 async def test_a_check_that_finds_no_name_leaves_nothing_in_the_history() -> None:
-    llm = ScriptedLanguageModel(
-        [[TextDelta(text="Hi.")], [], [TextDelta(text="It is noon.")], [TextDelta(text="No.")]]
-    )
+    llm = ScriptedLanguageModel([[TextDelta(text="Hi.")], [TextDelta(text="It is noon.")]])
     vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = asyncio.create_task(
@@ -429,7 +397,8 @@ async def test_a_check_that_finds_no_name_leaves_nothing_in_the_history() -> Non
     user.leave()
     await running
 
-    assert llm.requests[2][1:] == (
+    assert len(llm.questions) == 2
+    assert llm.requests[1][1:] == (
         UserMessage(content="[unknown person, track 9] Hello?"),
         AssistantMessage(content="Hi.", tool_calls=()),
         UserMessage(content="[unknown person, track 9] What time is it?"),
@@ -439,11 +408,9 @@ async def test_a_check_that_finds_no_name_leaves_nothing_in_the_history() -> Non
 
 
 async def test_a_name_the_check_makes_up_is_not_remembered() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Who?")]])
     # Asked, the LLM gave its prompt's example name for someone who never said theirs.
-    made_up = ToolCall(
-        id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Alice"}'
-    )
-    llm = ScriptedLanguageModel([[TextDelta(text="Who?")], [made_up]])
+    llm.answers.append('{"name": "Alice"}')
     vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     user.say("Someone's coming.")
@@ -461,6 +428,48 @@ async def test_a_name_the_check_makes_up_is_not_remembered() -> None:
 
     assert vision.faces()[0].person is None
     assert not any(isinstance(entry, ToolInvocation) for entry in recorder.entries)
+
+
+async def test_a_name_nobody_said_is_not_remembered_by_the_reply_either() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            # The LLM takes its own word for the person as their name.
+            [
+                TextDelta(text="Nice to meet you!"),
+                ToolCall(
+                    id="call_1",
+                    name="remember_person",
+                    arguments='{"track_id": 9, "name": "unknown person"}',
+                ),
+            ],
+            [TextDelta(text="What is your name?")],
+        ]
+    )
+    vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("I'm from Paris.")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        vision,
+        None,
+    ).run()
+
+    assert vision.faces()[0].person is None
+    assert [entry for entry in recorder.entries if isinstance(entry, ToolInvocation)] == [
+        ToolInvocation(
+            name="remember_person",
+            arguments='{"track_id": 9, "name": "unknown person"}',
+            result='{"error": "Nobody told you the name unknown person. Never guess a name: ask'
+            ' them theirs, if you have not yet."}',
+        )
+    ]
+    assert speech.said == ["Nice to meet you!", "What is your name?"]
 
 
 async def test_no_check_for_someone_remembered_while_their_line_was_heard() -> None:
@@ -640,8 +649,7 @@ async def test_a_quick_return_is_not_greeted_again() -> None:
 
 
 async def test_what_is_not_said_to_the_robot_is_not_heard() -> None:
-    # The second turn: whether the unknown person told their name; they did not.
-    llm = ScriptedLanguageModel([[TextDelta(text="It is noon.")], []])
+    llm = ScriptedLanguageModel([[TextDelta(text="It is noon.")]])
     user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
     running = _running(llm, user, speech, recorder, FakeVision([]), FakeEngagement([]))
 
@@ -1003,6 +1011,11 @@ async def test_what_is_said_does_not_wait_for_the_tool_calls_that_follow_it() ->
             # The call is only written once the sentence is heard.
             await heard.wait()
             yield START_PICK_CUP
+
+        async def answer[Answer: RVABaseModel](
+            self, messages: Sequence[Message], tools: Sequence[ToolSpec], form: type[Answer]
+        ) -> Answer:
+            raise AssertionError("no question is asked without a camera")
 
     user, recorder = QueueUserInput(), ListRecorder()
     user.say("Grab the red cup please.")

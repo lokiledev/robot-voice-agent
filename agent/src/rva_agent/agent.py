@@ -2,11 +2,13 @@ import asyncio
 import json
 import re
 import time
+import unicodedata
+from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import aclosing, asynccontextmanager
 from datetime import UTC, datetime
 from typing import Final, Never, assert_never
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from loguru import logger
 from opentelemetry import trace
@@ -22,6 +24,7 @@ from rva_agent.tasks import TaskSupervisor
 from rva_agent.tools import TaskTools, ToolResult
 from rva_body_schemas.abc.client import BodyClient
 from rva_body_schemas.motion import GoToHuman, GoToLocation, Motion, PlayAnimation, describe
+from rva_pydantic import RVABaseModel
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.engagement import Engagement
 from rva_schemas.abc.llm import LanguageModel
@@ -58,19 +61,17 @@ from rva_vla_schemas.task import Task, TaskCancelled, TaskFailed, TaskRunning, T
 
 _tracer: Final = trace.get_tracer("rva_agent")
 _PUNCTUATION: Final = re.compile(r"[^\w\s]")
+_WORD: Final = re.compile(r"\w+")
 # Told with each failure: deep in a long conversation, the LLM otherwise reports some of them from
 # the outside ("the task to gather the cables failed") despite its instructions.
 _OWN_FAILURE: Final = ' Say it as your own failure, like "I couldn\'t ..."; never call it a task.'
-# What the LLM made of what it was told, which stands when its reply is talked over: a name given
-# in a breath with a question ("I'm Ben, can you tell us a story?") is cut off by the question.
-# They move nothing, unlike the body's tools, which are dropped with the reply.
-_KEPT_WHEN_TALKED_OVER: Final = frozenset({"remember_person", "rename_person"})
 # Asked, unheard, after a turn of someone unknown in which nothing was remembered: Qwen skips the
-# call now and then, most of all when a question comes with the name, and the name is then lost.
+# call about once in ten, and a reply talked over never gets to it, as when a question comes in
+# a breath with the name ("I'm Ben, can you tell us a story?").
 _NAME_CHECK: Final = (
-    "Did the unknown person on track {track_id} just tell you their name? If they did, call"
-    " remember_person with it now. If they did not, call nothing. Answer with no words: nobody"
-    " hears this."
+    "Did the unknown person on track {track_id} just say what their own name is? Answer with"
+    " their name as they said it, or null if they did not say their name. A place, a feeling or"
+    " someone else's name is not their name. Nobody hears this."
 )
 # Before a line said while the robot's reply to something else was on its way: such as "Someone's
 # coming" as it greets the newcomer, which Qwen answered with the same greeting 8 times in 10, and
@@ -83,6 +84,11 @@ _REPEATED: Final = ToolResult(
     content='{"error": "You just called this, and it was not run again. Do not call it again now."}',
     needs_reply=False,
 )
+
+
+class _NameTold(RVABaseModel):
+    name: str | None
+    """Their own name, as they said it; `None` when they did not say it."""
 
 
 class Agent:
@@ -158,6 +164,8 @@ class Agent:
         self._cut_short_person: UUID | None = None
         # When the robot last stopped saying words out loud, on the utterances' clock.
         self._said_until: datetime | None = None
+        # What was said to the robot lately, as heard: a name it remembers is one of these words.
+        self._heard: Final = deque[str](maxlen=config.max_history_messages)
 
     async def warm_up(self) -> None:
         """Have the LLM read the system prompt and the tools ahead of the first turn.
@@ -253,6 +261,7 @@ class Agent:
         listener = speaker.track_id if isinstance(speaker, SeenSpeaking) else None
         if listener is not None:
             self._greeted.add(listener)
+        self._heard.append(utterance.text)
         self._recorder.record(
             UserLine(text=utterance.text, speaker=_speaker(speaker, self._permission))
         )
@@ -274,7 +283,7 @@ class Agent:
         if (
             isinstance(speaker, SeenSpeaking)
             and self._unknown_in_view(speaker.track_id)
-            and not any(name in _KEPT_WHEN_TALKED_OVER for name, _ in called)
+            and not any(name == "remember_person" for name, _ in called)
         ):
             await self._remember_if_named(speaker.track_id, utterance.text, called)
 
@@ -450,22 +459,16 @@ class Agent:
                     spoken = await (
                         _silently(sentences) if muted else self._say(sentences, keep_going)
                     )
-                    if spoken.end == "talked_over":
-                        # The round goes on unheard, for the tool calls written after the words.
-                        async for _ in chunks:
-                            pass
             if muted:
                 # Nothing was heard, so nothing was said.
                 text.clear()
             match spoken.end:
                 case "talked_over":
-                    # Keep what the user heard, drop the rest and any action, but not a name.
-                    kept = tuple(call for call in tool_calls if call.name in _KEPT_WHEN_TALKED_OVER)
+                    # Keep what the user heard, drop the rest and any action: the reply stops
+                    # being written there. A name it would have remembered is checked for after.
                     self._add_robot_message(
-                        AssistantMessage(content=spoken.text, tool_calls=kept), interrupted=True
+                        AssistantMessage(content=spoken.text, tool_calls=()), interrupted=True
                     )
-                    for call in kept:
-                        await self._run_tool(call, called)
                     return called
                 case "cut_short":
                     self._add_robot_message(
@@ -517,40 +520,36 @@ class Agent:
     ) -> None:
         """Ask the LLM, unheard, whether the unknown person on `track_id` told their name.
 
-        Only remember_person is offered, and only its calls with a name found in `said` are run:
+        It can only answer with a name or none, and only a name found in `said` is remembered:
         asked, the LLM sometimes makes a name up, such as its prompt's example. The question and
-        the answer join the history only when a name was remembered.
+        the answer join the history only when a name was remembered, as a call to
+        remember_person.
 
         Args:
             track_id: Whoever just spoke, unknown.
             said: What they said.
-            called: The calls of this turn so far; those made here join them.
+            called: The calls of this turn so far; the one made here joins them.
         """
         check = RobotEventMessage(content=_NAME_CHECK.format(track_id=track_id))
-        specs = tuple(spec for spec in self._tool_specs if spec.name == "remember_person")
         with _tracer.start_as_current_span("llm:name_check"):
-            calls = tuple(
-                [
-                    output
-                    async for output in self._llm.stream((*self._history.messages, check), specs)
-                    if isinstance(output, ToolCall) and output.name == "remember_person"
-                ]
+            told = await self._llm.answer(
+                (*self._history.messages, check), self._tool_specs, _NameTold
             )
-        told = tuple(
-            call
-            for call in calls
-            if (name := _name_given(call)) is not None and _mentions(said, frozenset({name}))
-        )
-        if told != calls:
-            logger.warning("The name check made up a name not in {!r}: {}", said, calls)
-        logger.info("Checked whether track {} told their name: {}", track_id, told or "no")
-        if not told:
+        name = told.name
+        if name is not None and not _names(said, name):
+            logger.warning("The name check made up a name not in {!r}: {}", said, name)
+            name = None
+        logger.info("Checked whether track {} told their name: {}", track_id, name or "no")
+        if name is None:
             return
-        calls = told
+        call = ToolCall(
+            id=f"name_check_{uuid4().hex[:8]}",
+            name="remember_person",
+            arguments=json.dumps({"track_id": track_id, "name": name}),
+        )
         self._history.append(check)
-        self._history.append(AssistantMessage(content="", tool_calls=calls))
-        for call in calls:
-            await self._run_tool(call, called)
+        self._history.append(AssistantMessage(content="", tool_calls=(call,)))
+        await self._run_tool(call, called)
 
     async def _run_tool(self, call: ToolCall, called: set[tuple[str, str]]) -> ToolResult:
         """Run a call of this turn, recorded with its result, which goes into the history.
@@ -585,6 +584,23 @@ class Agent:
             # One of the tools this robot's body does not have, or none at all.
             return ToolResult(
                 content=json.dumps({"error": f"There is no tool named {call.name}."}),
+                needs_reply=True,
+            )
+        if (
+            call.name == "remember_person"
+            and (name := _name_given(call)) is not None
+            and not any(_names(heard, name) for heard in self._heard)
+        ):
+            # The LLM now and then remembers someone under a name of its own: its prompt's
+            # example, or "unknown person". The first person a fresh robot knows is an operator.
+            logger.warning("Not remembered, a name nobody said: {}", name)
+            return ToolResult(
+                content=json.dumps(
+                    {
+                        "error": f"Nobody told you the name {name}. Never guess a name: ask"
+                        " them theirs, if you have not yet."
+                    }
+                ),
                 needs_reply=True,
             )
         if self._people is not None and call.name in PeopleTools.names:
@@ -765,6 +781,30 @@ def _name_given(call: ToolCall) -> str | None:
         return None
     name = arguments.get("name") if isinstance(arguments, dict) else None
     return name if isinstance(name, str) else None
+
+
+def _names(text: str, name: str) -> bool:
+    """Whether `name` is among the words of `text`, however each is spaced, hyphenated or accented.
+
+    "Jean-Luc" is in "my name is jean luc", and "Chloe" in "I'm Chloé"; "Ben" is not in "bench".
+    """
+    wanted = "".join(_words(name))
+    words = _words(text)
+    return bool(wanted) and any(
+        "".join(words[first:last]) == wanted
+        for first in range(len(words))
+        for last in range(first + 1, len(words) + 1)
+    )
+
+
+def _words(text: str) -> list[str]:
+    """The words of `text`, without case, accents or punctuation."""
+    plain = "".join(
+        letter
+        for letter in unicodedata.normalize("NFKD", text.casefold())
+        if not unicodedata.combining(letter)
+    )
+    return [match.group() for match in _WORD.finditer(plain)]
 
 
 def _normalized(text: str) -> str:

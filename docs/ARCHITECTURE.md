@@ -174,19 +174,27 @@ flowchart TB
 - **Speaking early.** LLM tokens are cut into sentences, and each goes to Kokoro as soon as it is
   complete while the previous one plays.
 - **Barge-in.** Speech while Lune talks stops the playback, and the history keeps only what was
-  heard. The reply's actions are dropped, but not the names it took in: the LLM's round goes on
-  unheard to its end, and `remember_person` and `rename_person` still run. Someone who gives
-  their name and asks a question in one breath ("I'm Ben, can you tell us a story?") makes two
-  turns, at the pause, and the question talks over the reply to the name; in the simulation, the
-  robot never remembered Ben until then.
-- **A name the LLM skipped.** Qwen still leaves out `remember_person` now and then, most of all
-  when a question comes with the name. So after a turn of someone unknown in view in which no
-  name was taken, one more round asks it, unheard, whether they told their name, with only
-  `remember_person` to call, and only a name found in what they said is remembered: asked, the
-  LLM once gave Mia the name Alice, its prompt's example, when she had not said hers. The
-  question and its answer join the history only when a name was remembered. Replaying the `newcomer` conversation up to Ben's line ten times, he was remembered
-  9 times without the check and 10 with it, his line cut in two as it was; 6 and 10 said in one
-  piece. The check costs one LLM round after each turn of an unknown person, before the next.
+  heard. The reply stops being written there, and the actions it would have called are dropped.
+  Someone who gives their name and asks a question in one breath ("I'm Ben, can you tell us a
+  story?") makes two turns, at the pause, and the question talks over the reply to the name: the
+  name is then taken by the check below.
+- **A name the LLM skipped.** Qwen leaves out `remember_person` about once in ten, and a reply
+  talked over never gets to it. So after a turn of someone unknown in view in which no name was
+  taken, the LLM is asked, unheard, whether they said their own name, and can only answer with a
+  name or none: its answer is held to that form by the server's grammar
+  (`LanguageModel.answer`), so there is no reply to pick a name out of. The question comes after
+  the conversation and with its tools, so that the server has only the question left to read:
+  about 0.5 s, against 1.5 s asked on its own. The question and its answer join the history only
+  when a name was remembered, as a call to `remember_person`.
+- **A name nobody said.** Asked, or on its own, the LLM sometimes gives a name of its making: its
+  prompt's example, or "unknown person". A name is remembered only when it is among the words
+  said to the robot, however it is spaced, hyphenated or accented, on both paths: the check's
+  answer must be in what the person just said, and a `remember_person` of the reply in what was
+  said lately, or it is refused with a word to ask instead. It matters most on a fresh robot,
+  where the first person remembered becomes an operator. Someone else's name passes: on 21 lines
+  said to the real LLM three times each, "Ben said you tell good stories." was remembered as Ben
+  every time, by the reply and by the check; the other 20 lines came out right 58 and 59 times
+  in 60.
 - **Not interrupting itself.** With speakers, three layers keep Lune from hearing its own voice:
   the echo canceller subtracts what it plays from the microphone, a barge-in needs clearer and
   longer speech while it talks, and a transcript repeating what it said in the last 2 s is

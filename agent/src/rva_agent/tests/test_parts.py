@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 
+from rva_agent.agent import _names
 from rva_agent.history import History
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
@@ -137,3 +138,12 @@ async def test_people_tools_list_who_is_here_and_report_mistakes() -> None:
 def test_system_prompt_explains_people_only_with_a_camera() -> None:
     assert "# People around you" in render_system_prompt(PROFILE, vision=True)
     assert "# People around you" not in render_system_prompt(PROFILE, vision=False)
+
+
+def test_a_name_is_found_among_the_words_said_however_it_is_written() -> None:
+    assert _names("My name is jean luc.", "Jean-Luc")
+    assert _names("I'm Chloé, hi!", "Chloe")
+    assert _names("It's O'Brien", "OBrien")
+    assert not _names("Sit on the bench.", "Ben")
+    assert not _names("I'm from Paris.", "unknown person")
+    assert not _names("Hello.", "")
