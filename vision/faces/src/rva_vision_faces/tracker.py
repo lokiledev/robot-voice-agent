@@ -47,7 +47,8 @@ class Tracker:
     """Follows faces from frame to frame and says when they appear and leave.
 
     Detections continue a track when they overlap its last box, or else when their centre is
-    close to it for the face's size: a small face far away overlaps little after a quick turn.
+    close to it for the face's size and the time since the last frame: a small face far away
+    overlaps little after a quick turn.
     With the camera's own turn since the last frame, each last box is first moved by it, so the
     head's motion does not tear the tracks. A
     detection that neither overlaps nor is close to any is compared by embedding with the tracks
@@ -64,6 +65,7 @@ class Tracker:
         self._tracks: Final[list[Track]] = []
         self._next_id = 1
         self._seen_now: set[int] = set()
+        self._updated_at: float | None = None
 
     @property
     def tracks(self) -> tuple[Track, ...]:
@@ -91,8 +93,10 @@ class Tracker:
         if turn is not None:
             for track in self._tracks:
                 track.expected = _moved(track.expected, turn)
+        elapsed = 0.0 if self._updated_at is None else now - self._updated_at
+        self._updated_at = now
         matched = self._match_by_overlap(detections)
-        matched |= self._match_by_distance(detections, matched)
+        matched |= self._match_by_distance(detections, matched, self._config.max_speed * elapsed)
         sampled: list[Track] = []
         for index, detection in enumerate(detections):
             if index in matched:
@@ -166,9 +170,16 @@ class Tracker:
         return matched
 
     def _match_by_distance(
-        self, detections: Sequence[Detection], matched: dict[int, Track]
+        self, detections: Sequence[Detection], matched: dict[int, Track], max_shift: float
     ) -> dict[int, Track]:
-        """The detections left, each with the closest track left within `max_shift` of it."""
+        """The detections left, each with the closest track left within `max_shift` of it.
+
+        Args:
+            detections: Of this frame.
+            matched: Those that overlap a track, which are left out with their tracks.
+            max_shift: How far a face's centre may have moved since the last frame, in its
+                heights.
+        """
         taken = set(matched.values())
         pairs = sorted(
             (
@@ -182,7 +193,7 @@ class Tracker:
         )
         found: dict[int, Track] = {}
         for shift, index, track in pairs:
-            if shift > self._config.max_shift:
+            if shift > max_shift:
                 break
             if index not in found and track not in found.values():
                 found[index] = track

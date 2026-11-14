@@ -37,7 +37,7 @@ MATCHING = MatchConfig(threshold=0.363, margin=0.05)
 TRACKING = TrackerConfig(
     min_face_height=0.12,
     iou_threshold=0.3,
-    max_shift=0.75,
+    max_speed=7.5,
     reid_threshold=0.5,
     confirm_after_s=0.5,
     leave_after_s=3.0,
@@ -256,7 +256,7 @@ def test_tracker_keeps_the_track_of_a_face_that_moved_less_than_its_height() -> 
     tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
     tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None)
 
-    # Turning, it moved 60 pixels, half its height: an overlap of 0.25, and it no longer looks
+    # Turning, it moved 60 pixels in 0.1 s, 5 heights per second: an overlap of 0.25, and it no longer looks
     # the same to the embedder.
     events = tracker.update(0.7, [_detection(160, 0.05)], _embed_by_score, gallery, None)
 
@@ -270,10 +270,22 @@ def test_tracker_starts_a_new_track_for_a_face_farther_than_its_shift() -> None:
     tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
     tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None)
 
-    # 100 pixels away, 0.83 of a height, and a face of its own.
+    # 100 pixels away in 0.1 s, 8.3 heights per second, and a face of its own.
     tracker.update(0.7, [_detection(200, 0.05)], _embed_by_score, gallery, None)
 
     assert [track.track_id for track in tracker.tracks] == [1, 2]
+
+
+def test_tracker_keeps_a_track_at_the_same_speed_whatever_the_frame_rate() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([], MATCHING)
+    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
+    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None)
+
+    # The same 100 pixels over two frames' time, 4.2 heights per second: a frame was skipped.
+    tracker.update(0.8, [_detection(200, 0.05)], _embed_by_score, gallery, None)
+
+    assert [(track.track_id, track.box.x) for track in tracker.tracks] == [(1, 200.0)]
 
 
 def test_tracker_moves_its_tracks_with_the_image_as_the_camera_turns() -> None:

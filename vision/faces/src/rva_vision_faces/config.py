@@ -79,9 +79,10 @@ class TrackerConfig(RVABaseModel):
     """Smaller faces, as a fraction of the frame height, are ignored: they are too far away."""
     iou_threshold: float = Field(gt=0, lt=1)
     """Overlap needed to continue a track from one frame to the next."""
-    max_shift: float = Field(gt=0)
-    """How far a face's centre may move from one frame to the next, in heights of the face, and
-    still continue its track when its boxes overlap too little: a small face turning fast."""
+    max_speed: float = Field(gt=0)
+    """How fast a face's centre may move, in heights of the face per second, and still continue
+    its track when its boxes overlap too little: a small face turning fast. Per second, so the
+    same move continues the track at any frame rate."""
     reid_threshold: float = Field(gt=-1, lt=1)
     """Cosine similarity needed to give a new detection the identity of a track that lost sight of
     its face."""

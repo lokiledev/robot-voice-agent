@@ -88,9 +88,10 @@ vision:
     min_face_height: 0.06
     iou_threshold: 0.3
     # A face that overlaps its last box too little, a small one turning fast, still keeps its
-    # track within this many of its heights: in the simulation, Ben's 53-pixel face moved 25 in
-    # a frame as he turned to the robot.
-    max_shift: 0.75
+    # track when it moved no faster than this many of its heights per second, 0.75 of a height
+    # between two frames at 30 a second: in the simulation, Ben's 53-pixel face moved 25 in a
+    # frame as he turned to the robot.
+    max_speed: 22.5
     reid_threshold: 0.5
     confirm_after_s: 0.5
     leave_after_s: 2.0
