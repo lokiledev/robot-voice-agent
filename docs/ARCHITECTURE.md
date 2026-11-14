@@ -634,6 +634,12 @@ targets.
   Genesis' path tracer, in about 4 ms at 1280×720, only when a frame is due. Nyx drives the GPU
   through torch, which is why the workspace has torch's CUDA build. Genesis' rasterizer
   (`kind: rasterizer` in `sim.yaml`) needs no ray-tracing GPU, for the tests and other machines.
+- **The simulation's clock.** Whatever the simulation publishes, joint states, frames and
+  directions, is stamped with the moment on the monotonic clock its step is due, the start plus
+  the simulated time, which real time then catches up with. So the stamps carry the simulation's
+  time without the loop's jitter, and what runs on them keeps its pace; while it keeps up, they
+  are real time, as a robot's clock is. Falling behind by more than 0.1 s, it gives up catching
+  up, and the stamps jump by the lag.
 - **Servos as Dynamixels, not ideal actuators.** The MJCF drives every joint with an ideal
   position actuator of 20 N m, which snapped the head to each command, and gives the platform's
   passive ball joints an actuator's damping and friction. The simulation drives each actuated
@@ -710,8 +716,10 @@ The head controller puts the head where it is told. `HeadController` is the cont
 target in and the joints' targets out, keeping the body's yaw it last commanded; it does no input
 or output, so it could run inside the simulation's loop. For now `lune head` runs it in a process
 of its own: it takes head poses from the `head_target` mailbox of its kickmsg node, and gaze
-targets (below), which only set where the head heads for. A loop at 50 Hz, as Pollen's daemon
-writes the motors' goals, moves the pose it sends towards there (`HeadMotion`): each axis at a
+targets (below), which only set where the head heads for. Each joint state the robot sends moves
+the pose it sends one step towards there (`HeadMotion`), over the time since the last state on
+the robot's clock: the controller runs at the robot's pace, 100 Hz in the simulation, slows
+down or pauses with it, and sends nothing once it stops. Each axis moves at a
 speed that falls as it nears its goal, within 120 degrees/s, changing by 600 degrees/s² at
 most, about what Pollen's default half-second minimum-jerk moves reach. So the head starts and
 stops smoothly however the targets jump: a camera turning as fast as the servos can loses the

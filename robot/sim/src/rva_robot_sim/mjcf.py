@@ -27,11 +27,14 @@ class CameraMount(RVABaseModel):
 class RobotFacts(RVABaseModel):
     actuated: tuple[str, ...]
     """The joints with an actuator, in the MJCF's order."""
+    ranges: dict[str, tuple[float, float]]
+    """Of the actuated joints that have one, in radians, lowest first: those that turn any way
+    round, as the antennas, are left out."""
     head_camera: CameraMount
 
 
 def read_facts(mjcf: Path) -> RobotFacts:
-    """The actuated joints and the head camera of the robot described in `mjcf`.
+    """The actuated joints, their ranges and the head camera of the robot described in `mjcf`.
 
     Raises:
         ValueError: If the MJCF has no head camera, or places it in a way this reader does not
@@ -40,7 +43,17 @@ def read_facts(mjcf: Path) -> RobotFacts:
     """
     root = ET.parse(mjcf).getroot()
     actuated = tuple(position.attrib["joint"] for position in root.iterfind("actuator/position"))
-    return RobotFacts(actuated=actuated, head_camera=_head_camera(root))
+    ranges = {
+        joint.attrib["name"]: _range(joint.attrib["range"])
+        for joint in root.iter("joint")
+        if joint.get("name") in actuated and "range" in joint.attrib
+    }
+    return RobotFacts(actuated=actuated, ranges=ranges, head_camera=_head_camera(root))
+
+
+def _range(text: str) -> tuple[float, float]:
+    lowest, highest = (float(value) for value in text.split())
+    return lowest, highest
 
 
 def _head_camera(root: ET.Element) -> CameraMount:

@@ -10,6 +10,10 @@ MJCF = """
   <worldbody>
     <camera name="studio_close" pos="0.8 -0.2 0.4"/>
     <body name="body_foot_3dprint">
+      <joint name="yaw_body" type="hinge" range="-2.7925 2.7925"/>
+      <joint name="stewart_1" type="hinge" range="-0.8378 1.3963"/>
+      <joint name="passive_1" type="ball"/>
+      <joint name="left_antenna" type="hinge"/>
       <body name="xl_330" pos="-0.085 0 0" quat="0 1 0 0">
         <body pos="-0.03 -0.05 0.002" quat="0.5 -0.5 0.5 0.5">
           <camera name="eye_camera" mode="fixed" resolution="1280 720" fovy="80"/>
@@ -26,12 +30,14 @@ MJCF = """
 """
 
 
-def test_reads_the_actuated_joints_and_the_head_camera(tmp_path: Path) -> None:
+def test_reads_the_actuated_joints_their_ranges_and_the_head_camera(tmp_path: Path) -> None:
     path = tmp_path / "reachy_mini.xml"
     path.write_text(MJCF)
 
     assert read_facts(path) == RobotFacts(
         actuated=("yaw_body", "stewart_1", "left_antenna"),
+        # The antenna turns any way round.
+        ranges={"yaw_body": (-2.7925, 2.7925), "stewart_1": (-0.8378, 1.3963)},
         head_camera=CameraMount(
             body="xl_330",
             position=(-0.03, -0.05, 0.002),

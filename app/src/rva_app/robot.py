@@ -25,7 +25,7 @@ _PANEL_WIDTH: Final = 420
 """Room for the sliders, their labels and the measured positions."""
 _MARGIN: Final = 40
 _RANGE_DEG: Final = 180.0
-"""Each slider's reach either way; the robot clamps targets to the joint's own range."""
+"""The reach either way of the slider of a joint with no range, which turns any way round."""
 _LIFT: Final = {f"stewart_{motor}": 1.0 if motor % 2 else -1.0 for motor in range(1, 7)}
 """Odd and even motors of Reachy Mini's Stewart platform turn in opposite senses to lift the head
 without tilting it."""
@@ -52,11 +52,12 @@ class _Edits(RVABaseModel):
     """Where to put the head, if its sliders moved."""
 
 
-async def drive_robot(config: RobotClientConfig) -> None:
+async def drive_robot(config: RobotClientConfig, ranges: Mapping[str, tuple[float, float]]) -> None:
     """Show the head camera and the joints, and send the targets set with the sliders.
 
     Joint targets go to the robot, head poses to the head controller, `lune head`, if it runs.
-    Runs until the window is closed.
+    Each joint's slider stays within its range in `ranges`, in radians, as the robot's description
+    gives it. Runs until the window is closed.
     """
     async with (
         open_robot(config, "lune_robot") as robot,
@@ -67,7 +68,7 @@ async def drive_robot(config: RobotClientConfig) -> None:
         # Dear PyGui is driven from one thread, which opens, draws and closes its window.
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="robot-window") as thread:
             loop = asyncio.get_running_loop()
-            window = await loop.run_in_executor(thread, _RobotWindow, driver.targets)
+            window = await loop.run_in_executor(thread, _RobotWindow, driver.targets, ranges)
             try:
                 async with asyncio.TaskGroup() as group:
                     following = group.create_task(driver.follow(states))
@@ -123,7 +124,10 @@ class _RobotWindow:
     Lives in the thread that creates it, which also shows the frames and closes it.
     """
 
-    def __init__(self, targets: Mapping[str, float]) -> None:
+    def __init__(
+        self, targets: Mapping[str, float], ranges: Mapping[str, tuple[float, float]]
+    ) -> None:
+        """Open the window, a slider per joint of `targets` within its range of `ranges`."""
         self._image: Final = np.zeros((_IMAGE_SIZE[1], _IMAGE_SIZE[0], 3), np.float32)
         self._changed: dict[str, float] = {}
         """Targets set since the last frame, in radians."""
@@ -145,12 +149,17 @@ class _RobotWindow:
                 with dpg.group():
                     dpg.add_text("Targets, in degrees; measured on the right")
                     for name, position in targets.items():
+                        lowest, highest = (
+                            (math.degrees(end) for end in ranges[name])
+                            if name in ranges
+                            else (-_RANGE_DEG, _RANGE_DEG)
+                        )
                         with dpg.group(horizontal=True):
                             self._sliders[name] = dpg.add_slider_float(
                                 label=name,
                                 default_value=math.degrees(position),
-                                min_value=-_RANGE_DEG,
-                                max_value=_RANGE_DEG,
+                                min_value=lowest,
+                                max_value=highest,
                                 width=_SLIDER_WIDTH,
                                 callback=self._on_slider,
                                 user_data=name,

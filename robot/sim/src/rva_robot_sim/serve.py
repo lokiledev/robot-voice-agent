@@ -17,9 +17,16 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
 
     Each step first applies the commands and moves the people as received since the last one, and
     starts the people's lines due by then. The people idle until a client starts the scenario,
-    from when their steps and lines count: the agent, once up, or `npc start`. States and frames are due on simulated time, so they
-    keep their rates on average whatever the physics step. A synchronous loop: the process does
-    nothing else, and Genesis steps on this thread; the room plays on its audio thread.
+    from when their steps and lines count: `lune`, once all is up, or `npc start`. States and
+    frames are due on simulated time, so they keep their rates on average whatever the physics
+    step. A synchronous loop: the process does nothing else, and Genesis steps on this thread; the
+    room plays on its audio thread.
+
+    Whatever it publishes is stamped with the simulation's clock: the moment on the monotonic
+    clock its step is due, which real time then catches up with. So a state, a frame or a
+    direction carries when it happened in the simulation, without the loop's jitter, and
+    clients that run on it, such as the head controller, keep pace with it; while it keeps up
+    with real time, it is real time, as a robot's clock is.
 
     Args:
         scene: The robot and the people.
@@ -66,16 +73,16 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
         simulated = step * config.physics_dt
         if begun is not None:
             room.speak(simulated - begun)
-        now = time.monotonic()
+        due = start + simulated
         if state_due.passed(simulated):
-            bus.publish_state(scene.joint_state(now))
+            bus.publish_state(scene.joint_state(due))
         if frame_due.passed(simulated):
             # The people move at the frames' rate: only the camera sees them.
             scene.animate(simulated)
-            bus.publish_frame(scene.render(now))
+            bus.publish_frame(scene.render(due))
         if doa_due.passed(simulated):
-            bus.publish_sound_direction(scene.sound_direction(now))
-        due = start + simulated
+            bus.publish_sound_direction(scene.sound_direction(due))
+        now = time.monotonic()
         if now - due > _MAX_LAG_S:
             logger.warning("The simulation fell {:.2f} s behind real time", now - due)
             # Carry on from now rather than rush through the backlog.

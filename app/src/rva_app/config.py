@@ -41,8 +41,6 @@ class HeadControllerConfig(RVABaseModel):
     """Where the head frame stays while the head looks at the gaze targets it is sent, in the
     robot's base frame, in meters: only its pitch and yaw change. Pollen's SDK holds it at
     (0, 0, 0.177), which leaves the platform room to turn the head."""
-    control_hz: float = Field(gt=0)
-    """How often the joints are sent where the head is to be."""
     motion: MotionLimits
     """How fast and how abruptly the head moves towards where it is sent."""
     recentre_after_s: float = Field(gt=0)

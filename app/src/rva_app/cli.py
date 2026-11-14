@@ -53,6 +53,8 @@ from rva_multimodal.light_asd import open_light_asd
 from rva_observability.session import latest_recording, open_viewer, start_session
 from rva_robot_client.client import RobotCamera, RobotClientConfig, RobotUnavailableError
 from rva_robot_schemas.topics import HEAD_CONTROLLER_NODE, HEAD_TARGET, JOINT_COMMAND, ROBOT_NODE
+from rva_robot_sim.description import install_reachy_mini
+from rva_robot_sim.mjcf import read_facts
 from rva_robot_sim.npc import SimulationNotRunningError, start_scenario
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
@@ -898,10 +900,13 @@ def robot(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
     Args:
         profile: Robot profile directory.
     """
-    robot = RuntimeConfig.load(profile).robot
-    if robot is None:
-        raise SystemExit(f"{profile / 'runtime.yaml'} has no robot")
-    _run(drive_robot(robot))
+    config = RuntimeConfig.load(profile)
+    if config.robot is None or config.head_controller is None:
+        raise SystemExit(f"{profile / 'runtime.yaml'} has no robot, or no description of it")
+    # The head controller's description is the robot's: its joints' ranges bound the sliders.
+    with httpx.Client(follow_redirects=True, timeout=60) as client:
+        mjcf = install_reachy_mini(config.head_controller.description, client)
+    _run(drive_robot(config.robot, read_facts(mjcf).ranges))
 
 
 @app.command
