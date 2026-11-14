@@ -14,6 +14,7 @@ from rva_schemas.attention import (
     FaceEntity,
     HandEntity,
 )
+from rva_schemas.frames import CameraPose
 from rva_schemas.observation import VisualObservation
 from rva_schemas.record import TrackedPerson
 from rva_schemas.vision import Body, Hand, Point3D
@@ -62,7 +63,7 @@ class VisualAttention:
         self._forget(now)
         sightings = list(_sightings(observation))
         for sighting in sightings:
-            self._see(sighting, now)
+            self._see(sighting, now, observation.camera_pose)
         target = None if self._current is None else _key(self._current.entity)
         for key, entity in self._entities.items():
             entity.habituate(key == target, elapsed)
@@ -80,15 +81,15 @@ class VisualAttention:
         for key in [k for k, e in self._entities.items() if e.last_seen < now - lifetime]:
             del self._entities[key]
 
-    def _see(self, sighting: "_Sighting", now: float) -> None:
+    def _see(self, sighting: "_Sighting", now: float, camera: CameraPose | None) -> None:
         entity = self._entities.get(sighting.key)
         if entity is None:
             entity = self._returned(sighting, now) or _Entity(
-                now, self._config.lifetime_s, self._habituation_config(sighting.key)
+                now, sighting.point, self._config.lifetime_s, self._habituation_config(sighting.key)
             )
             self._entities[sighting.key] = entity
         entity.person_id = sighting.person_id
-        entity.place(now, sighting.point)
+        entity.place(now, sighting.point, _fixed(sighting.point, camera))
 
     def _returned(self, sighting: "_Sighting", now: float) -> "_Entity | None":
         """The entity of the same known person on a track no longer seen, moved to this one.
@@ -219,9 +220,15 @@ class _Sighting(NamedTuple):
 
 
 class _Entity:
-    """A face or hand remembered, with where it was lately."""
+    """A face or hand remembered, with where it was lately.
 
-    def __init__(self, first_seen: float, history_s: float, config: HabituationConfig) -> None:
+    Its path is kept in a frame fixed to the world when the camera's pose is known, so that the
+    camera's own turns do not make it move; its point, for the head to turn to, in the camera's.
+    """
+
+    def __init__(
+        self, first_seen: float, point: Point3D, history_s: float, config: HabituationConfig
+    ) -> None:
         self.first_seen: Final = first_seen
         self.last_seen = first_seen
         self.habituation = 1.0
@@ -229,14 +236,19 @@ class _Entity:
         self._config: Final = config
         self._history_s: Final = history_s
         self._poses: Final = deque[tuple[float, Point3D]]()
+        """Where it was lately, in the fixed frame when known."""
+        self._point = point
 
     @property
     def point(self) -> Point3D:
-        return self._poses[-1][1]
+        """Where it was last seen, in the camera's frame."""
+        return self._point
 
-    def place(self, now: float, point: Point3D) -> None:
+    def place(self, now: float, point: Point3D, fixed: Point3D) -> None:
+        """Note it at `point` in the camera's frame, and at `fixed` in the fixed one."""
         self.last_seen = now
-        self._poses.append((now, point))
+        self._point = point
+        self._poses.append((now, fixed))
         while self._poses[0][0] < now - self._history_s:
             self._poses.popleft()
 
@@ -275,6 +287,14 @@ def _sightings(observation: VisualObservation) -> Iterator[_Sighting]:
             palm = None if hand is None else _palm(hand)
             if palm is not None:
                 yield _Sighting(("hand", person.track_id, side), palm, None)
+
+
+def _fixed(point: Point3D, camera: CameraPose | None) -> Point3D:
+    """`point`, in the camera's frame, in the fixed one; as it is without the camera's pose."""
+    if camera is None:
+        return point
+    x, y, z = camera.to_fixed((point.x, point.y, point.z))
+    return Point3D(x=x, y=y, z=z)
 
 
 def _palm(hand: Hand) -> Point3D | None:

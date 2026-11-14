@@ -71,13 +71,17 @@ what exists and why.
   nothing anticipates: the target's velocity in the base frame, over the last frames, would let
   the controller aim where it will be. Raw targets, sent each frame, also jitter with the face
   mesh; a filter would go with the prediction.
-- **The head's own motion looks like the people's.** The attention measures `moving` and
-  `centrality` in the camera's frame. Centering a face is meant to favour it until it habituates,
-  but a head turn also makes every face in view seem to move, by up to 0.2 of score for a turn of
-  40°. With two still people in the simulation, the face just switched to jumps from about 0.26
-  to 0.42 and decays over two or three seconds. The minimum dwell keeps this from flapping, but
-  measuring motion in the base frame, from the head's pose at the frame's time as the controller
-  does, would leave only the people's own.
+- **The engagement still measures staying in the camera's frame.** The attention and the face
+  tracker take the head's own turns out, from the camera's pose the head controller publishes;
+  the engagement's staying, which compares where a face was half a second ago, does not, so a
+  head turn can make someone standing still seem to walk. A restarted head controller replaces
+  its topic, and the perception stops hearing from it until it restarts too.
+- **Tracks can still swap in a very fast head swing.** With the camera's turn taken out, the
+  predicted image shift matched the faces' within 10 to 30 pixels at a swing of 100 pixels a
+  frame. In one run, though, faces swapped tracks as the image slid about 130 pixels in a frame,
+  as if the turn had not been applied. The pose is the one nearest the frame's time within 50
+  ms, which at that speed can be some 65 pixels behind: interpolating between the poses either
+  side of the frame's time, and logging a pose too old, would tell.
 - **A frame's time is taken once it is read**, not when it was taken: the pipeline reads the
   latest frame, up to a frame period old, so a moving head places its targets a little off. The
   robot stamps its frames; `FrameSource.read` could pass the stamp on.

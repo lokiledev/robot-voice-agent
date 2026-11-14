@@ -9,9 +9,16 @@ import numpy as np
 import pytest
 
 from rva_robot_client.client import RobotClientConfig, RobotUnavailableError, open_robot
-from rva_robot_client.head import gaze_targets, head_targets, open_gaze_sender, open_head_sender
+from rva_robot_client.head import (
+    CameraPoseReader,
+    advertise_camera_poses,
+    gaze_targets,
+    head_targets,
+    open_gaze_sender,
+    open_head_sender,
+)
 from rva_robot_schemas.camera import CameraFrame
-from rva_robot_schemas.head import GazeTarget, HeadPose
+from rva_robot_schemas.head import CameraPoseStamped, GazeTarget, HeadPose
 from rva_robot_schemas.joints import JointCommand, JointReading, JointState, JointTarget
 from rva_robot_schemas.sound import SoundDirection
 from rva_robot_sim.bus import RobotBus
@@ -152,3 +159,23 @@ async def test_gaze_targets_reach_the_controller_latest_first(namespace: str) ->
 
     assert received == latest
     assert open_gaze_sender(namespace, "test_attention") is None
+
+
+def test_every_camera_pose_published_reaches_a_reader_once_the_controller_is_up(
+    namespace: str,
+) -> None:
+    reader = CameraPoseReader(namespace, "test_vision")
+    ahead = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
+    poses = [
+        CameraPoseStamped(timestamp=10.0 + i / 100, position=(0.04, 0.0, 0.2), rotation=ahead)
+        for i in range(3)
+    ]
+
+    assert reader.received() == [], "no controller yet"
+    with advertise_camera_poses(namespace) as publisher:
+        assert reader.received() == [], "subscribed, nothing published yet"
+        for pose in poses:
+            publisher.publish(pose)
+
+        assert reader.received() == poses
+        assert reader.received() == []

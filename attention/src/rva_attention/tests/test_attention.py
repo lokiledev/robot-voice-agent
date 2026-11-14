@@ -1,3 +1,4 @@
+import math
 from uuid import UUID
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from rva_attention.attention import VisualAttention
 from rva_attention.config import FeatureWeights, HabituationConfig, VisualAttentionConfig
 from rva_schemas.attention import AttentionState, FaceEntity, HandEntity
+from rva_schemas.frames import CameraPose
 from rva_schemas.observation import VisualObservation
 from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import (
@@ -116,7 +118,9 @@ def person(
     )
 
 
-def observe(time: float, *people: TrackedPerson) -> VisualObservation:
+def observe(
+    time: float, *people: TrackedPerson, camera: CameraPose | None = None
+) -> VisualObservation:
     return VisualObservation(
         time=time,
         people=PeopleInView(
@@ -127,6 +131,7 @@ def observe(time: float, *people: TrackedPerson) -> VisualObservation:
             people=people,
             unmatched_bodies=(),
         ),
+        camera_pose=camera,
     )
 
 
@@ -393,3 +398,40 @@ def test_the_face_attended_keeps_the_head_while_it_speaks_however_habituated() -
     before = states[79].target
     assert before is not None
     assert [s.target.entity for s in states[80:] if s.target is not None] == [before.entity] * 40
+
+
+def test_a_still_face_does_not_move_as_the_camera_turns_past_it() -> None:
+    # A face 2 m ahead of the robot, the head turning left at 1 radian a second.
+    ahead = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
+
+    def turned(yaw: float) -> CameraPose:
+        c, s = math.cos(yaw), math.sin(yaw)
+        turn = ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
+
+        def row(i: int) -> tuple[float, float, float]:
+            a, b, d = (sum(turn[i][k] * ahead[k][j] for k in range(3)) for j in range(3))
+            return (a, b, d)
+
+        return CameraPose(position=(0.0, 0.0, 0.0), rotation=(row(0), row(1), row(2)))
+
+    def seen_from(camera: CameraPose) -> Point3D:
+        # The face at (2, 0, 0) in the fixed frame, in the camera's: by the rotation's transpose,
+        # whose rows are the rotation's first entries of each row.
+        r = camera.rotation
+        return Point3D(x=2.0 * r[0][0], y=2.0 * r[0][1], z=2.0 * r[0][2])
+
+    cameras = [turned(0.1 * t) for t in range(4)]
+    followed, unaware = VisualAttention(CONFIG), VisualAttention(CONFIG)
+    with_pose = [
+        followed.observe(observe(t / 10, person(1, seen_from(c)), camera=c), None)
+        for t, c in enumerate(cameras)
+    ][-1]
+    without = [
+        unaware.observe(observe(t / 10, person(1, seen_from(c))), None)
+        for t, c in enumerate(cameras)
+    ][-1]
+
+    assert with_pose.candidates[0].features.moving == pytest.approx(0.0, abs=1e-9)
+    assert without.candidates[0].features.moving == 1.0, "2 m/s across the image"
+    # The target is still where the camera sees it.
+    assert with_pose.candidates[0].point == seen_from(cameras[-1])

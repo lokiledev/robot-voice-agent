@@ -44,3 +44,19 @@ class GazeTarget(RVABaseModel):
     """In meters, down the image."""
     z: float
     """In meters, forward along the camera's axis."""
+
+
+class CameraPoseStamped(RVABaseModel):
+    """Where the head camera's optical frame was, in the robot's base frame, at a joint state.
+
+    The optical frame has x right, y down and z ahead, as OpenCV has it.
+    """
+
+    timestamp: float
+    """The joint state's, in seconds of `time.monotonic()`, the clock frames are stamped with."""
+    position: tuple[float, float, float]
+    """The camera's origin, in meters."""
+    rotation: tuple[
+        tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]
+    ]
+    """The rotation from the optical frame to the base frame, row by row."""

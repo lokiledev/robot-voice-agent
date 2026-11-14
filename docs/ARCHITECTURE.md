@@ -228,12 +228,13 @@ flowchart LR
 - **Per frame**, 1920x1080 at up to 30 fps: YuNet finds faces in about 6 ms; faces too small to
   be close are ignored. A new track gets an SFace embedding, then one every second until it is
   recognized.
-- **Tracking.** A face keeps its track number across frames by box overlap, or else by its
-  centre moving less than 0.75 of its height, and across a longer move or an occlusion by
-  embedding. Overlap alone lost small faces turning: in the simulation, Ben's 53-pixel face moved
-  25 pixels in a frame as he turned to the robot, an overlap of 0.22, and his side view did not
-  match his turning face's embedding, so he became someone new. A face is announced after 0.5 s
-  in view and said to have left after 3 s out of view.
+- **Tracking.** A face keeps its track number across frames by box overlap, or else by its centre
+  moving less than 0.75 of its height, and across a longer move or an occlusion by embedding. On a
+  robot whose head turns, each track's last box first moves with the image by the camera's turn
+  since the last frame (see the robot's section). Overlap alone lost small faces turning: in the
+  simulation, Ben's 53-pixel face moved 25 pixels in a frame as he turned to the robot, an overlap
+  of 0.22, and his side view did not match his turning face's embedding, so he became someone new.
+  A face is announced after 0.5 s in view and said to have left after 3 s out of view.
 - **Recognition.** A track is someone when its embeddings match that person's closely enough and
   clearly better than anyone else's. Once recognized, a track keeps its person while it lives and
   is no longer embedded: a continuous track is the same face, so the name does not flicker and
@@ -414,9 +415,10 @@ states back, and the core does no I/O.
   speaking, eye contact (the gaze's angle off the camera), moving (the speed along the path over
   the last 0.3 s, so a hand waving in place counts), known, novelty, which is 1 as an entity
   appears and decays over a second or two, and raised, for a hand above its owner's shoulders in
-  the image. Speaking is the interaction's one face per frame, not every face Light-ASD flags: in
-  the simulation it flagged all three people while one talked, and the listener the head was
-  not worn down on won. A hand has only its motion and raised, so a hand moving below the
+  the image. Motion is measured in the robot's base frame when the camera's pose is known, so
+  only people's own counts. Speaking is the interaction's one face per frame, not every face
+  Light-ASD flags: in the simulation it flagged all three people while one talked, and the
+  listener the head was not worn down on won. A hand has only its motion and raised, so a hand moving below the
   shoulders, talking, does not draw the head from its face; a wave does. A hand gets no novelty:
   one coming into view as its owner turned took the head from every face, and the swing made
   the faces jump too far in the image to keep their tracks. The score is
@@ -651,6 +653,7 @@ targets.
 | `joint_command` | Mailbox of the robot | Position targets for some joints, as JSON; the others keep theirs |
 | `head_target` | Mailbox of the head controller | A head pose, as JSON; the controller takes the latest |
 | `gaze_target` | Mailbox of the head controller | A point in the head camera's frame and when it was seen, as JSON; the controller takes the latest |
+| `camera_pose` | Published by the head controller, at each joint state | Where the head camera's optical frame is in the base frame, and the joint state's time, as JSON |
 | `person_pose` | Mailbox of the simulation's own node, `sim` | Where one of the simulated people stands, as JSON |
 
 - **The MJCF, not the URDF.** Reachy Mini's head sits on a Stewart platform: six motors whose rods
@@ -796,6 +799,14 @@ point, and the loop does not chase its own lag. The aim keeps the head at the pr
 MJCF's `camera_optical` site, to pass through the point; the camera sits 7 cm off the head's
 centre, so a few rounds from where the last put it converge. Targets out of reach are left out,
 logged once until they come back. The viewer shows the target's point too.
+
+At each joint state, it also publishes where the head camera is in the base frame, by the same
+forward kinematics, on its `camera_pose` topic. The perception, with a robot's camera and a head
+controller in the profile, takes the pose nearest each frame's time, within 50 ms: the face
+tracker moves each track's last box with the image as the camera turned since the frame before,
+so a turn of the head does not tear the tracks, and the attention measures motion in the base
+frame, so a head turn no longer makes every face in view seem to move. Without a pose, as
+before the controller is up, both work in the camera's frame, with a warning.
 
 In the simulation, with someone pacing 0.8 m each side of the robot's axis at 1.1 m, the head
 follows her bearing to a degree once its lag is taken out, a quarter to a third of a second: the

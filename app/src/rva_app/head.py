@@ -20,7 +20,12 @@ from rva_app.head_view import HeadView, read_meshes
 from rva_app.ready import notify_ready
 from rva_observability.session import ObservabilityConfig, record_session
 from rva_robot_client.client import RobotClient, RobotClientConfig, open_robot
-from rva_robot_client.head import gaze_targets, head_targets
+from rva_robot_client.head import (
+    CameraPosePublisher,
+    advertise_camera_poses,
+    gaze_targets,
+    head_targets,
+)
 from rva_robot_kinematics.controller import HeadController
 from rva_robot_kinematics.gaze import Gaze, HeadPoseUnknownError, HeadTrail
 from rva_robot_kinematics.geometry import read_head_geometry
@@ -30,7 +35,7 @@ from rva_robot_kinematics.head import (
     UnreachableHeadPoseError,
 )
 from rva_robot_kinematics.motion import HeadMotion
-from rva_robot_schemas.head import GazeTarget, HeadPose
+from rva_robot_schemas.head import CameraPoseStamped, GazeTarget, HeadPose
 from rva_robot_schemas.joints import JointState
 from rva_robot_sim.description import install_reachy_mini
 
@@ -70,36 +75,40 @@ async def control_head(
     kinematics = HeadKinematics(geometry, math.radians(config.max_head_yaw_deg))
     gaze = Gaze(geometry.camera, config.gaze_position)
     view = await asyncio.to_thread(_view, mjcf, observability, viewer)
-    async with (
-        open_robot(robot_config, "head_controller_robot") as robot,
-        robot.joint_states() as states,
-        # Before the head targets, whose mailbox tells the controller runs: both are up then.
-        gaze_targets(robot_config.namespace) as gazes,
-        head_targets(robot_config.namespace) as targets,
-    ):
-        state = await anext(states)
-        controller = HeadController(kinematics, _position(state, "yaw_body"))
-        start = kinematics.forward({joint.name: joint.position for joint in state.joints}, None)
-        x, y, z = config.gaze_position
-        ahead = HeadPose(x=x, y=y, z=z, roll=0.0, pitch=0.0, yaw=0.0)
-        goal = _Goal(ahead, config.recentre_after_s)
-        trail = HeadTrail(_TRAIL_S, _MAX_GAP_S)
-        driver = _Driver(
-            kinematics,
-            controller,
-            HeadMotion(start, config.motion),
-            goal,
-            trail,
-            robot,
-            config.recentre_speed_deg_s,
-            view,
-        )
-        logger.info("Head controller ready in kickmsg namespace {}", robot_config.namespace)
-        notify_ready()
-        async with asyncio.TaskGroup() as group:
-            group.create_task(_look(gazes, gaze, trail, goal, view))
-            group.create_task(_aim(targets, goal, view))
-            await driver.run(states, state.timestamp)
+    # Up before the head targets' mailbox, created last, which tells the controller runs.
+    with advertise_camera_poses(robot_config.namespace) as cameras:
+        async with (
+            open_robot(robot_config, "head_controller_robot") as robot,
+            robot.joint_states() as states,
+            # Before the head targets, whose mailbox tells the controller runs: both are up then.
+            gaze_targets(robot_config.namespace) as gazes,
+            head_targets(robot_config.namespace) as targets,
+        ):
+            state = await anext(states)
+            controller = HeadController(kinematics, _position(state, "yaw_body"))
+            start = kinematics.forward({joint.name: joint.position for joint in state.joints}, None)
+            x, y, z = config.gaze_position
+            ahead = HeadPose(x=x, y=y, z=z, roll=0.0, pitch=0.0, yaw=0.0)
+            goal = _Goal(ahead, config.recentre_after_s)
+            trail = HeadTrail(_TRAIL_S, _MAX_GAP_S)
+            driver = _Driver(
+                kinematics,
+                controller,
+                HeadMotion(start, config.motion),
+                goal,
+                trail,
+                gaze,
+                cameras,
+                robot,
+                config.recentre_speed_deg_s,
+                view,
+            )
+            logger.info("Head controller ready in kickmsg namespace {}", robot_config.namespace)
+            notify_ready()
+            async with asyncio.TaskGroup() as group:
+                group.create_task(_look(gazes, gaze, trail, goal, view))
+                group.create_task(_aim(targets, goal, view))
+                await driver.run(states, state.timestamp)
 
 
 class _Goal:
@@ -167,6 +176,8 @@ class _Driver:
         motion: HeadMotion,
         goal: _Goal,
         trail: HeadTrail,
+        gaze: Gaze,
+        cameras: CameraPosePublisher,
         robot: RobotClient,
         recentre_speed_deg_s: float,
         view: HeadView,
@@ -176,6 +187,8 @@ class _Driver:
         self._motion: Final = motion
         self._goal: Final = goal
         self._trail: Final = trail
+        self._gaze: Final = gaze
+        self._cameras: Final = cameras
         self._robot: Final = robot
         self._recentre_speed_deg_s: Final = recentre_speed_deg_s
         self._view: Final = view
@@ -208,6 +221,15 @@ class _Driver:
             self._estimate = None
             return
         self._trail.add(state.timestamp, self._estimate)
+        camera = self._gaze.camera(self._estimate)
+        rows = camera[:3, :3].tolist()
+        self._cameras.publish(
+            CameraPoseStamped(
+                timestamp=state.timestamp,
+                position=(float(camera[0, 3]), float(camera[1, 3]), float(camera[2, 3])),
+                rotation=(tuple(rows[0]), tuple(rows[1]), tuple(rows[2])),
+            )
+        )
         self._view.show_estimate(state.timestamp, positions["yaw_body"], self._estimate)
 
     def _step(self, now: float, dt: float) -> None:

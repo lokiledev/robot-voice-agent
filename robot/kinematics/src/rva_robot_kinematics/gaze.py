@@ -76,6 +76,10 @@ class Gaze:
         self._camera: Final = camera
         self._position: Final = np.array(position)
 
+    def camera(self, head: HeadPose) -> npt.NDArray[np.float64]:
+        """The 4×4 pose of the camera's optical frame in the base frame, with the head at `head`."""
+        return pose_matrix(head) @ self._camera
+
     def place(self, target: GazeTarget, head: HeadPose) -> npt.NDArray[np.float64]:
         """The target's point in the base frame, seen with the head at `head`, in meters."""
         seen = np.array((target.x, target.y, target.z, 1.0))

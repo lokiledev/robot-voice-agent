@@ -8,12 +8,16 @@ from typing import Final
 from uuid import UUID
 
 import cv2
+import numpy as np
+import numpy.typing as npt
 from loguru import logger
 from opentelemetry import trace
 
 from rva_pydantic import load_yaml
+from rva_schemas.abc.camera import CameraPoses
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
+from rva_schemas.frames import CameraPose
 from rva_schemas.observation import VisualObservation
 from rva_schemas.record import CameraFrame, DepthFrame, LiveFrame, PeopleInView
 from rva_schemas.vision import (
@@ -42,7 +46,7 @@ from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.models import load_session
 from rva_vision_faces.scene import Scene, people_in_view
 from rva_vision_faces.space import Lifter
-from rva_vision_faces.tracker import Tracker
+from rva_vision_faces.tracker import Tracker, image_turn
 
 _tracer: Final = trace.get_tracer("rva_vision_faces")
 _SMOOTHING: Final = 0.1
@@ -118,6 +122,38 @@ class _Models:
         return FaceAnalyzer(mesh, blendshapes, gaze, expression, self.intrinsics)
 
 
+class _CameraMotion:
+    """Where a moving camera was at each frame, and how it turned since the frame before."""
+
+    def __init__(self, poses: CameraPoses) -> None:
+        self._poses: Final = poses
+        self._last: CameraPose | None = None
+        self._known = True
+
+    def at(
+        self, time: float, intrinsics: CameraIntrinsics | None
+    ) -> tuple[CameraPose | None, npt.NDArray[np.float64] | None]:
+        """The camera's pose at the frame taken at `time`, and its turn since the last frame.
+
+        The turn is the image's homography, as `image_turn` gives it; `None` for what is not
+        known.
+        """
+        pose = self._poses.at(time)
+        if (pose is not None) != self._known:
+            self._known = pose is not None
+            if self._known:
+                logger.info("The camera's pose is known again: its turns are followed")
+            else:
+                logger.warning("The camera's pose is not known: its turns look like motion")
+        turn = (
+            None
+            if pose is None or self._last is None or intrinsics is None
+            else image_turn(self._last, pose, intrinsics)
+        )
+        self._last = pose
+        return pose, turn
+
+
 class FaceVision:
     """`Vision` from a camera: detects, tracks and recognizes faces in a thread of its own."""
 
@@ -130,6 +166,7 @@ class FaceVision:
         record_video: bool,
         speaker: SpeakerDetector | None,
         open_camera: Callable[[], FrameSource],
+        camera_poses: CameraPoses | None,
     ) -> None:
         """Set up the pipeline; the camera and models open when `run` starts.
 
@@ -144,6 +181,8 @@ class FaceVision:
             speaker: Tells which face speaks, with the microphone that feeds it; `None` without
                 one.
             open_camera: Opens where the frames come from, in the thread that reads them.
+            camera_poses: Where the camera was at each frame, used from the thread that reads
+                them; `None` for a camera that does not move.
         """
         self._config: Final = config
         self._database: Final = database
@@ -153,6 +192,7 @@ class FaceVision:
         self._caption: tuple[int, str, float] | None = None
         self._speaker: Final = speaker
         self._open_camera: Final = open_camera
+        self._motion: Final = None if camera_poses is None else _CameraMotion(camera_poses)
         self._tracker: Final = Tracker(config.tracker)
         self._gallery = Gallery((), config.matching)
         self._granted_operators: frozenset[UUID] = frozenset()
@@ -283,7 +323,7 @@ class FaceVision:
         previous = last_logged = time.perf_counter()
         try:
             while not stop.is_set():
-                frame, scene, depth, main_user, captured_at, frame_timings = self._step(
+                frame, scene, depth, main_user, captured_at, pose, frame_timings = self._step(
                     camera, models, attention, loop
                 )
                 now = time.perf_counter()
@@ -296,7 +336,9 @@ class FaceVision:
                     last_logged = now
                 people = self._record(frame, scene, depth, main_user, timings, models.intrinsics)
                 if self._observers:
-                    observation = VisualObservation(time=captured_at, people=people)
+                    observation = VisualObservation(
+                        time=captured_at, people=people, camera_pose=pose
+                    )
                     loop.call_soon_threadsafe(self._observe, observation)
         finally:
             models.pool.shutdown()
@@ -308,15 +350,23 @@ class FaceVision:
         models: _Models,
         attention: Attention | None,
         loop: asyncio.AbstractEventLoop,
-    ) -> tuple[Image, Scene, DepthMap | None, MainUser | None, float, VisionTimings]:
+    ) -> tuple[
+        Image, Scene, DepthMap | None, MainUser | None, float, CameraPose | None, VisionTimings
+    ]:
         """Process one frame.
 
         Returns the image, what was seen, its depth, the main user, when the frame was taken on
-        the monotonic clock, and the stages' times.
+        the monotonic clock, where the camera was then if it moves and that is known, and the
+        stages' times.
         """
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
             frame, captured_at = camera.read()
+        pose, turn = (
+            (None, None)
+            if self._motion is None
+            else self._motion.at(captured_at, models.intrinsics)
+        )
         captured = time.perf_counter()
         # Skeletons need no face: they are estimated meanwhile, on the other thread.
         found = (
@@ -340,7 +390,7 @@ class FaceVision:
             return embedding
 
         with self._lock:
-            events = self._tracker.update(time.monotonic(), detections, embed, self._gallery)
+            events = self._tracker.update(time.monotonic(), detections, embed, self._gallery, turn)
             visible = [(track.track_id, track.detection) for track in self._tracker.visible()]
             seen_ids = {track_id for track_id, _ in visible}
             hidden = [
@@ -393,6 +443,7 @@ class FaceVision:
             depth,
             main_user,
             captured_at,
+            pose,
             VisionTimings(
                 fps=0.0,
                 capture_ms=(captured - start) * 1e3,

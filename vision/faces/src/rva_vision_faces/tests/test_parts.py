@@ -7,6 +7,7 @@ from uuid import NAMESPACE_URL, uuid5
 import numpy as np
 import pytest
 
+from rva_schemas.frames import CameraPose
 from rva_schemas.record import PeopleInView, TrackedPerson
 from rva_schemas.vision import (
     Body,
@@ -30,7 +31,7 @@ from rva_vision_faces.detector import Detection, decode_yunet
 from rva_vision_faces.embedder import Embedding, align
 from rva_vision_faces.gallery import Gallery
 from rva_vision_faces.scene import Scene, people_in_view
-from rva_vision_faces.tracker import Track, Tracker
+from rva_vision_faces.tracker import Track, Tracker, image_turn
 
 MATCHING = MatchConfig(threshold=0.363, margin=0.05)
 TRACKING = TrackerConfig(
@@ -199,8 +200,8 @@ def test_tracker_announces_a_face_seen_long_enough_then_its_departure() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([(_person("Alice"), np.stack([_unit(1, 0, 0)]))], MATCHING)
 
-    assert tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery) == []
-    assert tracker.update(0.6, [_detection(110, 0.0)], _embed_by_score, gallery) == [
+    assert tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None) == []
+    assert tracker.update(0.6, [_detection(110, 0.0)], _embed_by_score, gallery, None) == [
         FaceAppeared(
             face=TrackedFace(
                 track_id=1,
@@ -210,8 +211,8 @@ def test_tracker_announces_a_face_seen_long_enough_then_its_departure() -> None:
             )
         )
     ]
-    assert tracker.update(2.0, [], _embed_by_score, gallery) == []
-    assert tracker.update(3.6, [], _embed_by_score, gallery) == [
+    assert tracker.update(2.0, [], _embed_by_score, gallery, None) == []
+    assert tracker.update(3.6, [], _embed_by_score, gallery, None) == [
         FaceLeft(track_id=1, person=_person("Alice"))
     ]
 
@@ -220,21 +221,27 @@ def test_tracker_drops_a_new_face_missed_before_it_is_announced() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([], MATCHING)
 
-    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery)
-    tracker.update(0.1, [], _embed_by_score, gallery)
+    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
+    tracker.update(0.1, [], _embed_by_score, gallery, None)
 
-    assert tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery) == []
+    assert tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None) == []
     assert [track.track_id for track in tracker.tracks] == [2]
 
 
 def test_tracker_keeps_the_track_of_a_face_that_jumped_by_its_embedding() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([], MATCHING)
-    tracker.update(0.0, [_detection(100, 0.0), _detection(1000, 0.05)], _embed_by_score, gallery)
-    tracker.update(0.6, [_detection(100, 0.0), _detection(1000, 0.05)], _embed_by_score, gallery)
+    tracker.update(
+        0.0, [_detection(100, 0.0), _detection(1000, 0.05)], _embed_by_score, gallery, None
+    )
+    tracker.update(
+        0.6, [_detection(100, 0.0), _detection(1000, 0.05)], _embed_by_score, gallery, None
+    )
 
     # The second face moved far away in one frame: no overlap, same embedding.
-    tracker.update(0.7, [_detection(100, 0.0), _detection(500, 0.05)], _embed_by_score, gallery)
+    tracker.update(
+        0.7, [_detection(100, 0.0), _detection(500, 0.05)], _embed_by_score, gallery, None
+    )
 
     # Both faces are the same size: the first one counts as the nearest.
     assert [(face.track_id, face.box.x, face.nearest) for face in tracker.faces()] == [
@@ -246,12 +253,12 @@ def test_tracker_keeps_the_track_of_a_face_that_jumped_by_its_embedding() -> Non
 def test_tracker_keeps_the_track_of_a_face_that_moved_less_than_its_height() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([], MATCHING)
-    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery)
-    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery)
+    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
+    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None)
 
     # Turning, it moved 60 pixels, half its height: an overlap of 0.25, and it no longer looks
     # the same to the embedder.
-    events = tracker.update(0.7, [_detection(160, 0.05)], _embed_by_score, gallery)
+    events = tracker.update(0.7, [_detection(160, 0.05)], _embed_by_score, gallery, None)
 
     assert events == []
     assert [(face.track_id, face.box.x) for face in tracker.faces()] == [(1, 160.0)]
@@ -260,13 +267,48 @@ def test_tracker_keeps_the_track_of_a_face_that_moved_less_than_its_height() -> 
 def test_tracker_starts_a_new_track_for_a_face_farther_than_its_shift() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([], MATCHING)
-    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery)
-    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery)
+    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
+    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None)
 
     # 100 pixels away, 0.83 of a height, and a face of its own.
-    tracker.update(0.7, [_detection(200, 0.05)], _embed_by_score, gallery)
+    tracker.update(0.7, [_detection(200, 0.05)], _embed_by_score, gallery, None)
 
     assert [track.track_id for track in tracker.tracks] == [1, 2]
+
+
+def test_tracker_moves_its_tracks_with_the_image_as_the_camera_turns() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([], MATCHING)
+    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery, None)
+    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery, None)
+    # The head turned left: everything in view slid 300 pixels to the right of the image.
+    slid = np.array(((1.0, 0.0, 300.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+
+    # The face slid with it, and turned a little: it no longer looks the same to the embedder.
+    tracker.update(0.7, [_detection(410, 0.05)], _embed_by_score, gallery, slid)
+
+    assert [(face.track_id, face.box.x) for face in tracker.faces()] == [(1, 410.0)]
+
+
+def test_a_camera_turning_left_moves_what_was_ahead_to_the_right_of_the_image() -> None:
+    intrinsics = CameraIntrinsics(
+        calibrated=True, width=1920, height=1080, fx=1000.0, fy=1000.0, cx=960.0, cy=540.0
+    )
+    # Looking along the fixed frame's x, then turned 10 degrees left, about its z, up.
+    ahead = ((0.0, 0.0, 1.0), (-1.0, 0.0, 0.0), (0.0, -1.0, 0.0))
+    c, s = math.cos(math.radians(10)), math.sin(math.radians(10))
+    rows = (np.array(((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))) @ np.array(ahead)).tolist()
+    left = (tuple(rows[0]), tuple(rows[1]), tuple(rows[2]))
+
+    turn = image_turn(
+        CameraPose(position=(0.0, 0.0, 0.2), rotation=ahead),
+        CameraPose(position=(0.0, 0.0, 0.2), rotation=left),
+        intrinsics,
+    )
+
+    u, v, w = turn @ np.array((960.0, 540.0, 1.0))
+    # 1000 pixels of focal length times tan(10 degrees), to the right.
+    assert (u / w, v / w) == pytest.approx((960.0 + 176.33, 540.0), abs=0.01)
 
 
 def test_tracker_stops_embedding_a_recognized_track_and_keeps_its_person() -> None:
@@ -278,10 +320,10 @@ def test_tracker_stops_embedding_a_recognized_track_and_keeps_its_person() -> No
         embedded.append(detection.box.x)
         return _embed_by_score(detection)
 
-    tracker.update(0.0, [_detection(100, 0.0)], embed, gallery)
+    tracker.update(0.0, [_detection(100, 0.0)], embed, gallery, None)
     # Seconds later, with samples due, the face moved a little: still Alice, not embedded again.
-    tracker.update(1.5, [_detection(110, 0.0)], embed, gallery)
-    tracker.update(3.0, [_detection(120, 0.0)], embed, gallery)
+    tracker.update(1.5, [_detection(110, 0.0)], embed, gallery, None)
+    tracker.update(3.0, [_detection(120, 0.0)], embed, gallery, None)
 
     assert embedded == [100]
     assert [face.person for face in tracker.faces()] == [_person("Alice")]
@@ -295,25 +337,25 @@ def test_tracker_samples_an_unknown_track_until_it_is_recognized() -> None:
     def embed(detection: Detection) -> Embedding:
         return next(samples)
 
-    tracker.update(0.0, [_detection(100, 0.0)], embed, gallery)
-    tracker.update(0.5, [_detection(100, 0.0)], embed, gallery)
+    tracker.update(0.0, [_detection(100, 0.0)], embed, gallery, None)
+    tracker.update(0.5, [_detection(100, 0.0)], embed, gallery, None)
     assert [face.person for face in tracker.faces()] == [None]
-    tracker.update(1.0, [_detection(100, 0.0)], embed, gallery)
+    tracker.update(1.0, [_detection(100, 0.0)], embed, gallery, None)
     assert [face.person for face in tracker.faces()] == [None]
-    tracker.update(2.0, [_detection(100, 0.0)], embed, gallery)
+    tracker.update(2.0, [_detection(100, 0.0)], embed, gallery, None)
     assert [face.person for face in tracker.faces()] == [_person("Alice")]
-    tracker.update(3.0, [_detection(100, 0.0)], embed, gallery)
+    tracker.update(3.0, [_detection(100, 0.0)], embed, gallery, None)
     assert [face.person for face in tracker.faces()] == [_person("Alice")]
 
 
 def test_tracker_gives_a_person_already_on_a_track_to_no_other() -> None:
     tracker = Tracker(TRACKING)
     gallery = Gallery([(_person("Alice"), np.stack([_unit(1, 0, 0)]))], MATCHING)
-    tracker.update(0.0, [_detection(100, 0.0)], lambda _: _unit(1, 0.5, 0), gallery)
+    tracker.update(0.0, [_detection(100, 0.0)], lambda _: _unit(1, 0.5, 0), gallery, None)
 
     # A second face, closer to Alice's samples, appears while the first is still followed.
     tracker.update(
-        0.6, [_detection(100, 0.0), _detection(1000, 0.05)], lambda _: _unit(1, 0, 0), gallery
+        0.6, [_detection(100, 0.0), _detection(1000, 0.05)], lambda _: _unit(1, 0, 0), gallery, None
     )
 
     assert [
@@ -330,6 +372,7 @@ def test_tracker_recognizes_every_track_again_when_people_change() -> None:
         [_detection(100, 0.0)],
         _embed_by_score,
         Gallery([(alice, np.stack([_unit(1, 0, 0)]))], MATCHING),
+        None,
     )
     renamed = KnownPerson(user_id=alice.user_id, name="Alicia")
 

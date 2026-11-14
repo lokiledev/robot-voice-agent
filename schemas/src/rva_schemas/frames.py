@@ -49,6 +49,42 @@ class FrameTransform(RVABaseModel):
         )
 
 
+class CameraPose(RVABaseModel):
+    """Where a moving camera's optical frame was at one moment, in a frame fixed to the world.
+
+    On a robot, its base frame; the optical frame has x right, y down and z ahead, as OpenCV has it.
+    """
+
+    position: Vector
+    """The camera's origin, in metres."""
+    rotation: tuple[Vector, Vector, Vector]
+    """The rotation from the optical frame to the fixed one, row by row: its columns are the
+    optical frame's axes in the fixed one."""
+
+    def to_fixed(self, point: Vector) -> Vector:
+        """`point`, in the optical frame, in the fixed one."""
+        x, y, z = _times(self.rotation, point)
+        px, py, pz = self.position
+        return (x + px, y + py, z + pz)
+
+    def turn_since(self, earlier: "CameraPose") -> tuple[Vector, Vector, Vector]:
+        """The camera's own turn since `earlier`, row by row.
+
+        It takes a direction in the optical frame `earlier` to the same direction in this one.
+        """
+        # Into the fixed frame by `earlier`'s rotation, out of it by this one's transpose.
+        mine, theirs = self.rotation, earlier.rotation
+
+        def entry(i: int, j: int) -> float:
+            return sum(mine[k][i] * theirs[k][j] for k in range(3))
+
+        return (
+            (entry(0, 0), entry(0, 1), entry(0, 2)),
+            (entry(1, 0), entry(1, 1), entry(1, 2)),
+            (entry(2, 0), entry(2, 1), entry(2, 2)),
+        )
+
+
 class MissingTransformError(Exception):
     """No transform is known between two links."""
 

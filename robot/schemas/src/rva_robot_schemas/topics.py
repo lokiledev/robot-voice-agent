@@ -1,9 +1,9 @@
 """The robot's kickmsg topics, in the namespace both ends are configured with.
 
 The robot, simulated or real, creates its topics when it starts, and the head controller its
-mailboxes; clients open them and wait for them if they are not up yet. Joint states, commands,
-sound directions, head poses and gaze targets travel as the JSON of their model, frames as
-`encode_frame` writes them.
+mailboxes and topic; clients open them and wait for them if they are not up yet. Joint states,
+commands, sound directions, head poses, gaze targets and camera poses travel as the JSON of their
+model, frames as `encode_frame` writes them.
 """
 
 from typing import Final
@@ -24,3 +24,6 @@ HEAD_TARGET: Final = "head_target"
 """`HeadPose`, a mailbox of the head controller's node: where to put the head."""
 GAZE_TARGET: Final = "gaze_target"
 """`GazeTarget`, a mailbox of the head controller's node: what the head camera should look at."""
+CAMERA_POSE: Final = "camera_pose"
+"""`CameraPoseStamped`, published by the head controller at each joint state: where the head
+camera was, for the perception to tell the head's own motion from the people's."""

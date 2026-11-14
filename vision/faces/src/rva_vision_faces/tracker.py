@@ -3,7 +3,18 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from typing import Final
 
-from rva_schemas.vision import BoundingBox, FaceAppeared, FaceEvent, FaceLeft, TrackedFace
+import numpy as np
+import numpy.typing as npt
+
+from rva_schemas.frames import CameraPose
+from rva_schemas.vision import (
+    BoundingBox,
+    CameraIntrinsics,
+    FaceAppeared,
+    FaceEvent,
+    FaceLeft,
+    TrackedFace,
+)
 from rva_vision_faces.config import TrackerConfig
 from rva_vision_faces.detector import Detection
 from rva_vision_faces.embedder import Embedding
@@ -17,6 +28,9 @@ class Track:
         self.track_id: Final = track_id
         self.detection = detection
         """The face's last detection."""
+        self.expected = detection.box
+        """Where the face would be in the latest frame, had it not moved: its last box, moved
+        with the image as the camera turned since."""
         self.first_seen: Final = now
         self.last_seen = now
         self.last_embedded = now
@@ -33,7 +47,9 @@ class Tracker:
     """Follows faces from frame to frame and says when they appear and leave.
 
     Detections continue a track when they overlap its last box, or else when their centre is
-    close to it for the face's size: a small face far away overlaps little after a quick turn. A
+    close to it for the face's size: a small face far away overlaps little after a quick turn.
+    With the camera's own turn since the last frame, each last box is first moved by it, so the
+    head's motion does not tear the tracks. A
     detection that neither overlaps nor is close to any is compared by embedding with the tracks
     that did not find their face in this frame, so that a face keeps its track across a short
     occlusion or a fast move.
@@ -60,6 +76,7 @@ class Tracker:
         detections: Sequence[Detection],
         embed: Callable[[Detection], Embedding],
         gallery: Gallery,
+        turn: npt.NDArray[np.float64] | None,
     ) -> list[FaceEvent]:
         """Advance to a new frame.
 
@@ -68,7 +85,12 @@ class Tracker:
             detections: Faces large enough to track.
             embed: Embedding of a detected face; called only when a sample is due.
             gallery: Known people, to recognize the tracks.
+            turn: How the image moved with the camera since the last frame, as the homography
+                `image_turn` gives; `None` for a camera that does not turn, or not known to.
         """
+        if turn is not None:
+            for track in self._tracks:
+                track.expected = _moved(track.expected, turn)
         matched = self._match_by_overlap(detections)
         matched |= self._match_by_distance(detections, matched)
         sampled: list[Track] = []
@@ -89,6 +111,7 @@ class Tracker:
                 sampled.append(track)
                 matched[index] = track
             track.detection = detection
+            track.expected = detection.box
             track.last_seen = now
         self._seen_now = {track.track_id for track in matched.values()}
         # Announced faces are allowed to flicker; new ones must be seen on every frame.
@@ -127,7 +150,7 @@ class Tracker:
     def _match_by_overlap(self, detections: Sequence[Detection]) -> dict[int, Track]:
         pairs = sorted(
             (
-                (iou(track.box, detection.box), index, track)
+                (iou(track.expected, detection.box), index, track)
                 for track in self._tracks
                 for index, detection in enumerate(detections)
             ),
@@ -149,7 +172,7 @@ class Tracker:
         taken = set(matched.values())
         pairs = sorted(
             (
-                (_shift(track.box, detection.box), index, track)
+                (_shift(track.expected, detection.box), index, track)
                 for track in self._tracks
                 if track not in taken
                 for index, detection in enumerate(detections)
@@ -230,6 +253,28 @@ def _tracked_face(track: Track, *, nearest: bool) -> TrackedFace:
         box=track.box,
         person=None if track.match is None else track.match.person,
         nearest=nearest,
+    )
+
+
+def image_turn(
+    earlier: CameraPose, now: CameraPose, intrinsics: CameraIntrinsics
+) -> npt.NDArray[np.float64]:
+    """How the image moves with the camera's turn from `earlier` to `now`, as a homography.
+
+    It takes a pixel of the frame taken at `earlier` to where the same direction is seen at
+    `now`: the turn alone, the camera's few centimetres of travel left out.
+    """
+    camera = np.array(
+        ((intrinsics.fx, 0.0, intrinsics.cx), (0.0, intrinsics.fy, intrinsics.cy), (0.0, 0.0, 1.0))
+    )
+    return camera @ np.array(now.turn_since(earlier)) @ np.linalg.inv(camera)
+
+
+def _moved(box: BoundingBox, turn: npt.NDArray[np.float64]) -> BoundingBox:
+    """`box` with its centre moved by the homography `turn`, its size kept."""
+    x, y, w = turn @ np.array((box.x + box.width / 2, box.y + box.height / 2, 1.0))
+    return box.model_copy(
+        update={"x": float(x / w) - box.width / 2, "y": float(y / w) - box.height / 2}
     )
 
 

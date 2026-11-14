@@ -1,20 +1,27 @@
-"""The head controller's mailboxes of head poses and gaze targets, over kickmsg: both ends."""
+"""The head controller's mailboxes and topic, over kickmsg: both ends.
+
+Its mailboxes take head poses and gaze targets; its topic publishes where the head camera is.
+"""
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from typing import Final
 
 import kickmsg
 
 from rva_pydantic import RVABaseModel
 from rva_robot_client.client import receive_latest
-from rva_robot_schemas.head import GazeTarget, HeadPose
-from rva_robot_schemas.topics import GAZE_TARGET, HEAD_CONTROLLER_NODE, HEAD_TARGET
+from rva_robot_schemas.head import CameraPoseStamped, GazeTarget, HeadPose
+from rva_robot_schemas.topics import CAMERA_POSE, GAZE_TARGET, HEAD_CONTROLLER_NODE, HEAD_TARGET
 
 _MAX_JSON: Final = 1024
 """Bytes a head pose or a gaze target may take as JSON; about a hundred."""
 _RING: Final = 16
+_POSE_RING: Final = 64
+"""Camera poses kept for each reader: over half a second at 100 Hz, as a reader takes them once a
+frame."""
+_POSE_READERS: Final = 4
 
 
 class HeadSender[T: RVABaseModel]:
@@ -110,3 +117,61 @@ async def _latest[T: RVABaseModel](
         message = await asyncio.to_thread(lambda: receive_latest(mailbox, decode))
         if message is not None:
             yield message
+
+
+class CameraPosePublisher:
+    """Publishes where the head camera is, from the head controller."""
+
+    def __init__(self, topic: kickmsg.Publisher) -> None:
+        self._topic: Final = topic
+
+    def publish(self, pose: CameraPoseStamped) -> None:
+        self._topic.send(pose.model_dump_json().encode())
+
+
+@contextmanager
+def advertise_camera_poses(namespace: str) -> Generator[CameraPosePublisher]:
+    """The head controller's topic of camera poses, created on entry and removed on exit.
+
+    A topic left by a controller that did not close is replaced.
+    """
+    node = kickmsg.Node(HEAD_CONTROLLER_NODE, namespace)
+    node.unlink_topic(CAMERA_POSE)
+    config = kickmsg.Config()
+    config.max_payload_size = _MAX_JSON
+    config.max_subscribers = _POSE_READERS
+    config.sub_ring_capacity = _POSE_RING
+    config.pool_size = _POSE_READERS * _POSE_RING + 1
+    topic = node.advertise(CAMERA_POSE, config)
+    try:
+        yield CameraPosePublisher(topic)
+    finally:
+        node.unlink_topic(CAMERA_POSE)
+
+
+class CameraPoseReader:
+    """Takes the camera poses the head controller publishes, without waiting.
+
+    Not thread-safe: use it from one thread.
+    """
+
+    def __init__(self, namespace: str, name: str) -> None:
+        """Read the controller of `namespace` as node `name`, once it is up."""
+        self._node: Final = kickmsg.Node(name, namespace)
+        self._subscriber: kickmsg.Subscriber | None = None
+
+    def received(self) -> list[CameraPoseStamped]:
+        """The poses published since the last call, oldest first.
+
+        None until the controller is up, nor after it stopped.
+        """
+        if self._subscriber is None:
+            try:
+                self._subscriber = self._node.subscribe(CAMERA_POSE)
+            except RuntimeError:
+                return []
+        poses = []
+        while (message := self._subscriber.try_receive()) is not None:
+            assert isinstance(message, bytes)
+            poses.append(CameraPoseStamped.model_validate_json(message))
+        return poses

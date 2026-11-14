@@ -25,6 +25,7 @@ from rva_app.config import RuntimeConfig, load_admins
 from rva_app.doa import open_sound_directions
 from rva_app.gaze import GazeOut, gaze_out
 from rva_app.head import control_head
+from rva_app.head_camera import PublishedCameraPoses
 from rva_app.page import MergedInput, Recorders, serve_page
 from rva_app.ready import notify_ready
 from rva_app.robot import drive_robot
@@ -52,10 +53,12 @@ from rva_multimodal.config import ActiveSpeakerConfig
 from rva_multimodal.light_asd import open_light_asd
 from rva_observability.session import latest_recording, open_viewer, start_session
 from rva_robot_client.client import RobotCamera, RobotClientConfig, RobotUnavailableError
+from rva_robot_client.head import CameraPoseReader
 from rva_robot_schemas.topics import HEAD_CONTROLLER_NODE, HEAD_TARGET, JOINT_COMMAND, ROBOT_NODE
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.mjcf import read_facts
 from rva_robot_sim.npc import SimulationNotRunningError, start_scenario
+from rva_schemas.abc.camera import CameraPoses
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.sound import SoundDirections
@@ -1245,7 +1248,17 @@ def _face_vision(
         record_video=record_video,
         speaker=speaker,
         open_camera=_camera_opener(config, replay),
+        camera_poses=None if replay is not None else _camera_poses(config),
     )
+
+
+def _camera_poses(config: RuntimeConfig) -> CameraPoses | None:
+    """Where the head camera is, from the head controller, for a robot's camera that it turns."""
+    if not isinstance(config.vision.camera.source, RobotSource) or config.head_controller is None:
+        return None
+    robot = config.robot
+    assert robot is not None, "validated with the runtime config"
+    return PublishedCameraPoses(CameraPoseReader(robot.namespace, "lune_vision_poses"))
 
 
 def _camera_opener(
