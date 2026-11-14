@@ -210,7 +210,7 @@ flowchart TB
 flowchart LR
     cam([Camera]) --> det["Face detection<br/>[YuNet, GPU]"]
     det --> emb["Face embedding<br/>[SFace, GPU]"]
-    det & emb --> trk["Tracker<br/>box overlap, then<br/>re-identification"]
+    det & emb --> trk["Tracker<br/>box overlap or distance,<br/>then re-identification"]
     trk --> gal["Gallery<br/>cosine match"]
     db[("Face database")] <--> gal
     trk --> feat["Face features<br/>[face mesh, blendshapes,<br/>L2CS-Net, ViT; GPU]"]
@@ -227,9 +227,12 @@ flowchart LR
 - **Per frame**, 1920x1080 at up to 30 fps: YuNet finds faces in about 6 ms; faces too small to
   be close are ignored. A new track gets an SFace embedding, then one every second until it is
   recognized.
-- **Tracking.** A face keeps its track number across frames by box overlap, and across a quick
-  move or occlusion by embedding. It is announced after 0.5 s in view and said to have left after
-  3 s out of view.
+- **Tracking.** A face keeps its track number across frames by box overlap, or else by its
+  centre moving less than 0.75 of its height, and across a longer move or an occlusion by
+  embedding. Overlap alone lost small faces turning: in the simulation, Ben's 53-pixel face moved
+  25 pixels in a frame as he turned to the robot, an overlap of 0.22, and his side view did not
+  match his turning face's embedding, so he became someone new. A face is announced after 0.5 s
+  in view and said to have left after 3 s out of view.
 - **Recognition.** A track is someone when its embeddings match that person's closely enough and
   clearly better than anyone else's. Once recognized, a track keeps its person while it lives and
   is no longer embedded: a continuous track is the same face, so the name does not flicker and
@@ -412,8 +415,10 @@ states back, and the core does no I/O.
   appears and decays over a second or two, and raised, for a hand above its owner's shoulders in
   the image. Speaking is the interaction's one face per frame, not every face Light-ASD flags: in
   the simulation it flagged all three people while one talked, and the listener the head was
-  not worn down on won. A hand has only its motion, its novelty and raised, so a hand moving
-  below the shoulders, talking, does not draw the head from its face; a wave does. The score is
+  not worn down on won. A hand has only its motion and raised, so a hand moving below the
+  shoulders, talking, does not draw the head from its face; a wave does. A hand gets no novelty:
+  one coming into view as its owner turned took the head from every face, and the swing made
+  the faces jump too far in the image to keep their tracks. The score is
   their weighted mean, so from 0 to 1 whatever the weights, times the entity's habituation,
   which decays towards a floor while attended and recovers while not. So a newcomer is worth a
   glance, a wave draws the eye, and a hand's habituation is ten times faster than a face's so

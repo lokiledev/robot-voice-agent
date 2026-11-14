@@ -30,7 +30,7 @@ type AttentionEntity = Annotated[FaceEntity | HandEntity, Field(discriminator="k
 class AttentionFeatures(RVABaseModel):
     """What draws attention to an entity, each from 0 to 1.
 
-    A hand has only `moving`, `novelty` and `raised`; a face never `raised`.
+    A hand has only `moving` and `raised`; a face never `raised`.
     """
 
     closeness: float

@@ -149,7 +149,8 @@ class VisualAttention:
                     eye_contact=0.0,
                     moving=moving,
                     known=0.0,
-                    novelty=novelty,
+                    # A hand coming into view, as its owner turns, is no newcomer.
+                    novelty=0.0,
                     raised=float(_raised(body, side)),
                 )
                 attended = HandEntity(track_id=track_id, side=side)

@@ -233,6 +233,21 @@ def test_a_hand_moving_below_the_shoulders_does_not_draw_attention() -> None:
     assert (hand.features.raised, hand.features.moving) == (0.0, 1.0)
 
 
+def test_a_hand_coming_into_view_moving_low_does_not_draw_attention() -> None:
+    # As someone turns, a hand the camera did not see appears, moving.
+    attention = VisualAttention(CONFIG)
+    states = []
+    for t in range(40):
+        palm = Point3D(x=0.3 * (t % 2), y=0.5, z=1.5) if t >= 20 else None
+        states.append(
+            attention.observe(observe(t / 10, person(1, IN_FRONT, right_hand=palm)), None)
+        )
+
+    assert changes(states) == [(0.0, FaceEntity(track_id=1, person=None))]
+    hand = states[20].candidates[1]
+    assert (hand.features.novelty, hand.features.moving) == (0.0, 0.0)
+
+
 def test_everyone_s_hands_are_candidates() -> None:
     attention = VisualAttention(CONFIG)
     beside = Point3D(x=0.5, y=0.0, z=2.0)

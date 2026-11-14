@@ -87,6 +87,10 @@ vision:
     # about 1.8 m away, as 0.12 is with the C920 of the default profile.
     min_face_height: 0.06
     iou_threshold: 0.3
+    # A face that overlaps its last box too little, a small one turning fast, still keeps its
+    # track within this many of its heights: in the simulation, Ben's 53-pixel face moved 25 in
+    # a frame as he turned to the robot.
+    max_shift: 0.75
     reid_threshold: 0.5
     confirm_after_s: 0.5
     leave_after_s: 2.0

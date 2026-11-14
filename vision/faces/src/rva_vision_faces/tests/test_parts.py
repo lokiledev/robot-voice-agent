@@ -36,6 +36,7 @@ MATCHING = MatchConfig(threshold=0.363, margin=0.05)
 TRACKING = TrackerConfig(
     min_face_height=0.12,
     iou_threshold=0.3,
+    max_shift=0.75,
     reid_threshold=0.5,
     confirm_after_s=0.5,
     leave_after_s=3.0,
@@ -240,6 +241,32 @@ def test_tracker_keeps_the_track_of_a_face_that_jumped_by_its_embedding() -> Non
         (1, 100.0, True),
         (2, 500.0, False),
     ]
+
+
+def test_tracker_keeps_the_track_of_a_face_that_moved_less_than_its_height() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([], MATCHING)
+    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery)
+    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery)
+
+    # Turning, it moved 60 pixels, half its height: an overlap of 0.25, and it no longer looks
+    # the same to the embedder.
+    events = tracker.update(0.7, [_detection(160, 0.05)], _embed_by_score, gallery)
+
+    assert events == []
+    assert [(face.track_id, face.box.x) for face in tracker.faces()] == [(1, 160.0)]
+
+
+def test_tracker_starts_a_new_track_for_a_face_farther_than_its_shift() -> None:
+    tracker = Tracker(TRACKING)
+    gallery = Gallery([], MATCHING)
+    tracker.update(0.0, [_detection(100, 0.0)], _embed_by_score, gallery)
+    tracker.update(0.6, [_detection(100, 0.0)], _embed_by_score, gallery)
+
+    # 100 pixels away, 0.83 of a height, and a face of its own.
+    tracker.update(0.7, [_detection(200, 0.05)], _embed_by_score, gallery)
+
+    assert [track.track_id for track in tracker.tracks] == [1, 2]
 
 
 def test_tracker_stops_embedding_a_recognized_track_and_keeps_its_person() -> None:

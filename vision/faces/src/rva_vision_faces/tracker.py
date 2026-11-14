@@ -1,3 +1,4 @@
+import math
 from collections import deque
 from collections.abc import Callable, Sequence
 from typing import Final
@@ -31,9 +32,11 @@ class Track:
 class Tracker:
     """Follows faces from frame to frame and says when they appear and leave.
 
-    Detections continue a track when they overlap its last box. A detection that overlaps none is
-    compared by embedding with the tracks that did not find their face in this frame, so that a
-    face keeps its track across a short occlusion or a fast move.
+    Detections continue a track when they overlap its last box, or else when their centre is
+    close to it for the face's size: a small face far away overlaps little after a quick turn. A
+    detection that neither overlaps nor is close to any is compared by embedding with the tracks
+    that did not find their face in this frame, so that a face keeps its track across a short
+    occlusion or a fast move.
 
     Once a track is recognized it keeps its person for as long as it lives, and its face is no
     longer embedded: a track that stays continuous is the same face. Unrecognized tracks are
@@ -67,6 +70,7 @@ class Tracker:
             gallery: Known people, to recognize the tracks.
         """
         matched = self._match_by_overlap(detections)
+        matched |= self._match_by_distance(detections, matched)
         sampled: list[Track] = []
         for index, detection in enumerate(detections):
             if index in matched:
@@ -138,6 +142,29 @@ class Tracker:
                 matched[index] = track
         return matched
 
+    def _match_by_distance(
+        self, detections: Sequence[Detection], matched: dict[int, Track]
+    ) -> dict[int, Track]:
+        """The detections left, each with the closest track left within `max_shift` of it."""
+        taken = set(matched.values())
+        pairs = sorted(
+            (
+                (_shift(track.box, detection.box), index, track)
+                for track in self._tracks
+                if track not in taken
+                for index, detection in enumerate(detections)
+                if index not in matched
+            ),
+            key=lambda pair: pair[0],
+        )
+        found: dict[int, Track] = {}
+        for shift, index, track in pairs:
+            if shift > self._config.max_shift:
+                break
+            if index not in found and track not in found.values():
+                found[index] = track
+        return found
+
     def _recognize(self, tracks: Sequence[Track], gallery: Gallery) -> None:
         """Match unrecognized tracks; a person already on another track stays there."""
         taken = {track.match.person for track in self._tracks if track.match is not None}
@@ -204,6 +231,13 @@ def _tracked_face(track: Track, *, nearest: bool) -> TrackedFace:
         person=None if track.match is None else track.match.person,
         nearest=nearest,
     )
+
+
+def _shift(a: BoundingBox, b: BoundingBox) -> float:
+    """How far apart the centres of two boxes are, in heights of `a`."""
+    dx = (b.x + b.width / 2) - (a.x + a.width / 2)
+    dy = (b.y + b.height / 2) - (a.y + a.height / 2)
+    return math.hypot(dx, dy) / a.height
 
 
 def iou(a: BoundingBox, b: BoundingBox) -> float:
