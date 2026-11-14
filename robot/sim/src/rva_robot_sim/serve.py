@@ -16,7 +16,8 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
     """Simulate in real time, publishing joint states and frames, until interrupted.
 
     Each step first applies the commands and moves the people as received since the last one, and
-    starts the people's lines due by then. States and frames are due on simulated time, so they
+    starts the people's lines due by then. The people idle until a client starts the scenario,
+    from when their steps and lines count: the agent, once up, or `npc start`. States and frames are due on simulated time, so they
     keep their rates on average whatever the physics step. A synchronous loop: the process does
     nothing else, and Genesis steps on this thread; the room plays on its audio thread.
 
@@ -35,7 +36,19 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
         config.state_rate,
         config.camera_fps,
     )
+    logger.info("The people idle until the agent is up, or `uv run npc start`, starts the scenario")
+    begun: float | None = None
     while True:
+        for request in bus.starts():
+            if begun is None:
+                begun = step * config.physics_dt
+                logger.info("{} starts the scenario", request.by)
+                scene.begin(begun)
+                room.begin()
+            else:
+                logger.warning(
+                    "{} starts the scenario, begun already at {:.1f} s", request.by, begun
+                )
         for command in bus.commands():
             try:
                 scene.command(command)
@@ -49,7 +62,8 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
         scene.step()
         step += 1
         simulated = step * config.physics_dt
-        room.speak(simulated)
+        if begun is not None:
+            room.speak(simulated - begun)
         now = time.monotonic()
         if state_due.passed(simulated):
             bus.publish_state(scene.joint_state(now))

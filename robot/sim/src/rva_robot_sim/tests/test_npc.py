@@ -5,7 +5,14 @@ import kickmsg
 import pytest
 
 from rva_robot_sim.bus import RobotBus
-from rva_robot_sim.npc import PersonPose, lateral, open_people_mover
+from rva_robot_sim.npc import (
+    PersonPose,
+    ScenarioStart,
+    SimulationNotRunningError,
+    lateral,
+    open_people_mover,
+    start_scenario,
+)
 
 
 @pytest.fixture
@@ -53,3 +60,18 @@ def test_poses_reach_the_simulation_in_order(namespace: str) -> None:
 
     assert poses == [first, second]
     assert open_people_mover(namespace, "test_walk") is None
+
+
+def test_the_scenario_is_started_through_the_simulations_mailbox(namespace: str) -> None:
+    with pytest.raises(SimulationNotRunningError, match="No simulation in kickmsg namespace"):
+        start_scenario(namespace, "lune")
+
+    bus = RobotBus(namespace, (4, 2))
+    try:
+        start_scenario(namespace, "lune")
+        start_scenario(namespace, "npc start")
+        starts = bus.starts()
+    finally:
+        bus.close()
+
+    assert starts == [ScenarioStart(by="lune"), ScenarioStart(by="npc start")]

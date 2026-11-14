@@ -6,7 +6,13 @@ import cyclopts
 
 from rva_pydantic import load_yaml
 from rva_robot_sim.config import SimConfig
-from rva_robot_sim.npc import SimulationStoppedError, open_people_mover, pace
+from rva_robot_sim.npc import (
+    SimulationNotRunningError,
+    SimulationStoppedError,
+    open_people_mover,
+    pace,
+    start_scenario,
+)
 from rva_robot_sim.scenarios import SCENARIOS, describe
 
 app = cyclopts.App(
@@ -62,3 +68,20 @@ def walk(
         raise SystemExit(str(error)) from error
     except KeyboardInterrupt:
         pass
+
+
+@app.command
+def start(*, profile: ProfileDir = Path("config/reachy_mini_sim")) -> None:
+    """Start the scenario of a running `lune-sim`, whose people idle until then.
+
+    The agent starts it once up; this is for running the simulation without the agent, e.g. with
+    `lune see`. A scenario starts once: starting it again only logs a warning in the simulation.
+
+    Args:
+        profile: Robot profile directory, with the `sim.yaml` the simulation runs.
+    """
+    config = load_yaml(SimConfig, profile / "sim.yaml")
+    try:
+        start_scenario(config.namespace, "npc start")
+    except SimulationNotRunningError as error:
+        raise SystemExit(f"{error}; start it with `uv run lune-sim --profile {profile}`") from error

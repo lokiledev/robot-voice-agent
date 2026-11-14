@@ -85,8 +85,9 @@ what exists and why.
     integration tests. Built for fixed times (`rva_robot_sim.scenarios`, played by
     `rva_robot_sim.actor`), picked by name by `sim.yaml`'s `scenario`, `lune --scenario` or
     `lune-sim --scenario`; a person's script is scripted or live, someone at the microphone
-    speaking for them. Not yet: steps that wait on the robot (its answer, its gaze), walking and
-    looking somewhere, and checks of what the robot did.
+    speaking for them. The people idle until the agent is up and starts the scenario through
+    the sim's `scenario_start` mailbox (or `npc start`). Not yet: steps that wait on the robot
+    (its answer, its gaze), walking and looking somewhere, and checks of what the robot did.
 - **The simulated people move and speak, but do not walk.** In `greeting` they idle, talk
   with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
   ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). Ana says her lines at their times, gesturing,
@@ -109,6 +110,10 @@ what exists and why.
   decide with the attention who has the head.
 - **The head controller goes straight to each pose** it is sent, with no trajectory or speed
   limit, and does not notice a robot that stopped until its commands pile up.
+- **The simulated head looks around too fast and gets stuck.** In a `greeting` run it moved
+  quickly, then caught a face far in the background, turned fully aside and stayed there a
+  while. To try: filtering or rate-limiting the gaze targets, and recentring slowly when no one
+  is in view (later, exploring instead).
 - **A restarted simulation** replaces its topics: clients of the old one stop hearing from it and
   raise once silent too long, rather than reopening the new ones. Restart them with it.
 - **The real Reachy Mini** needs a bridge from Pollen's daemon to the same topics, so that the

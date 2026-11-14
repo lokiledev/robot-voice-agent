@@ -185,7 +185,10 @@ uv run lune --profile config/reachy_mini_sim --scenario greeting_as_ben
 | `greeting_as_ana` | You speak for Ana instead of her lines; Ben listens |
 | `still` | Both stand silent in their A-pose |
 
-`lune` starts its own simulation, and refuses to start while one is running.
+`lune` starts its own simulation, and refuses to start while one is running. The people idle
+until the agent is up, which starts the scenario: Ana's first line comes 3 s after, not while
+the models are still loading. Without the agent, e.g. with `lune see`, start it with
+`uv run npc start`.
 
 ### Become an operator
 
@@ -207,10 +210,11 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune` | Everything: the servers below, then the voice agent with its session page |
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
-| `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; what they do is a scenario of `rva_robot_sim/scenarios.py`, `sim.yaml`'s `scenario` or `--scenario`, their lines synthesized by Kokoro on first use; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
+| `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; what they do is a scenario of `rva_robot_sim/scenarios.py`, `sim.yaml`'s `scenario` or `--scenario`, their lines synthesized by Kokoro on first use; the people idle until the agent or `npc start` starts it; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
 | `lune head --profile config/reachy_mini_sim` | The head controller: puts the simulated head at the poses it is sent, and points its camera at the attention's target when `lune see` or the agent runs; `--viewer` shows in rerun the robot as its joints put it, with the head's estimated pose, its target and the gaze target's point; start `lune-sim` first |
 | `animate` | An experiment, apart from `lune-sim`: one Rocketbox avatar playing Rocketbox clips one after the other (`--clips static/<name> xyz/<name>...`, `--seconds-each`), blinking, skinned in numpy and rendered by Genesis' rasterizer under studio lights, or by Nyx with `--renderer nyx` and `sim.yaml`'s panorama; writes `animation_body.mp4` and a close-up of the face, `animation_face.mp4` (`--output`). The avatar and the clips download and bake with Blender on first use |
 | `npc walk` | Paces one of the simulated people sideways across the robot's view, back and forth (`--person ana`, `--half-width`, `--speed`; `--scenario` if `lune-sim` was given one), to watch the head follow them with `lune head` and `lune see`; Ctrl+C puts them back; start `lune-sim` first |
+| `npc start` | Starts the scenario of a running `lune-sim`, whose people idle until then, when no agent does: with `lune see` or `lune sense` |
 | `lune robot --profile config/reachy_mini_sim` | Drives the simulated robot's joints, or its head through `lune head`, with sliders, and shows its head camera; start `lune-sim` first |
 | `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |

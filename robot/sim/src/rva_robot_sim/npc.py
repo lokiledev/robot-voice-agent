@@ -1,7 +1,8 @@
 """Controlling the simulation's people, its NPCs, while it runs.
 
-The message that places one, its sender, and the paths they walk. The simulation creates the
-mailbox with its topics, on a node of its own: the real robot has no people to move.
+The messages that place one and that start the scenario, their senders, and the paths people
+walk. The simulation creates the mailboxes with its topics, on a node of its own: the real robot
+has no people to move.
 """
 
 import asyncio
@@ -21,6 +22,8 @@ SIM_NODE: Final = "sim"
 """The simulation's node, which owns the mailbox of people's poses."""
 PERSON_POSE: Final = "person_pose"
 """`PersonPose`, a mailbox of the simulation's node that any client may send to."""
+SCENARIO_START: Final = "scenario_start"
+"""`ScenarioStart`, a mailbox of the simulation's node that any client may send to."""
 
 
 class SimulationStoppedError(RuntimeError):
@@ -37,6 +40,42 @@ class PersonPose(RVABaseModel):
     turned_deg: float
     """How far they are turned from facing the robot, in degrees, counterclockwise seen from
     above; 0 faces it."""
+
+
+class ScenarioStart(RVABaseModel):
+    """Start the scenario now.
+
+    Its steps and lines count from here, and a live person's voice is heard. Until then the
+    people idle.
+    """
+
+    by: str
+    """Who starts it, for the simulation's log, e.g. `lune` or `npc start`."""
+
+
+class SimulationNotRunningError(RuntimeError):
+    pass
+
+
+def start_scenario(namespace: str, by: str) -> None:
+    """Start the scenario of the simulation of `namespace`, if it has not started yet.
+
+    Args:
+        namespace: kickmsg namespace the simulation uses.
+        by: Who starts it, which is also the sender's node name.
+
+    Raises:
+        SimulationNotRunningError: If no simulation runs there.
+    """
+    try:
+        mailbox = kickmsg.Node(by.replace(" ", "_"), namespace).open_mailbox(
+            SIM_NODE, SCENARIO_START
+        )
+    except RuntimeError as error:
+        raise SimulationNotRunningError(
+            f"No simulation in kickmsg namespace {namespace!r}"
+        ) from error
+    mailbox.send(ScenarioStart(by=by).model_dump_json().encode())
 
 
 class PeopleMover:

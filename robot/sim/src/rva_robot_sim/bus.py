@@ -6,7 +6,7 @@ from loguru import logger
 from rva_robot_schemas.camera import CameraFrame, encode_frame, encoded_size
 from rva_robot_schemas.joints import JointCommand, JointState
 from rva_robot_schemas.topics import CAMERA, JOINT_COMMAND, JOINT_STATE, ROBOT_NODE
-from rva_robot_sim.npc import PERSON_POSE, SIM_NODE, PersonPose
+from rva_robot_sim.npc import PERSON_POSE, SCENARIO_START, SIM_NODE, PersonPose, ScenarioStart
 
 _MAX_JSON: Final = 16 * 1024
 """Bytes a joint state or command may take as JSON; a few hundred for Reachy Mini."""
@@ -15,10 +15,10 @@ _MAX_SUBSCRIBERS: Final = 8
 
 
 class RobotBus:
-    """The robot's end of its kickmsg topics, and the simulation's mailbox of people's poses.
+    """The robot's end of its kickmsg topics, and the simulation's mailboxes.
 
-    It creates them all, publishes joint states and frames, and takes the commands and the poses
-    clients send.
+    It creates them all, publishes joint states and frames, and takes the commands, the people's
+    poses and the scenario's start that clients send.
     Topics left by a robot that did not close are replaced, so clients of that robot must reopen
     them. Not thread-safe: use it from one thread.
     """
@@ -45,6 +45,9 @@ class RobotBus:
         # everything else.
         self._poses: Final = self._sim.create_mailbox(
             PERSON_POSE, _config(_MAX_JSON, subscribers=1, ring=64)
+        )
+        self._starts: Final = self._sim.create_mailbox(
+            SCENARIO_START, _config(_MAX_JSON, subscribers=1, ring=4)
         )
         self._commands: Final = self._node.create_mailbox(
             JOINT_COMMAND, _config(_MAX_JSON, subscribers=1, ring=64)
@@ -91,6 +94,20 @@ class RobotBus:
                 logger.exception("Ignored an invalid person pose: {!r}", message[:200])
         return poses
 
+    def starts(self) -> list[ScenarioStart]:
+        """The scenario's starts received since the last call, oldest first.
+
+        Invalid ones are logged and left out, like commands.
+        """
+        starts = []
+        while (message := self._starts.try_receive()) is not None:
+            assert isinstance(message, bytes)
+            try:
+                starts.append(ScenarioStart.model_validate_json(message))
+            except ValueError:
+                logger.exception("Ignored an invalid scenario start: {!r}", message[:200])
+        return starts
+
     def close(self) -> None:
         """Remove the topics; clients still reading them get nothing more."""
         self._unlink()
@@ -100,6 +117,7 @@ class RobotBus:
         self._node.unlink_topic(CAMERA)
         self._node.unlink_mailbox(JOINT_COMMAND)
         self._sim.unlink_mailbox(PERSON_POSE)
+        self._sim.unlink_mailbox(SCENARIO_START)
 
 
 def _config(max_payload: int, subscribers: int, ring: int) -> kickmsg.Config:

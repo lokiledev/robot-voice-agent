@@ -82,6 +82,7 @@ def test_a_turn_leaves_the_next_clip_facing_the_new_way() -> None:
 def test_an_action_cuts_the_idle_clip_then_idling_goes_on() -> None:
     turning = Action(at_s=1.0, clips=((TURN, TURN_1S),))
     actor = Actor(_skin(), [(IDLE, STILL_2S)], [turning], placement(0, 0, 0), _shut)
+    actor.begin(0.0)
 
     actor.pose(0.5)
     idle_anchor = actor.anchor.copy()
@@ -143,14 +144,48 @@ def test_time_does_not_go_back() -> None:
         actor.pose(0.5)
 
 
+def test_actions_wait_for_the_script_to_begin_then_count_from_it() -> None:
+    turning = Action(at_s=1.0, clips=((TURN, TURN_1S),))
+    actor = Actor(_skin(), [(IDLE, STILL_2S)], [turning], placement(0, 0, 0), _shut)
+
+    actor.pose(9.5)
+    idling = actor.anchor.copy()
+    actor.begin(10.0)
+    actor.pose(10.5)
+    before_its_time = actor.anchor.copy()
+    actor.pose(12.5)
+
+    np.testing.assert_allclose(idling, placement(0, 0, 0), atol=1e-12)
+    np.testing.assert_allclose(before_its_time, placement(0, 0, 0), atol=1e-12)
+    # Turned from 11 s to 12 s.
+    np.testing.assert_allclose(actor.anchor, placement(0, 0, math.pi / 2), atol=1e-12)
+
+
 @pytest.mark.parametrize(("opening", "opens"), [(0.0, False), (1.0, True)])
 def test_the_mouth_opens_as_its_speech_says(opening: float, opens: bool) -> None:
     skin = _skin()
-    actor = Actor(skin, [], [], placement(0, 0, 0), lambda time: opening)
+    times: list[float] = []
 
-    mouth = actor.vertices(actor.pose(1.0), 1.0)[1]
+    def mouth(time: float) -> float:
+        times.append(time)
+        return opening
 
-    assert (float(mouth[2]) < 2.0) is opens
+    actor = Actor(skin, [], [], placement(0, 0, 0), mouth)
+    actor.begin(2.0)
+
+    mouth_vertex = actor.vertices(actor.pose(3.0), 3.0)[1]
+
+    assert (float(mouth_vertex[2]) < 2.0) is opens
+    # Asked for the time since the script began.
+    assert times == [1.0]
+
+
+def test_the_mouth_stays_shut_until_the_script_begins() -> None:
+    actor = Actor(_skin(), [], [], placement(0, 0, 0), lambda time: 1.0)
+
+    mouth = actor.vertices(actor.pose(3.0), 3.0)[1]
+
+    assert float(mouth[2]) == 2.0
 
 
 def test_genesis_vertices_find_the_skin_vertex_at_their_place() -> None:

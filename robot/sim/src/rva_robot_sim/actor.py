@@ -56,8 +56,9 @@ class Action(RVABaseModel, arbitrary_types_allowed=True):
 class Actor:
     """One person playing their idle clips over and over, and their actions at their times.
 
-    An action cuts the idle clip playing when it starts; once it ends, the next idle clip
-    starts. They blink, and their mouth opens as their speech says: a script's or a live voice's.
+    They idle until their script begins, from when the actions' times count. An action cuts the
+    idle clip playing when it starts; once it ends, the next idle clip starts. Their mouth stays
+    shut until then too. They blink, and their mouth opens as their speech says: a script's or a live voice's.
     The clips' root motion carries over: a clip that turns them leaves the next facing the new
     way.
     """
@@ -76,9 +77,9 @@ class Actor:
             skin: The avatar.
             idle: Retargeted to `skin`, each with its name; none, and they stand still at rest
                 between actions.
-            actions: In order, retargeted to `skin`.
+            actions: In order, retargeted to `skin`, at their times from the script's beginning.
             placement: 4×4, where they stand on the floor at the start, from `people.standing`.
-            mouth: How open their mouth is at a time, from 0 to 1.
+            mouth: How open their mouth is at a time since the script began, from 0 to 1.
 
         Raises:
             ValueError: If an action starts before the one before it ends.
@@ -102,12 +103,18 @@ class Actor:
         self._weights: Final = np.zeros(len(skin.shape_names))
         self._next_idle = 0
         self._next_action = 0
+        self._begun: float | None = None
         # The clips of the action playing that are still to come; None while idle.
         self._acting: list[tuple[ClipName, Motion]] | None = None
         self._motion = self._idle_clip()
         self._started = 0.0
         self.anchor = placement
         """4×4: where the current clip started on the floor."""
+
+    def begin(self, time: float) -> None:
+        """Begin their script at `time`, in seconds: its actions count from then."""
+        assert self._begun is None, "a script begins once"
+        self._begun = time
 
     def place(self, placement: Floats) -> None:
         """Move them: the current clip goes on from `placement` as if it had started there."""
@@ -128,7 +135,9 @@ class Actor:
     def vertices(self, bones: Floats, time: float) -> Floats:
         """V×3: the skin's vertices posed by `bones`, the face as it is at `time`."""
         self._weights[self._blinks] = _blink(time)
-        self._weights[self._mouth] = self._opening(time)
+        self._weights[self._mouth] = (
+            0.0 if self._begun is None else self._opening(time - self._begun)
+        )
         return deform(self.skin, bones, self._weights)
 
     def _advance(self, time: float) -> None:
@@ -136,8 +145,12 @@ class Actor:
             standing_still = self._acting is None and not self._idle
             ends = math.inf if standing_still else self._started + self._motion.duration
             cut = math.inf
-            if self._acting is None and self._next_action < len(self._actions):
-                cut = self._actions[self._next_action].at_s
+            if (
+                self._begun is not None
+                and self._acting is None
+                and self._next_action < len(self._actions)
+            ):
+                cut = self._begun + self._actions[self._next_action].at_s
             if time < min(ends, cut):
                 return
             if cut <= ends:

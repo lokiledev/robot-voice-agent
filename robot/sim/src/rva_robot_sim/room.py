@@ -48,11 +48,12 @@ class Mix:
 
 
 class Room:
-    """Plays the scripted lines when the simulation reaches them, and relays the live voice.
+    """Plays the scripted lines when the scenario reaches them, and relays the live voice.
 
     Both go into the room's device, a PipeWire sink whose monitor the agent listens to: the
     simulated robot hears the people as a microphone would. The scripted lines go to the
-    loudspeaker too, for whoever watches; the live voice does not, which would echo.
+    loudspeaker too, for whoever watches; the live voice does not, which would echo. The live
+    voice is relayed, and opens its person's mouth, once the scenario has begun.
     """
 
     def __init__(
@@ -75,6 +76,8 @@ class Room:
         self._due: Final = sorted(lines, key=lambda line: line.at_s)
         self._next = 0
         self._live: Final = live
+        # Read on the audio thread: a bool is swapped whole.
+        self._begun = False
         self._into_room: Final = Mix()
         self._into_loudspeaker: Final = Mix()
         stream = {
@@ -122,9 +125,13 @@ class Room:
             stream.stop()
             stream.close()
 
-    def speak(self, simulated: float) -> None:
-        """Start the lines due by `simulated` seconds, which have not started yet."""
-        while self._next < len(self._due) and self._due[self._next].at_s <= simulated:
+    def begin(self) -> None:
+        """Relay the live voice from now."""
+        self._begun = True
+
+    def speak(self, scenario: float) -> None:
+        """Start the lines due by `scenario` seconds since it began, which have not started yet."""
+        while self._next < len(self._due) and self._due[self._next].at_s <= scenario:
             samples = self._due[self._next].clip.samples
             self._next += 1
             self._into_room.start(samples)
@@ -148,6 +155,9 @@ class Room:
         if status:
             logger.warning("Room and microphone: {}", status)
         assert self._live is not None, "relaying only with a live person"
+        if not self._begun:
+            outdata[:, 0] = np.clip(self._into_room.next(frames), -1.0, 1.0)
+            return
         voice = indata[:, 0]
         self._live.hear(voice)
         outdata[:, 0] = np.clip(self._into_room.next(frames) + voice, -1.0, 1.0)

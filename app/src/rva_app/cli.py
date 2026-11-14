@@ -51,6 +51,7 @@ from rva_multimodal.light_asd import open_light_asd
 from rva_observability.session import latest_recording, start_session
 from rva_robot_client.client import RobotCamera, RobotClientConfig, RobotUnavailableError
 from rva_robot_schemas.topics import HEAD_CONTROLLER_NODE, HEAD_TARGET, JOINT_COMMAND, ROBOT_NODE
+from rva_robot_sim.npc import SimulationNotRunningError, start_scenario
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
 from rva_schemas.abc.speaker import SpeakerDetector
@@ -285,6 +286,7 @@ def _run(main: Coroutine[object, object, None]) -> None:
         ServiceFailedError,
         RobotUnavailableError,
         ReSpeakerUnavailableError,
+        SimulationNotRunningError,
     ) as error:
         sys.stderr.write(f"{error}\n")
         raise SystemExit(1) from error
@@ -724,6 +726,9 @@ async def _run_agent(
     )
     await agent.warm_up()
     logger.info("{} is up", profile.character.name)
+    if config.robot is not None:
+        # The simulation's people wait for the agent, so the scenario does not play to nobody.
+        start_scenario(config.robot.namespace, "lune")
     await _with_vision(
         agent.run(),
         vision,
