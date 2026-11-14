@@ -5,7 +5,7 @@ from rva_agent.history import History
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
 from rva_agent.prompt import render_system_prompt
-from rva_agent.sentences import split_sentences
+from rva_agent.sentences import StageDirections, split_sentences
 from rva_agent.tasks import TaskSupervisor
 from rva_agent.tests.fakes import ADMINS, PROFILE, FakeVision, ListRecorder, person
 from rva_agent.tools import TaskTools
@@ -29,6 +29,23 @@ async def test_split_sentences_across_chunks() -> None:
         "Want it?",
         "Ok",
     ]
+
+
+def test_stage_directions_are_taken_out_across_chunks() -> None:
+    directions = StageDirections()
+
+    said = [
+        directions.strip(chunk)
+        for chunk in (
+            "Hi Mia! *wa",
+            "ves* Nice to",
+            " meet you. *tilts head*",
+            " Who *else* is here?",
+        )
+    ]
+
+    assert said == ["Hi Mia! ", " Nice to", " meet you. ", " Who  is here?"]
+    assert directions.removed == ["waves", "tilts head", "else"]
 
 
 def test_history_drops_tool_results_orphaned_by_trimming() -> None:

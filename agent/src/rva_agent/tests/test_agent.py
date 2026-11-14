@@ -917,6 +917,41 @@ async def test_a_gesture_the_busy_body_cannot_play_is_skipped_without_another_wo
     assert len(llm.requests) == 2
 
 
+async def test_stage_directions_are_neither_said_nor_kept() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            # Qwen sometimes writes the wave instead of calling for it, then in every reply after.
+            [TextDelta(text="Hi there! *wa"), TextDelta(text="ves* What's your name?")],
+            [TextDelta(text="Nice to meet you, Mia!")],
+        ]
+    )
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    running = asyncio.create_task(
+        _agent(
+            llm,
+            TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+            user,
+            speech,
+            recorder,
+            None,
+            None,
+        ).run()
+    )
+
+    user.say("Hello.")
+    await speech.wait_for("What's your name?")
+    user.say("I'm Mia.")
+    user.leave()
+    await running
+
+    assert speech.said == ["Hi there!", "What's your name?", "Nice to meet you, Mia!"]
+    assert llm.requests[1][1:] == (
+        UserMessage(content="Hello."),
+        AssistantMessage(content="Hi there!  What's your name?", tool_calls=()),
+        UserMessage(content="I'm Mia."),
+    )
+
+
 async def test_a_line_said_before_the_reply_was_over_is_marked_so() -> None:
     llm = ScriptedLanguageModel(
         [

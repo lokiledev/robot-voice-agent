@@ -17,7 +17,7 @@ from rva_agent.history import History
 from rva_agent.people import PeopleTools
 from rva_agent.permission import ActionPermission
 from rva_agent.prompt import render_system_prompt
-from rva_agent.sentences import split_sentences
+from rva_agent.sentences import StageDirections, split_sentences
 from rva_agent.tasks import TaskSupervisor
 from rva_agent.tools import TaskTools, ToolResult
 from rva_body_schemas.abc.client import BodyClient
@@ -591,20 +591,27 @@ class Agent:
         self, text: list[str], tool_calls: list[ToolCall]
     ) -> AsyncGenerator[str]:
         span = trace.get_current_span()
-        async for output in self._llm.stream(self._history.messages, self._tool_specs):
-            match output:
-                case TextDelta():
-                    if not text:
-                        span.add_event("first_text")
-                    text.append(output.text)
-                    yield output.text
-                case TextEnd():
-                    # Ends the last sentence, which is said while the tool calls are written.
-                    yield "\n"
-                case ToolCall():
-                    tool_calls.append(output)
-                case _:
-                    assert_never(output)
+        # Out of the history too: the LLM would write one in every reply after.
+        directions = StageDirections()
+        try:
+            async for output in self._llm.stream(self._history.messages, self._tool_specs):
+                match output:
+                    case TextDelta():
+                        if not text:
+                            span.add_event("first_text")
+                        said = directions.strip(output.text)
+                        text.append(said)
+                        yield said
+                    case TextEnd():
+                        # Ends the last sentence, which is said while the tool calls are written.
+                        yield "\n"
+                    case ToolCall():
+                        tool_calls.append(output)
+                    case _:
+                        assert_never(output)
+        finally:
+            if directions.removed:
+                logger.info("Not said, from the reply: stage directions {}", directions.removed)
 
     async def _say_fixed(self, text: str) -> None:
         if self._muted:
