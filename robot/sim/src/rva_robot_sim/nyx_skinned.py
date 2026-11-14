@@ -75,6 +75,9 @@ def _build_scene(self: NyxSceneExporter) -> None:
     """The plugin's, with room for a DynamicMesh per skinned vgeom after its instances."""
     asset = self._scene_asset
     assert asset is not None, "created by the exporter's constructor"
+    # Genesis poses the vgeoms once while building the rigid solver when an entity has custom
+    # vertices, before the links have poses: articulated robots' would be exported as NaN.
+    self._scene.rigid_solver.update_vgeoms()
     count = sum(
         entity.n_vgeoms if should_export_at_geom_level(entity) else 1
         for entity in self._scene.entities

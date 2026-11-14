@@ -45,6 +45,8 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, config: SimConfig) -> None:
         if state_due.passed(simulated):
             bus.publish_state(scene.joint_state(now))
         if frame_due.passed(simulated):
+            # The people move at the frames' rate: only the camera sees them.
+            scene.animate(simulated)
             bus.publish_frame(scene.render(now))
         due = start + simulated
         if now - due > _MAX_LAG_S:

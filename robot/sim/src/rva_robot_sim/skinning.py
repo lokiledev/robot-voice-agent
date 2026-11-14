@@ -132,7 +132,7 @@ def retarget(skin: Skin, clip: Clip, still: frozenset[str]) -> Motion:
     missing = [name for name in skin.bone_names if name not in column and name not in kept]
     if missing:
         raise ValueError(f"The clip has no bones {missing}")
-    rest_local = np.stack([_quaternion(local[:3, :3]) for local in skin.local_rest])
+    rest_local = rest(skin).rotations[0]
     frames = len(clip.rotations)
     rotations = np.empty((frames, len(skin.bone_names), 4))
     for bone, name in enumerate(skin.bone_names):
@@ -148,6 +148,22 @@ def retarget(skin: Skin, clip: Clip, still: frozenset[str]) -> Motion:
     offset = (clip.root_position - clip.root_position[0] * (1.0, 1.0, 0.0)) * scale
     root_position = offset @ _matrices(turn).T + rest_root[:3, 3] * (1.0, 1.0, 0.0)
     return Motion(rotations=rotations, root_position=root_position, fps=clip.fps)
+
+
+def rest(skin: Skin) -> Motion:
+    """A motion of one frame that holds the skin in its rest pose: still, in an A-pose."""
+    rotations = np.stack([_quaternion(local[:3, :3]) for local in skin.local_rest])
+    return Motion(rotations=rotations[None], root_position=skin.bone_rest[None, 0, :3, 3], fps=1.0)
+
+
+def truncate(motion: Motion, seconds: float) -> Motion:
+    """Its first `seconds`, or all of it if shorter."""
+    frames = min(len(motion.rotations), math.floor(seconds * motion.fps) + 1)
+    return Motion(
+        rotations=motion.rotations[:frames],
+        root_position=motion.root_position[:frames],
+        fps=motion.fps,
+    )
 
 
 def sample(motion: Motion, time: float) -> tuple[Floats, Floats]:

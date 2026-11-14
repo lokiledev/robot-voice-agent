@@ -1,11 +1,12 @@
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from rva_pydantic import RVABaseModel
 from rva_robot_sim.hdri import HdriConfig
-from rva_robot_sim.people import AvatarsConfig, PlacedPerson
+from rva_robot_sim.people import AvatarsConfig
+from rva_robot_sim.scenes import SCENES
 
 
 class ReachyMiniDescriptionConfig(RVABaseModel):
@@ -49,8 +50,10 @@ class SimConfig(RVABaseModel):
     table_height: float
     """In meters. The head camera sits about 0.15 m above the table top."""
     avatars: AvatarsConfig
-    people: tuple[PlacedPerson, ...]
-    """Standing still around the robot, for the camera to see."""
+    """Where the people of the scenes (`scenes.py`) come from."""
+    scene: str
+    """Who is around the robot and what they do: one of `scenes.SCENES`, by name, e.g.
+    `animated_pair`. `lune-sim --scene` runs another."""
     physics_dt: float
     """Seconds of simulated time per physics step."""
     state_rate: float
@@ -58,3 +61,10 @@ class SimConfig(RVABaseModel):
     camera_fps: float
     """Frames from the head camera per second; their size and field of view are the MJCF's."""
     camera_renderer: CameraRenderer
+
+    @field_validator("scene")
+    @classmethod
+    def _known(cls, scene: str) -> str:
+        if scene not in SCENES:
+            raise ValueError(f"No scene {scene!r}; there are {sorted(SCENES)}")
+        return scene

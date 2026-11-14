@@ -10,18 +10,10 @@ avatars:
   commit: 0943055db6ec570bcef9f2c8b41c9e5467c808f9
   directory: ~/.cache/robot-voice-agent/rocketbox
   blender: /snap/bin/blender
-# Avatars are directories of Assets/Avatars in the Rocketbox repository: Adults/Female_Adult_01 to
-# 17, Adults/Male_Adult_01 to 21, Professions/... They stand in an A-pose.
-people:
-  # In front of the robot, facing it.
-  - avatar: Adults/Female_Adult_01
-    position: [1.1, 0.0]
-    turned_deg: 0
-  # On its right, 40 degrees off its axis and a little closer, facing it too: the nearest face,
-  # the one `lune see` names with n while Female_Adult_01 is already known.
-  - avatar: Adults/Male_Adult_04
-    position: [0.8, -0.65]
-    turned_deg: 0
+# The people around the robot: a scene of rva_robot_sim/scenes.py, by name. `still_pair` stands
+# two in an A-pose; `animated_pair`, the same two idling, talking and listening. `lune-sim --scene`
+# runs another.
+scene: animated_pair
 physics_dt: 0.005
 state_rate: 100
 camera_fps: 30

@@ -1,7 +1,6 @@
 """An experiment: one Rocketbox avatar playing Rocketbox clips in Genesis, filmed to two videos."""
 
 import logging
-import math
 import time
 from pathlib import Path
 from typing import Annotated, Final, Literal
@@ -12,7 +11,6 @@ import genesis as gs
 import gs_nyx.nyx_py_renderer as npr
 import httpx
 import numpy as np
-import numpy.typing as npt
 from genesis.constants import backend
 from genesis.utils.misc import tensor_to_array
 from genesis.vis.camera import Camera
@@ -21,31 +19,15 @@ from loguru import logger
 
 from rva_pydantic import RVABaseModel, load_yaml
 from rva_robot_sim import nyx_skinned
+from rva_robot_sim.actor import STILL_BONES, Actor, vertex_order
 from rva_robot_sim.animation_assets import ClipName, install_clip, install_skin
 from rva_robot_sim.config import NyxRenderer, SimConfig
 from rva_robot_sim.hdri import install_hdri
 from rva_robot_sim.scene import environment_map
-from rva_robot_sim.skinning import (
-    Floats,
-    Skin,
-    deform,
-    displacement,
-    load_clip,
-    load_skin,
-    placement,
-    pose,
-    retarget,
-    sample,
-)
+from rva_robot_sim.skinning import Floats, load_clip, load_skin, placement, retarget, truncate
 
 _FPS: Final = 30
 """Frames a second, of the clips, the videos and the simulation's steps."""
-_STILL: Final = frozenset({"Bip01 REye", "Bip01 LEye", "Bip01 MJaw"})
-"""Bones of the face the clips would move from their own rest pose, which is not the avatar's: the
-eyes and the jaw keep the avatar's, and the face shapes move them."""
-_BLINK_PERIOD_S: Final = 3.7
-_BLINK_S: Final = 0.16
-_SYLLABLE_HZ: Final = 4.5
 _LIGHTS: Final = (
     # Key: warm, high, in front on the camera's left. The avatar faces -y at rest, the camera.
     gs.options.vis.DirectionalLight(dir=(1.5, 2.0, -2.5), color=(1.0, 0.92, 0.82), intensity=4.0),
@@ -139,7 +121,12 @@ def main(
         clip_paths = [install_clip(config.avatars, name, client) for name in names]
         hdri = install_hdri(nyx.environment, client) if nyx is not None else None
     skin = load_skin(skin_path)
-    motions = [retarget(skin, load_clip(path), _STILL) for path in clip_paths]
+    played = [
+        (name, truncate(retarget(skin, load_clip(path), STILL_BONES), seconds_each))
+        for name, path in zip(names, clip_paths, strict=True)
+    ]
+    actor = Actor(skin, played, placement(0.0, 0.0, 0.0))
+    length = sum(motion.duration for _, motion in played)
 
     gs.init(backend=backend.cpu, logging_level="warning")
     logging.getLogger("genesis").addFilter(_without_get_trimesh)
@@ -161,31 +148,20 @@ def main(
         nyx_skinned.install()
         film = _NyxFilm(scene, output, nyx, hdri)
     scene.build()
-    order = _vertex_order(skin, tensor_to_array(person.get_vverts()))
+    order = vertex_order(skin, tensor_to_array(person.get_vverts()))
 
     head = skin.bone_names.index("Bip01 Head")
-    weights = np.zeros(len(skin.shape_names))
-    blinks = [skin.shape_index("AK_09_EyeBlinkLeft"), skin.shape_index("AK_10_EyeBlinkRight")]
-    mouth = skin.shape_index("AA_VI_10_aa")
     film.start()
-    anchor = placement(0.0, 0.0, 0.0)
-    elapsed, costs = 0.0, []
-    for name, motion in zip(names, motions, strict=True):
-        length = min(motion.duration, seconds_each)
-        logger.info("Playing {}/{} for {:.1f} s", name.motion, name.name, length)
-        for frame in range(round(length * _FPS)):
-            started = time.perf_counter()
-            rotations, root = sample(motion, frame / _FPS)
-            bones = pose(skin, rotations, root, anchor)
-            weights[blinks] = _blink(elapsed)
-            weights[mouth] = _syllables(elapsed) if "_talk" in name.name else 0.0
-            person.set_vverts(deform(skin, bones, weights)[order])
-            costs.append(time.perf_counter() - started)
-            film.aim_close_up(*_close_up(bones[head], anchor))
-            scene.step()
-            film.capture()
-            elapsed += 1 / _FPS
-        anchor = anchor @ displacement(skin, motion, length)
+    logger.info("Playing {} for {:.1f} s", ", ".join(clips), length)
+    costs = []
+    for frame in range(round(length * _FPS)):
+        started = time.perf_counter()
+        bones = actor.pose(frame / _FPS)
+        person.set_vverts(actor.vertices(bones, frame / _FPS)[order])
+        costs.append(time.perf_counter() - started)
+        film.aim_close_up(*_close_up(bones[head], actor.anchor))
+        scene.step()
+        film.capture()
     film.stop()
     logger.info(
         "Posed and skinned in {:.2f} ms a frame on average, {:.2f} at most",
@@ -272,45 +248,6 @@ def _nyx_settings(config: SimConfig, profile: Path) -> NyxRenderer:
             return nyx
         case _:
             raise SystemExit(f"{profile / 'sim.yaml'} renders with the rasterizer, not Nyx")
-
-
-def _vertex_order(skin: Skin, loaded: Floats) -> npt.NDArray[np.intp]:
-    """For each vertex Genesis loaded, the skin's vertex at the same place.
-
-    Genesis splits vertices where the texture's seams are, and may reorder them: copies of a vertex
-    share its rest position, and so its bones and weights.
-
-    Raises:
-        ValueError: If a loaded vertex is not one of the skin's.
-    """
-    nearest = np.empty(len(loaded), dtype=np.intp)
-    distance = np.empty(len(loaded))
-    for start in range(0, len(loaded), 1024):
-        chunk = loaded[start : start + 1024]
-        squared = ((chunk[:, None, :] - skin.positions[None, :, :]) ** 2).sum(axis=-1)
-        nearest[start : start + 1024] = squared.argmin(axis=1)
-        distance[start : start + 1024] = np.sqrt(squared.min(axis=1))
-    logger.info(
-        "Genesis loaded {} vertices of the skin's {}, at most {:.2g} m from them",
-        len(loaded),
-        len(skin.positions),
-        distance.max(),
-    )
-    if distance.max() > 1e-4:
-        raise ValueError(f"A vertex Genesis loaded is {distance.max():.3g} m from the skin's")
-    return nearest
-
-
-def _blink(elapsed: float) -> float:
-    phase = elapsed % _BLINK_PERIOD_S
-    return max(0.0, 1.0 - abs(phase - _BLINK_S / 2) / (_BLINK_S / 2))
-
-
-def _syllables(elapsed: float) -> float:
-    """The mouth's opening while talking: syllables, louder and softer over a phrase."""
-    syllable = math.pow(max(0.0, math.sin(2 * math.pi * _SYLLABLE_HZ * elapsed)), 0.7)
-    phrase = 0.6 + 0.4 * math.sin(2 * math.pi * 0.37 * elapsed)
-    return 0.8 * syllable * phrase
 
 
 def _close_up(head: Floats, anchor: Floats) -> tuple[Floats, Floats]:

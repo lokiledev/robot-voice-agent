@@ -1,4 +1,3 @@
-import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final, assert_never
@@ -15,10 +14,12 @@ from gs_nyx_plugin.nyx_camera_options import NyxCameraOptions
 
 from rva_robot_schemas.camera import CameraFrame
 from rva_robot_schemas.joints import JointCommand, JointReading, JointState
+from rva_robot_sim import nyx_skinned
+from rva_robot_sim.actor import Actor, vertex_order
 from rva_robot_sim.config import CameraRenderer, NyxRenderer, Rasterizer
 from rva_robot_sim.mjcf import CameraMount, read_facts
 from rva_robot_sim.npc import PersonPose
-from rva_robot_sim.people import PlacedPerson, yaw_deg
+from rva_robot_sim.people import standing
 
 _TABLE_SIZE: Final = (0.6, 1.0)
 """Depth and width of the table top, in meters."""
@@ -51,7 +52,7 @@ class ReachyMiniScene:
         self,
         mjcf: Path,
         table_height: float,
-        people: Sequence[tuple[Path, PlacedPerson]],
+        people: Sequence[tuple[Path, Actor]],
         renderer: CameraRenderer,
         hdri: Path | None,
         physics_dt: float,
@@ -62,7 +63,7 @@ class ReachyMiniScene:
         Args:
             mjcf: Reachy Mini's MJCF.
             table_height: Of the table top the robot stands on, in meters.
-            people: Each person's baked avatar, from `install_avatar`, and where they stand.
+            people: Each person's avatar and the actor that plays it, from `actor.cast`.
             renderer: What renders the head camera.
             hdri: The panorama Nyx lights the world with, from `install_hdri`; `None` with the
                 rasterizer, which takes none.
@@ -91,23 +92,26 @@ class ReachyMiniScene:
             ),
             surface=gs.surfaces.Default(color=_TABLE_COLOR),
         )
-        # Seen, not touched: the robot cannot reach them. Fixed, they stay where they are put.
+        # Seen, not touched: the robot cannot reach them. Each mesh stays at the origin, in its
+        # rest pose, and `animate` moves its vertices.
         self._people: Final = [
-            self._scene.add_entity(
-                gs.morphs.Mesh(
-                    file=str(avatar),
-                    pos=(*person.position, 0.0),
-                    euler=(0.0, 0.0, yaw_deg(person.position, person.turned_deg)),
-                    fixed=True,
-                    collision=False,
-                )
+            (
+                self._scene.add_entity(
+                    gs.morphs.Mesh(
+                        file=str(avatar), enable_custom_vverts=True, fixed=True, collision=False
+                    )
+                ),
+                actor,
             )
-            for avatar, person in people
+            for avatar, actor in people
         ]
         self._robot: Final = self._scene.add_entity(
             gs.morphs.MJCF(file=str(mjcf), pos=(0.0, 0.0, table_height))
         )
         mount = facts.head_camera
+        if isinstance(renderer, NyxRenderer):
+            # Nyx would show the people still, in their rest pose.
+            nyx_skinned.install()
         # A sensor fixed to the head's link, which renders when read rather than at every step.
         self._camera: Final = self._scene.add_sensor(_camera(renderer, hdri, mount, self._robot))
         self.camera_size: Final = (mount.width, mount.height)
@@ -121,6 +125,11 @@ class ReachyMiniScene:
         self._targets: Final = np.zeros(len(self._names))
         """Where each joint is driven to, starting at the MJCF's rest pose, head upright."""
         self._robot.control_dofs_position(self._targets, self._dofs)
+        self._orders: Final = [
+            vertex_order(actor.skin, tensor_to_array(entity.get_vverts()))
+            for entity, actor in self._people
+        ]
+        self.animate(0.0)
 
     def step(self) -> None:
         self._scene.step()
@@ -140,7 +149,7 @@ class ReachyMiniScene:
         self._robot.control_dofs_position(self._targets, self._dofs)
 
     def place(self, pose: PersonPose) -> None:
-        """Move one of the people.
+        """Move one of the people, from the next `animate`.
 
         Raises:
             UnknownPersonError: If there is no such person.
@@ -149,10 +158,14 @@ class ReachyMiniScene:
             raise UnknownPersonError(
                 f"No person {pose.person}; there are {len(self._people)}, from 0"
             )
-        person = self._people[pose.person]
-        half_yaw = math.radians(yaw_deg(pose.position, pose.turned_deg)) / 2
-        person.set_pos((*pose.position, 0.0), relative=False)
-        person.set_quat((math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)), relative=False)
+        _, actor = self._people[pose.person]
+        actor.place(standing(pose.position, pose.turned_deg))
+
+    def animate(self, time: float) -> None:
+        """Pose the people as they are `time` seconds into the simulation; before a render."""
+        for (entity, actor), order in zip(self._people, self._orders, strict=True):
+            bones = actor.pose(time)
+            entity.set_vverts(actor.vertices(bones, time)[order])
 
     def joint_state(self, timestamp: float) -> JointState:
         positions = self._robot.get_dofs_position(self._dofs).numpy()

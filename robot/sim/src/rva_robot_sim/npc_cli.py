@@ -7,6 +7,7 @@ import cyclopts
 from rva_pydantic import load_yaml
 from rva_robot_sim.config import SimConfig
 from rva_robot_sim.npc import SimulationStoppedError, open_people_mover, pace
+from rva_robot_sim.scenes import SCENES, describe
 
 app = cyclopts.App(
     name="npc",
@@ -22,6 +23,9 @@ type ProfileDir = Annotated[
 def walk(
     *,
     profile: ProfileDir = Path("config/reachy_mini_sim"),
+    scene: Annotated[
+        str | None, cyclopts.Parameter(help=f"One of {sorted(SCENES)}; sim.yaml's by default.")
+    ] = None,
     person: int = 0,
     half_width: float = 0.8,
     speed: float = 0.4,
@@ -33,13 +37,20 @@ def walk(
 
     Args:
         profile: Robot profile directory, with the `sim.yaml` the simulation runs.
-        person: Which of `sim.yaml`'s people, by index.
+        scene: The scene the simulation runs, if `lune-sim --scene` gave it another than
+            `sim.yaml`'s.
+        person: Which of the scene's people, by index.
         half_width: How far they go each side of where they stand, in meters.
         speed: How fast they walk, in meters per second.
     """
     config = load_yaml(SimConfig, profile / "sim.yaml")
-    if not 0 <= person < len(config.people):
-        raise SystemExit(f"{profile / 'sim.yaml'} has {len(config.people)} people, from 0")
+    name = scene if scene is not None else config.scene
+    try:
+        people = describe(name).people
+    except KeyError as error:
+        raise SystemExit(error.args[0]) from error
+    if not 0 <= person < len(people):
+        raise SystemExit(f"The {name} scene has {len(people)} people, from 0")
     mover = open_people_mover(config.namespace, "npc_walk")
     if mover is None:
         raise SystemExit(
@@ -47,7 +58,7 @@ def walk(
             f" `uv run lune-sim --profile {profile}`"
         )
     try:
-        asyncio.run(pace(mover, person, config.people[person], half_width, speed))
+        asyncio.run(pace(mover, person, people[person], half_width, speed))
     except SimulationStoppedError as error:
         raise SystemExit(str(error)) from error
     except KeyboardInterrupt:

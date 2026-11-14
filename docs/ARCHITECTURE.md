@@ -612,10 +612,16 @@ targets.
   through torch, which is why the workspace has torch's CUDA build. Genesis' rasterizer
   (`kind: rasterizer` in `sim.yaml`) needs no ray-tracing GPU, for the tests and other machines.
 - **People to look at.** Microsoft's [Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox)
-  avatars, MIT-licensed, with photographed faces that the face detector takes: `sim.yaml` places
-  them, facing the robot or turned away. On first use each one is downloaded from GitHub at a
-  pinned commit and baked once by headless Blender into a static GLB, since Genesis cannot read
-  their FBX: the most detailed mesh, without its skeleton, in its A-pose. RenderPeople's scans look
+  avatars, MIT-licensed, with photographed faces that the face detector takes. A scene, written
+  as a function in `rva_robot_sim.scenes` and named by `sim.yaml` (`lune-sim --scene` runs
+  another), places them, facing
+  the robot or turned away, and gives each Rocketbox clips to play in a loop. On first use each
+  avatar and clip is downloaded from GitHub at a pinned commit and baked once by headless
+  Blender, since Genesis cannot read their FBX: the face FBX's mesh in its A-pose as a GLB, with
+  its skin and face shapes as arrays, and each clip as its bones' rotations. Genesis shows the
+  mesh with vertices the sim sets: before each frame, `rva_robot_sim.actor` poses each person
+  and skins them in numpy, about a millisecond a person, and a patch of the Nyx plugin
+  (`nyx_skinned`) streams them to the path tracer ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). RenderPeople's scans look
   more real, but their terms forbid computer vision use without written consent; Objaverse's
   scans each need their own fixes. They are the simulation's NPCs: the `npc` CLI moves them
   while it runs, through the `person_pose` mailbox of the simulation's own node, without loading

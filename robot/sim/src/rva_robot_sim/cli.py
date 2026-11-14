@@ -10,12 +10,13 @@ from genesis.constants import backend
 from loguru import logger
 
 from rva_pydantic import load_yaml
+from rva_robot_sim.actor import cast
 from rva_robot_sim.bus import RobotBus
 from rva_robot_sim.config import CameraRenderer, NyxRenderer, Rasterizer, SimConfig
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.hdri import install_hdri
-from rva_robot_sim.people import install_avatar
 from rva_robot_sim.scene import ReachyMiniScene
+from rva_robot_sim.scenes import SCENES, SceneDescription, describe
 from rva_robot_sim.serve import serve
 
 app = cyclopts.App(
@@ -30,43 +31,56 @@ def main(
     profile: Annotated[Path, cyclopts.Parameter(help="Robot profile directory.")] = Path(
         "config/reachy_mini_sim"
     ),
+    scene: Annotated[
+        str | None, cyclopts.Parameter(help=f"One of {sorted(SCENES)}; sim.yaml's by default.")
+    ] = None,
     viewer: bool = False,
 ) -> None:
     """Simulate the robot in real time until Ctrl+C or terminated.
 
     It publishes the joint states and the head camera's frames, and drives the joints to the
-    positions clients send. The robot's description and the people's avatars are downloaded on
-    first use, and the avatars baked with Blender.
+    positions clients send. The people around it are the scene's, playing their clips. The robot's
+    description, the people's avatars and their clips are downloaded on first use, and the avatars
+    and clips baked with Blender.
 
     Args:
         profile: Robot profile directory, with `sim.yaml`.
+        scene: Who is around the robot and what they do, a function of `scenes.py`, instead of
+            `sim.yaml`'s.
         viewer: Open Genesis' viewer, to watch the robot from outside.
     """
     config = load_yaml(SimConfig, profile / "sim.yaml")
     with httpx.Client(follow_redirects=True, timeout=60) as client:
         mjcf = install_reachy_mini(config.description, client)
-        people = [
-            (install_avatar(config.avatars, person.avatar, client), person)
-            for person in config.people
-        ]
+        name = scene if scene is not None else config.scene
+        description = _scene(name)
+        logger.info("Setting the {} scene, of {} people", name, len(description.people))
+        people = [cast(config.avatars, person, client) for person in description.people]
         hdri = _hdri(config.camera_renderer, client)
     # One environment steps faster on the CPU than it takes to launch kernels on a GPU.
     gs.init(backend=backend.cpu, logging_level="warning")
     logging.getLogger("genesis").addFilter(_without_get_trimesh)
     logger.info("Building the scene from {}", mjcf)
-    scene = ReachyMiniScene(
+    world = ReachyMiniScene(
         mjcf, config.table_height, people, config.camera_renderer, hdri, config.physics_dt, viewer
     )
-    bus = RobotBus(config.namespace, scene.camera_size)
+    bus = RobotBus(config.namespace, world.camera_size)
     logger.info("Serving the robot in kickmsg namespace {}", config.namespace)
     # Stopped like Ctrl+C when terminated, as a launcher does, so its topics are removed too.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     try:
-        serve(scene, bus, config)
+        serve(world, bus, config)
     except KeyboardInterrupt:
         logger.info("Stopped")
     finally:
         bus.close()
+
+
+def _scene(name: str) -> SceneDescription:
+    try:
+        return describe(name)
+    except KeyError as error:
+        raise SystemExit(error.args[0]) from error
 
 
 def _hdri(renderer: CameraRenderer, client: httpx.Client) -> Path | None:

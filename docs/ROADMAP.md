@@ -73,29 +73,33 @@ what exists and why.
   view.
 - **The simulation in four layers**, to be kept apart as it grows:
   - *Describing a scene*: which robots, assets and HDRI to load, at which pose, at the start.
-    Today `sim.yaml` (`SimConfig`), with one Reachy Mini on a fixed table.
+    Today `sim.yaml` (`SimConfig`) for the Reachy Mini on its fixed table, the renderer and the
+    rates, and `rva_robot_sim.scenes` for the people: scenes written as functions, picked by
+    name by `sim.yaml`'s `scene` (`animated_pair`, or `still_pair`), or by `lune-sim --scene`
+    for one run.
   - *Controlling the robots*: bridging their sensors and actuators with outside controllers. Today
     `RobotBus` and `serve`, over the robot's kickmsg topics.
   - *Controlling the NPCs*: today `rva_robot_sim.npc`, which places people through the
-    `person_pose` mailbox of the simulation's `sim` node, and its `npc` CLI. People can only be
-    moved yet, not animated, made to speak or to look somewhere.
+    `person_pose` mailbox of the simulation's `sim` node, and its `npc` CLI. A scene's people play
+    their clips in a loop (`rva_robot_sim.actor`); nothing yet tells them, while the sim runs, to
+    play another, to talk or to look somewhere.
   - *Executing a scenario*: a script of what the NPCs do, say and look at, and their animations,
     over time, to test the interactive loops (attention, visual servoing, engagement, the
     dialogue) by hand and in integration tests. None yet: `npc walk` is a first one, written by
     hand.
-- **The simulated people glide, in an A-pose.** `npc walk` slides one sideways, turned to the
-  robot, without moving a limb. Idle motion, walking in and out of view,
-  turning to the robot and a talking mouth would exercise tracking, engagement and the active
-  speaker: [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md) proposes how, with Rocketbox's own clips
-  skinned in numpy and a patch to Nyx.
+- **The simulated people move, but do not walk.** In `animated_pair` they idle, talk with
+  gestures and listen, blinking, their mouth opening in syllables while they talk, skinned in
+  numpy and shown by Nyx through a patch ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). `npc walk`
+  still slides one sideways without walk clips, their mouth does not follow any sound, and they
+  do not turn to the robot or look at it.
 - **Onboarding in the simulation.** The Reachy profile has a face database and an admins file of
   its own, so the avatar is a stranger who meets Reachy as a new user would, and the first person
-  named becomes an operator. The avatar's lips do not move, so the active speaker would never see
-  it speak and would drop all that is said to Reachy: the profile sets `active_speaker: null` for
-  now, which hands each utterance to the face in front. **Put Light-ASD back in
-  `config/reachy_mini_sim/runtime.yaml` once the avatar's mouth moves** (see
-  [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)): until then nothing tells whether Reachy was spoken
-  to, and anyone's voice may interrupt it.
+  named becomes an operator. The profile sets `active_speaker: null`, which hands each
+  utterance to the face in front, because a still mouth is never seen speaking. In
+  `animated_pair` the mouth moves while she talks, but in syllables of its own, not those of the
+  voice the test plays: **put Light-ASD back in `config/reachy_mini_sim/runtime.yaml` once the
+  mouth follows the speech** (see [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)); until then
+  nothing tells whether Reachy was spoken to, and anyone's voice may interrupt it.
 - **Reachy's gestures and the agent's gaze go to the mock's body API**, not to the simulated
   head, which follows the attention alone: a body client over kickmsg is to replace it, and to
   decide with the attention who has the head.

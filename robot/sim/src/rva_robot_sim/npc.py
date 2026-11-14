@@ -12,7 +12,7 @@ import kickmsg
 from loguru import logger
 
 from rva_pydantic import RVABaseModel
-from rva_robot_sim.people import PlacedPerson
+from rva_robot_sim.scenes import Person
 
 _RATE_HZ: Final = 30.0
 """Poses sent per second while walking: as many as the head camera's frames."""
@@ -31,7 +31,7 @@ class PersonPose(RVABaseModel):
     """Where one of the simulation's people stands, and which way they face."""
 
     person: int
-    """Which of the simulation config's `people`, by its index there."""
+    """Which of the scene's `people`, by its index there."""
     position: tuple[float, float]
     """On the floor, in meters, in the robot's frame: it faces +x, +y is its left."""
     turned_deg: float
@@ -95,7 +95,7 @@ def lateral(
 
 
 async def pace(
-    mover: PeopleMover, index: int, person: PlacedPerson, half_width: float, speed: float
+    mover: PeopleMover, index: int, person: Person, half_width: float, speed: float
 ) -> None:
     """Pace `person`, the simulation's person `index`, sideways until cancelled.
 
@@ -103,8 +103,8 @@ async def pace(
 
     Args:
         mover: To the simulation.
-        index: Of the person in the simulation config's `people`.
-        person: As the simulation config places them: they start there.
+        index: Of the person in the scene's `people`.
+        person: As the scene places them: they start there.
         half_width: How far they go each side of where they start, in meters.
         speed: In meters per second.
 

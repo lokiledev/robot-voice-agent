@@ -6,7 +6,8 @@ robot or away, gestures, and a mouth that moves while they talk. This proposes h
 them, from what was tried. The first part is built, as an experiment apart from the simulation:
 `uv run animate` plays clips on one avatar, skinned in numpy (`rva_robot_sim.skinning`), shown by
 Genesis' rasterizer or by Nyx through a patch of its plugin (`rva_robot_sim.nyx_skinned`), and
-films it. The simulation's people come next.
+films it. In the simulation, the Reachy profile's scene, `animated_pair`, has two people play
+their clips in a loop, as `rva_robot_sim.scenes` describes them; `still_pair` keeps them still.
 
 ## What was tried
 
@@ -79,8 +80,9 @@ modulation. The sim plays no sound yet, which a test of the active speaker needs
 mouth moves, the Reachy profile gets its active speaker back: it is left out (`active_speaker:
 null`) only because a still mouth is never seen speaking.
 
-**Told what to do by `sim.yaml` first.** Each placed person gets a behaviour: a clip looped at a
-speed, a path to walk with the walk clip, facing the robot or a direction. It is deterministic,
+**Told what to do by a scene first.** Built: scenes are functions in `rva_robot_sim.scenes`,
+picked by name, and each person gets clips played in a loop. Not yet: a path to walk with the
+walk clip, facing the robot or a direction. It is deterministic,
 which tests want. Later, a `person_command` mailbox of the sim, like `joint_command`, lets a test
 or an operator drive them: play a clip, walk to a point, face the robot, talk with a given
 loudness. The sim would then publish where each person is, their head and whether they talk, as
