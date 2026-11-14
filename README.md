@@ -186,9 +186,9 @@ uv run lune --profile config/reachy_mini_sim --scenario greeting_as_ben
 | `still` | Both stand silent in their A-pose |
 
 `lune` starts its own simulation, and refuses to start while one is running. The people idle
-until the agent is up and its camera has seen a first frame, which starts the scenario: Ana's
-first line comes 3 s after, not while the models are still loading. Without the agent, e.g. with `lune see`, start it with
-`uv run npc start`.
+until everything is up, the agent last, its camera's first frame seen; `lune` then starts the
+scenario, and Ana's first line comes 3 s after. Run by hand, with `lune-sim` and `lune run` or
+`lune see`, start it with `uv run npc start`.
 
 ### Become an operator
 
@@ -211,19 +211,19 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune serve-llm` | The LLM server |
 | `lune-mock` | The mock robot; `--interactive` to end actions from the terminal |
 | `lune-sim` | A Reachy Mini on a table, with people around, simulated in Genesis and rendered by Nyx, serving its joints and head camera; what they do is a scenario of `rva_robot_sim/scenarios.py`, `sim.yaml`'s `scenario` or `--scenario`, their lines synthesized by Kokoro on first use; the people idle until the agent or `npc start` starts it; `--viewer` opens Genesis' viewer. The robot, the people and the room download on first use, and the first start compiles Genesis' kernels, about a minute |
-| `lune head --profile config/reachy_mini_sim` | The head controller: puts the simulated head at the poses it is sent, and points its camera at the attention's target when `lune see` or the agent runs; `--viewer` shows in rerun the robot as its joints put it, with the head's estimated pose, its target and the gaze target's point; start `lune-sim` first |
+| `lune head --profile config/reachy_mini_sim` | The head controller: puts the simulated head at the poses it is sent, and points its camera at the attention's target when `lune see` or the agent runs; `--open-rerun` shows in rerun the robot as its joints put it, with the head's estimated pose, its target and the gaze target's point; start `lune-sim` first |
 | `animate` | An experiment, apart from `lune-sim`: one Rocketbox avatar playing Rocketbox clips one after the other (`--clips static/<name> xyz/<name>...`, `--seconds-each`), blinking, skinned in numpy and rendered by Genesis' rasterizer under studio lights, or by Nyx with `--renderer nyx` and `sim.yaml`'s panorama; writes `animation_body.mp4` and a close-up of the face, `animation_face.mp4` (`--output`). The avatar and the clips download and bake with Blender on first use |
 | `npc walk` | Paces one of the simulated people sideways across the robot's view, back and forth (`--person ana`, `--half-width`, `--speed`; `--scenario` if `lune-sim` was given one), to watch the head follow them with `lune head` and `lune see`; Ctrl+C puts them back; start `lune-sim` first |
 | `npc start` | Starts the scenario of a running `lune-sim`, whose people idle until then, when no agent does: with `lune see` or `lune sense` |
 | `lune robot --profile config/reachy_mini_sim` | Drives the simulated robot's joints, or its head through `lune head`, with sliders, and shows its head camera; start `lune-sim` first |
 | `lune see --profile config/reachy_mini_sim` | `lune see` through the simulated robot's eyes; start `lune-sim` first |
 | `lune serve-video` | MediaMTX, for the camera on the session page |
-| `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot; `--replay clip.mp4` watches and hears a video file instead, `--show` opens the camera window |
-| `lune doa` | Prints where the reSpeaker array hears speech from, on the board and from the camera, to check how the profile places it; `--viewer` plots each of its beams in rerun |
+| `lune listen` | Prints what the microphone hears, turn by turn; with `--camera`, also which face in view said it, and whether to the robot; `--replay clip.mp4` watches and hears a video file instead, `--show-debug-ui` opens the camera window |
+| `lune doa` | Prints where the reSpeaker array hears speech from, on the board and from the camera, to check how the profile places it; `--open-rerun` plots each of its beams in rerun |
 | `lune say` | Speaks each line you type; `--voice` tries another Kokoro voice |
 | `lune llm` | Chat with the LLM alone; tool calls are shown, not run |
 | `lune prompt` | Prints the system prompt built from the profile |
-| `lune see` | Shows the camera with each tracked face, who it is, their gaze, expression and skeleton, beside it the depth, and for each person a timeline of whether they look at the robot, speak and are engaged, with how open their eyes and mouth are; checkboxes choose what is drawn over the camera; with `--viewer`, rerun shows the face or hand attended to and each candidate's score; `--no-window` to only log and record, `--no-depth` to leave depth out |
+| `lune see` | Shows the camera with each tracked face, who it is, their gaze, expression and skeleton, beside it the depth, and for each person a timeline of whether they look at the robot, speak and are engaged, with how open their eyes and mouth are; checkboxes choose what is drawn over the camera; with `--open-rerun`, rerun shows the face or hand attended to and each candidate's score; `--no-show-debug-ui` to only log and record, `--no-depth` to leave depth out |
 | `lune sense` | `lune see` with the microphone too: which face speaks, from its lips and the sound (Light-ASD, converted to ONNX on first use) |
 | `lune rerun` | Opens the latest session's recording in the rerun viewer, with the sound of the microphone and of the robot's voice |
 | `lune people` | Lists everyone Lune knows, with admins and operators |
@@ -231,8 +231,9 @@ Then authorize others by voice: "Lune, authorize Bob."
 | `lune run` | The whole voice agent |
 
 `lune run` and `lune text` need the servers running, and take `--ui` for the session page.
-These and `lune` take `--viewer` to watch the recording live in rerun, `--show` for a camera
-window, `--video` to record the camera frames and their depth, and `--no-camera`. Every command takes
+These and `lune` take `--open-rerun` to watch the recording live in rerun, `--show-debug-ui`
+for the camera's debug window, `--video` to record the camera frames and their depth, and
+`--no-camera`. Every command takes
 `--profile` to use another robot profile than `config/default`.
 
 ## Where data lives

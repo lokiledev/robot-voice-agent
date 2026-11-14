@@ -77,9 +77,15 @@ flowchart LR
 | Session page | `--ui`, then <http://127.0.0.1:8700> | Served by the agent process |
 | Local data | paths in `runtime.yaml` | Profile, admins, face database, recordings; all but the profile outside the source tree |
 
-`lune` runs them all: it starts each server that is not running yet, waits until it is ready
-(for the LLM server, until its health check passes, since it answers while the model still
-loads), runs the agent, and stops on exit what it started.
+`lune` launches them all, one after the other, each once the one before is ready: the rerun
+viewer with `--open-rerun`, first so that any process can stream to it from its start, the
+servers that are not running yet, then the agent, last, in a
+process of its own that shares the terminal. A third-party server is ready when it answers (the
+LLM server, when its health check passes, since it answers while the model still loads); the
+project's own processes say so themselves, like systemd's `sd_notify`: `lune` passes each a
+pipe (`RVA_READY_FD`), and the process writes to it once ready (`rva_app.ready`). The agent is
+ready once its camera has seen a first frame; `lune` then starts the simulation's scenario, if
+any, so the agent knows nothing of scenarios. It stops on exit what it started, the agent first.
 
 The profile is the robot's story (`character.yaml`, `environment.yaml`, `capabilities.yaml`,
 rendered into the system prompt) plus the machine (`runtime.yaml`: models, devices, thresholds,
@@ -340,7 +346,7 @@ flowchart LR
   or both. Nothing to show is routed back into the pipeline: a new signal is one more record for
   the monitor to draw. Live frames come in the camera's thread, which the window lives in; the
   window opens with the first frame and, closed, stays closed while the camera goes on.
-- **Debug window.** `lune see`, and `--show` on the agent, open a Dear PyGui window: the camera
+- **Debug window.** `lune see`, and `--show-debug-ui` on the agent, open a Dear PyGui window: the camera
   with the overlay and, right of it, its depth, with the distance under the mouse and whether
   the camera is calibrated, and under the depth the attention: the score of every face and
   hand that could be attended to over the last 30 s, a curve each, the one attended to marked
@@ -683,7 +689,7 @@ or output, so it could run inside the simulation's loop. For now `lune head` run
 of its own: it takes head poses from the `head_target` mailbox of its kickmsg node, sends the
 joints' targets to the robot, and logs and leaves out the poses out of reach. Like the robot, it
 creates its mailbox when it starts and removes it when stopped, Ctrl+C or terminated, so that a
-sender can tell whether it runs. `lune` starts it after the simulation when the profile has one. With `--viewer` it shows in rerun the robot as its joints put it:
+sender can tell whether it runs. `lune` starts it after the simulation when the profile has one. With `--open-rerun` it shows in rerun the robot as its joints put it:
 the meshes of the base, of the body turned by its yaw, and of the head where forward kinematics
 finds it from each joint state, warm-started from the last estimate, with the head's estimated
 pose and its target as axes. The Stewart platform's arms and rods are not drawn.

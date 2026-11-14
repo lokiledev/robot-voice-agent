@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import functools
 import math
 import os
 import signal
@@ -26,6 +25,7 @@ from rva_app.config import RuntimeConfig, load_admins
 from rva_app.gaze import GazeOut, gaze_out
 from rva_app.head import control_head
 from rva_app.page import MergedInput, Recorders, serve_page
+from rva_app.ready import notify_ready
 from rva_app.robot import drive_robot
 from rva_app.servers import (
     HttpProbe,
@@ -35,7 +35,7 @@ from rva_app.servers import (
     is_ready,
     require_servers,
 )
-from rva_app.services import Service, ServiceFailedError, services_running
+from rva_app.services import Service, ServiceFailedError, run_last, services_running
 from rva_app.terminal import TerminalSpeechOutput, TerminalUserInput, read_lines, write
 from rva_app.voice import open_voice_input, open_voice_output, replayed_voice_input, robot_speech
 from rva_attention.attention import VisualAttention
@@ -49,7 +49,7 @@ from rva_llm.client import OpenAiLanguageModel
 from rva_llm.server import llama_server_command
 from rva_multimodal.config import ActiveSpeakerConfig
 from rva_multimodal.light_asd import open_light_asd
-from rva_observability.session import latest_recording, start_session
+from rva_observability.session import latest_recording, open_viewer, start_session
 from rva_robot_client.client import RobotCamera, RobotClientConfig, RobotUnavailableError
 from rva_robot_schemas.topics import HEAD_CONTROLLER_NODE, HEAD_TARGET, JOINT_COMMAND, ROBOT_NODE
 from rva_robot_sim.npc import SimulationNotRunningError, start_scenario
@@ -99,6 +99,9 @@ app = cyclopts.App(
 type ProfileDir = Annotated[Path, cyclopts.Parameter(help="Robot profile directory.")]
 _DEFAULT_PROFILE = Path("config/default")
 _WINDOW_SIZE: Final = (960, 540)
+_AGENT_STARTUP_S: Final = 900.0
+"""How long the agent may take to be ready under `lune`: the first time, the vision models'
+TensorRT engines are built."""
 """Size of the camera image in the debug window."""
 _DOA_PRINT_S: Final = 0.25
 """How often `lune doa` prints where speech comes from, at most."""
@@ -141,8 +144,8 @@ def everything(
     profile: ProfileDir = _DEFAULT_PROFILE,
     text: bool = False,
     camera: bool = True,
-    viewer: bool = False,
-    show: bool = False,
+    open_rerun: bool = False,
+    show_debug_ui: bool = False,
     video: bool = False,
     depth: bool = True,
     scenario: str | None = None,
@@ -157,14 +160,14 @@ def everything(
         profile: Robot profile directory.
         text: Type to the robot instead of talking.
         camera: Watch for people with the camera.
-        viewer: Stream the recording to a rerun viewer.
-        show: Also show the camera with the tracked faces in a window.
+        open_rerun: Open a rerun viewer, and stream the recording to it.
+        show_debug_ui: Also show the camera with the tracked faces in a window.
         video: Record the camera frames and their depth with the session, to replay them in rerun.
         depth: Estimate the camera's depth, if the profile has a depth model.
         scenario: What happens around the simulated robot, instead of the profile's `sim.yaml`
             scenario: one of `rva_robot_sim.scenarios.SCENARIOS`, e.g. `greeting_as_ben`.
     """
-    _run(_up(profile, text, camera, viewer, show, video, depth, scenario))
+    _run(_up(profile, text, camera, open_rerun, show_debug_ui, video, depth, scenario))
 
 
 @app.command
@@ -182,9 +185,9 @@ def llm(*, profile: ProfileDir = _DEFAULT_PROFILE, system_prompt: bool = True) -
 def text(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
-    viewer: bool = False,
+    open_rerun: bool = False,
     camera: bool = True,
-    show: bool = False,
+    show_debug_ui: bool = False,
     video: bool = False,
     ui: bool = False,
     depth: bool = True,
@@ -193,43 +196,43 @@ def text(
 
     Args:
         profile: Robot profile directory.
-        viewer: Stream the recording to a rerun viewer.
+        open_rerun: Open a rerun viewer, and stream the recording to it.
         camera: Watch for people with the camera.
-        show: Also show the camera with the tracked faces in a window.
+        show_debug_ui: Also show the camera with the tracked faces in a window.
         video: Record the camera frames and their depth with the session, to replay them in rerun.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_run_text_agent(profile, viewer, camera, show, video, ui, depth))
+    _run(_run_text_agent(profile, open_rerun, camera, show_debug_ui, video, ui, depth))
 
 
 @app.command
 def listen(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
-    viewer: bool = False,
+    open_rerun: bool = False,
     camera: bool = False,
     replay: Path | None = None,
-    show: bool = False,
+    show_debug_ui: bool = False,
 ) -> None:
     """Print what the microphone hears, turn by turn: VAD, end of turn and ASR, without the agent.
 
     Args:
         profile: Robot profile directory.
-        viewer: Stream the recording, with the VAD probability, to a rerun viewer.
+        open_rerun: Open a rerun viewer, and stream the recording to it, with the VAD probability.
         camera: Also print which face in view said each turn, from its lips and the sound, and
             whether to the robot.
         replay: A video file to watch and hear in place of the camera and the microphone, at
             its own pace, as with `camera`; it stops when the file ends.
-        show: With `camera` or `replay`, also show the camera with the tracked faces in a window.
+        show_debug_ui: With `camera` or `replay`, also show the camera with the tracked faces in a window.
     """
     if replay is not None and not replay.is_file():
         raise SystemExit(f"{replay} is not a file")
-    _run(_listen(profile, viewer, camera or replay is not None, replay, show))
+    _run(_listen(profile, open_rerun, camera or replay is not None, replay, show_debug_ui))
 
 
 @app.command
-def doa(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+def doa(*, profile: ProfileDir = _DEFAULT_PROFILE, open_rerun: bool = False) -> None:
     """Print where the reSpeaker array hears speech from, without the agent.
 
     Four times a second while it hears speech: the azimuth in the array's frame, and the bearing
@@ -237,10 +240,10 @@ def doa(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None
 
     Args:
         profile: Robot profile directory.
-        viewer: Stream the recording, with each beam's azimuth and speech energy, to a rerun
-            viewer.
+        open_rerun: Open a rerun viewer, and stream the recording to it, with each beam's
+            azimuth and speech energy.
     """
-    _run(_doa(profile, viewer))
+    _run(_doa(profile, open_rerun))
 
 
 @app.command
@@ -258,9 +261,9 @@ def say(*, profile: ProfileDir = _DEFAULT_PROFILE, voice: str | None = None) -> 
 def run(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
-    viewer: bool = False,
+    open_rerun: bool = False,
     camera: bool = True,
-    show: bool = False,
+    show_debug_ui: bool = False,
     video: bool = False,
     ui: bool = False,
     depth: bool = True,
@@ -269,14 +272,14 @@ def run(
 
     Args:
         profile: Robot profile directory.
-        viewer: Stream the recording to a rerun viewer.
+        open_rerun: Open a rerun viewer, and stream the recording to it.
         camera: Watch for people with the camera.
-        show: Also show the camera with the tracked faces in a window.
+        show_debug_ui: Also show the camera with the tracked faces in a window.
         video: Record the camera frames and their depth with the session, to replay them in rerun.
         ui: Show the session on a web page, where you can type too. The camera needs MediaMTX.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_run_voice_agent(profile, viewer, camera, show, video, ui, depth))
+    _run(_run_voice_agent(profile, open_rerun, camera, show_debug_ui, video, ui, depth))
 
 
 def _run(main: Coroutine[object, object, None]) -> None:
@@ -297,12 +300,20 @@ async def _up(
     profile_dir: Path,
     text: bool,
     camera: bool,
-    viewer: bool,
-    show: bool,
+    open_rerun: bool,
+    show_debug_ui: bool,
     video: bool,
     depth: bool,
     scenario: str | None,
 ) -> None:
+    """Launch everything, one after the other, each once the one before is ready.
+
+    The rerun viewer, the servers, then the agent in a process of its own, sharing the terminal.
+    Once the agent is ready, its camera's first frame seen, the simulation's scenario starts.
+
+    Raises:
+        SystemExit: With the agent's code, if it fails.
+    """
     config = RuntimeConfig.load(profile_dir)
     if scenario is not None and config.robot is None:
         raise SystemExit(f"--scenario is for a simulated robot, which {profile_dir} has not")
@@ -312,12 +323,46 @@ async def _up(
             f"A simulation is running already in kickmsg namespace {config.robot.namespace!r}:"
             " stop it first"
         )
+    # First, so any process, the simulation too, can stream to it from its start.
+    if open_rerun:
+        logger.info("Opening the rerun viewer")
+        await asyncio.to_thread(open_viewer)
     logs = config.observability.captures_dir.expanduser() / "servers"
     services = _services(config, profile_dir, camera, scenario)
     async with services_running(services, logs):
-        write(f"Session page: http://{config.ui.host}:{config.ui.port}\n")
-        run_agent = _run_text_agent if text else _run_voice_agent
-        await run_agent(profile_dir, viewer, camera, show, video, True, depth)
+        agent = _agent_command(profile_dir, text, camera, open_rerun, show_debug_ui, video, depth)
+        code = await run_last("The agent", agent, _AGENT_STARTUP_S, lambda: _on_agent_up(config))
+    if code != 0:
+        raise SystemExit(code)
+
+
+def _agent_command(
+    profile_dir: Path,
+    text: bool,
+    camera: bool,
+    open_rerun: bool,
+    show_debug_ui: bool,
+    video: bool,
+    depth: bool,
+) -> list[str]:
+    """`lune run` or `lune text` with the session page, as `lune` was asked to run it."""
+    flags = {
+        "--no-camera": not camera,
+        "--open-rerun": open_rerun,
+        "--show-debug-ui": show_debug_ui,
+        "--video": video,
+        "--no-depth": not depth,
+    }
+    lune = Path(sys.executable).with_name("lune")
+    command = [str(lune), "text" if text else "run", "--profile", str(profile_dir), "--ui"]
+    return command + [flag for flag, given in flags.items() if given]
+
+
+def _on_agent_up(config: RuntimeConfig) -> None:
+    write(f"Session page: http://{config.ui.host}:{config.ui.port}\n")
+    if config.robot is not None:
+        # The simulation's people idle until now, so the scenario does not play to nobody.
+        start_scenario(config.robot.namespace, "lune")
 
 
 def _services(
@@ -341,6 +386,7 @@ def _services(
                 how_to_start="start it with `uv run lune serve-llm`",
             ),
             command=lambda: llama_server_command(llm),
+            notifies=False,
             environment={},
             directory=None,
             startup_s=300,
@@ -348,6 +394,7 @@ def _services(
         Service(
             server=_body_server(config),
             command=lambda: [str(mock), "--host", robot.hostname, "--port", str(robot.port)],
+            notifies=False,
             environment={},
             directory=None,
             startup_s=30,
@@ -358,6 +405,7 @@ def _services(
             Service(
                 server=_media_server(config),
                 command=lambda: media_server_command(_media_server_executable(config.media_server)),
+                notifies=False,
                 environment=MEDIA_SERVER_ENVIRONMENT,
                 # It writes a self-signed certificate where it runs.
                 directory=media_server_directory(config.media_server),
@@ -375,6 +423,7 @@ def _services(
                     str(profile_dir),
                     *(["--scenario", scenario] if scenario is not None else []),
                 ],
+                notifies=True,
                 environment={},
                 directory=None,
                 # The robot's description downloads and Genesis compiles its kernels, the first
@@ -390,6 +439,7 @@ def _services(
                 # Started after the robot, which it drives: services start one after the other.
                 server=_head_controller_server(config.robot),
                 command=lambda: [str(lune), "head", "--profile", str(profile_dir)],
+                notifies=True,
                 environment={},
                 directory=None,
                 startup_s=60,
@@ -737,10 +787,8 @@ async def _run_agent(
         interaction,
         respeaker,
         recorder,
-        # The simulation's people wait for the agent, so the scenario does not play to nobody.
-        None
-        if config.robot is None
-        else functools.partial(start_scenario, config.robot.namespace, "lune"),
+        # For the launcher, which starts the simulation's scenario then.
+        notify_ready,
     )
 
 
@@ -752,10 +800,10 @@ async def _one(text: str) -> AsyncGenerator[str]:
 def see(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
-    viewer: bool = False,
+    open_rerun: bool = False,
     video: bool = False,
     stream: bool = False,
-    window: bool = True,
+    show_debug_ui: bool = True,
     depth: bool = True,
 ) -> None:
     """Show the camera with each tracked face, who it is and what it shows, without the agent.
@@ -765,23 +813,23 @@ def see(
 
     Args:
         profile: Robot profile directory.
-        viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
+        open_rerun: Open a rerun viewer, and stream the recording to it, with the per-frame timings.
         video: Record the camera frames and their depth with the session, to replay them in rerun.
         stream: Also publish the window's image to MediaMTX, to watch on its WebRTC page.
-        window: Show the debug window; without it, people are only logged, recorded and
+        show_debug_ui: Show the debug window; without it, people are only logged, recorded and
             streamed.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_see(profile, viewer, video, stream, window, depth, listen=False))
+    _run(_see(profile, open_rerun, video, stream, show_debug_ui, depth, listen=False))
 
 
 @app.command
 def sense(
     *,
     profile: ProfileDir = _DEFAULT_PROFILE,
-    viewer: bool = False,
+    open_rerun: bool = False,
     video: bool = False,
-    window: bool = True,
+    show_debug_ui: bool = True,
     depth: bool = True,
 ) -> None:
     """Like `see`, with the microphone too: which face speaks, from its lips and the sound.
@@ -790,12 +838,12 @@ def sense(
 
     Args:
         profile: Robot profile directory.
-        viewer: Stream the recording, with the per-frame timings, to a rerun viewer.
+        open_rerun: Open a rerun viewer, and stream the recording to it, with the per-frame timings.
         video: Record the camera frames and their depth with the session, to replay them in rerun.
-        window: Show the debug window; without it, people are only logged and recorded.
+        show_debug_ui: Show the debug window; without it, people are only logged and recorded.
         depth: Estimate the camera's depth, if the profile has a depth model.
     """
-    _run(_see(profile, viewer, video, False, window, depth, listen=True))
+    _run(_see(profile, open_rerun, video, False, show_debug_ui, depth, listen=True))
 
 
 async def _run_text_agent(
@@ -858,15 +906,15 @@ def robot(*, profile: ProfileDir = _DEFAULT_PROFILE) -> None:
 
 
 @app.command
-def head(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> None:
+def head(*, profile: ProfileDir = _DEFAULT_PROFILE, open_rerun: bool = False) -> None:
     """Run the head controller: put the robot's head at the poses it is sent, e.g. by `lune robot`.
 
     Start the simulated robot first with `uv run lune-sim`. Ctrl+C stops it.
 
     Args:
         profile: Robot profile directory.
-        viewer: Show in rerun the robot as its joints put it, the head's estimated pose and the
-            targets.
+        open_rerun: Open a rerun viewer, and show in it the robot as its joints put it, the
+            head's estimated pose and the targets.
     """
     config = RuntimeConfig.load(profile)
     if config.head_controller is None or config.robot is None:
@@ -874,7 +922,7 @@ def head(*, profile: ProfileDir = _DEFAULT_PROFILE, viewer: bool = False) -> Non
     # Stopped like Ctrl+C when terminated, as a launcher does, so its mailbox is removed too: a
     # mailbox left behind would pass for a running controller.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
-    _run(control_head(config.head_controller, config.robot, viewer))
+    _run(control_head(config.head_controller, config.robot, open_rerun))
 
 
 @app.command

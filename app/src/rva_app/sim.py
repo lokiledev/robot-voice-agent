@@ -16,6 +16,7 @@ from genesis.constants import backend
 from loguru import logger
 
 from rva_app.config import RuntimeConfig
+from rva_app.ready import notify_ready
 from rva_pydantic import load_yaml
 from rva_robot_sim.actor import cast
 from rva_robot_sim.bus import RobotBus
@@ -109,6 +110,7 @@ def main(
         anyone_live = any(isinstance(script, Live) for script in played.scripts.values())
         scripted = [line for spoken in lines.values() for line in spoken]
         with Room(scripted, voice if anyone_live else None, config.speech) as room:
+            notify_ready()
             serve(world, bus, room, config)
     except KeyboardInterrupt:
         logger.info("Stopped")

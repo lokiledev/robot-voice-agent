@@ -85,8 +85,8 @@ what exists and why.
     integration tests. Built for fixed times (`rva_robot_sim.scenarios`, played by
     `rva_robot_sim.actor`), picked by name by `sim.yaml`'s `scenario`, `lune --scenario` or
     `lune-sim --scenario`; a person's script is scripted or live, someone at the microphone
-    speaking for them. The people idle until the agent is up, its camera's first frame seen, and starts the scenario through
-    the sim's `scenario_start` mailbox (or `npc start`). Not yet: steps that wait on the robot
+    speaking for them. The people idle until `lune` has everything up, the agent last, and
+    starts the scenario through the sim's `scenario_start` mailbox (or `npc start`). Not yet: steps that wait on the robot
     (its answer, its gaze), walking and looking somewhere, and checks of what the robot did.
 - **The simulated people move and speak, but do not walk.** In `greeting` they idle, talk
   with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
@@ -110,6 +110,10 @@ what exists and why.
   decide with the attention who has the head.
 - **The head controller goes straight to each pose** it is sent, with no trajectory or speed
   limit, and does not notice a robot that stopped until its commands pile up.
+- **Direction of arrival is not simulated.** The reSpeaker's is read in `rva-voice-respeaker`,
+  and the Reachy profile has none (`respeaker: null`), so in the simulation the sound's direction
+  never picks the face speaking. To make it a sensor with a simulated implementation: while a
+  person speaks, the direction from the robot to them.
 - **The simulated head looks around too fast and gets stuck.** In a `greeting` run it moved
   quickly, then caught a face far in the background, turned fully aside and stayed there a
   while. To try: filtering or rate-limiting the gaze targets, and recentring slowly when no one

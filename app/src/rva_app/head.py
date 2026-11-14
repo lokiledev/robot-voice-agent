@@ -18,6 +18,7 @@ from loguru import logger
 
 from rva_app.config import HeadControllerConfig
 from rva_app.head_view import HeadView, read_meshes
+from rva_app.ready import notify_ready
 from rva_robot_client.client import RobotClient, RobotClientConfig, open_robot
 from rva_robot_client.head import gaze_targets, head_targets
 from rva_robot_kinematics.controller import HeadController
@@ -70,6 +71,7 @@ async def control_head(
         controller = HeadController(kinematics, _position(state, "yaw_body"))
         trail = HeadTrail(_TRAIL_S, _MAX_GAP_S)
         logger.info("Head controller ready in kickmsg namespace {}", robot_config.namespace)
+        notify_ready()
         async with asyncio.TaskGroup() as group:
             group.create_task(_follow(states, kinematics, trail, view))
             group.create_task(_look(gazes, gaze, trail, controller, robot, view))

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from rva_app.servers import HttpProbe, Server, is_ready
-from rva_app.services import Service, ServiceFailedError, services_running
+from rva_app.services import Service, ServiceFailedError, run_last, services_running
 
 
 def _free_port() -> int:
@@ -25,6 +25,7 @@ def _web_server(port: int, command: list[str]) -> Service:
             how_to_start="run it",
         ),
         command=lambda: command,
+        notifies=False,
         environment={},
         directory=None,
         startup_s=10,
@@ -80,3 +81,64 @@ async def test_a_service_that_exits_fails_and_points_to_its_output(tmp_path: Pat
             pass
 
     assert (tmp_path / "web-server.log").read_text() == "model not found\n"
+
+
+def _notifying(code: str) -> list[str]:
+    """A process of this project: runs `code`, in which `notify_ready()` tells it is ready."""
+    return [sys.executable, "-c", f"from rva_app.ready import notify_ready\n{code}"]
+
+
+def _notifying_service(command: list[str]) -> Service:
+    # Probed only to tell whether it runs already: nothing ever answers there.
+    return _web_server(_free_port(), command).model_copy(update={"notifies": True})
+
+
+async def test_a_service_that_notifies_is_ready_when_it_says_so(tmp_path: Path) -> None:
+    marker = tmp_path / "before-ready"
+    service = _notifying_service(
+        _notifying(
+            f"import pathlib, time\ntime.sleep(0.3)\npathlib.Path({str(marker)!r}).touch()\n"
+            "notify_ready()\ntime.sleep(60)"
+        )
+    )
+
+    async with services_running([service], tmp_path):
+        ready_inside = marker.exists()
+
+    assert ready_inside
+
+
+async def test_a_service_that_exits_without_notifying_fails(tmp_path: Path) -> None:
+    service = _notifying_service(_notifying("print('no camera')"))
+
+    with pytest.raises(ServiceFailedError, match="Web server exited with code 0"):
+        async with services_running([service], tmp_path):
+            pass
+
+
+async def test_the_last_process_runs_until_it_exits_after_saying_it_is_ready() -> None:
+    told: list[str] = []
+
+    code = await run_last(
+        "The agent",
+        _notifying("notify_ready()\nraise SystemExit(7)"),
+        startup_s=10,
+        when_ready=lambda: told.append("ready"),
+    )
+
+    assert code == 7
+    assert told == ["ready"]
+
+
+async def test_the_last_process_failing_before_it_is_ready_is_an_error() -> None:
+    told: list[str] = []
+
+    with pytest.raises(ServiceFailedError, match="The agent exited with code 3"):
+        await run_last(
+            "The agent",
+            _notifying("raise SystemExit(3)"),
+            startup_s=10,
+            when_ready=lambda: told.append("ready"),
+        )
+
+    assert told == []

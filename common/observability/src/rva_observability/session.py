@@ -26,7 +26,7 @@ def start_session(
     """Create a session directory and send logs, spans and records into it.
 
     The directory holds `session.rrd` and `agent.log`. With `viewer`, the recording also streams to
-    a rerun viewer, spawned if none is running.
+    a rerun viewer, opened if none is.
     """
     directory = config.captures_dir.expanduser() / f"{datetime.now():%Y-%m-%dT%H%M%S}-{name}"
     directory.mkdir(parents=True)
@@ -38,9 +38,7 @@ def start_session(
     recording = rr.RecordingStream(_APPLICATION_ID)
     sinks: list[rr.FileSink | rr.GrpcSink] = [rr.FileSink(directory / _RECORDING)]
     if viewer:
-        # Through this recording: the global rr.spawn ignores the call when no global recording
-        # was initialized, which this app never does.
-        recording.spawn(connect=False)
+        open_viewer()
         sinks.append(rr.GrpcSink())
     recording.set_sinks(*sinks)
 
@@ -50,6 +48,16 @@ def start_session(
 
     logger.info("Recording session to {}", directory)
     return RerunRecorder(recording)
+
+
+def open_viewer() -> None:
+    """Open a rerun viewer, unless one is open already, and return once it takes recordings.
+
+    It outlives this process, to look at what was recorded.
+    """
+    # Through a recording: the global rr.spawn ignores the call when no global recording was
+    # initialized, which this app never does.
+    rr.RecordingStream(_APPLICATION_ID).spawn(connect=False)
 
 
 def latest_recording(config: ObservabilityConfig) -> Path | None:

@@ -36,7 +36,7 @@ def serve(scene: ReachyMiniScene, bus: RobotBus, room: Room, config: SimConfig) 
         config.state_rate,
         config.camera_fps,
     )
-    logger.info("The people idle until the agent is up, or `uv run npc start`, starts the scenario")
+    logger.info("The people idle until `lune`, once all is up, or `npc start` starts the scenario")
     begun: float | None = None
     while True:
         for request in bus.starts():
