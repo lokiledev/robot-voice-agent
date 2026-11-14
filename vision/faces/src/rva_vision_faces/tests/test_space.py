@@ -191,22 +191,38 @@ def test_a_hand_is_fitted_with_its_wrist_at_its_arm_s_wrist_depth() -> None:
     assert np.abs(placed - points).max() == pytest.approx(0.0, abs=1e-3)
 
 
-def test_only_the_main_user_s_skeleton_is_placed() -> None:
+def test_every_skeleton_is_placed_and_only_the_main_user_s_hands_fitted() -> None:
     body = _body({0: (960, 540)}, _hand({0: (1460, 790), 5: (1480, 760)}))
-    other = body.model_copy(update={"box": BoundingBox(x=0, y=0, width=900, height=1080)})
-    scene = Scene(faces={}, bodies={1: body, 2: other}, unmatched_bodies=(), speakers={})
+    scene = Scene(faces={}, bodies={1: body, 2: body}, unmatched_bodies=(), speakers={})
 
     lifted = Lifter(INTRINSICS).lift(scene, _depth(2.0), 2)
 
-    assert lifted.bodies[1] == body
-    nose = lifted.bodies[2].keypoints[0]
-    assert nose is not None and nose.position is not None
-    assert lifted.bodies[2].left_hand != other.left_hand
+    for track_id in (1, 2):
+        nose = lifted.bodies[track_id].keypoints[0]
+        assert nose is not None and nose.position is not None
+        assert _xyz(nose.position) == pytest.approx((0.0, 0.0, 2.0), abs=1e-6)
+    # Someone else's hand is flat at its palm's depth, without an arm's wrist: 500 and 520 pixels
+    # right, 250 and 220 down, of a 1000-pixel focal length.
+    flat = lifted.bodies[1].left_hand
+    assert flat is not None
+    assert [k.position for k in flat.keypoints if k is not None] == [
+        Point3D(x=1.0, y=0.5, z=2.0),
+        Point3D(x=1.04, y=0.44, z=2.0),
+    ]
+    assert lifted.bodies[2].left_hand != flat, "the main user's is fitted"
 
 
-def test_without_a_main_user_the_skeletons_stay_in_the_image() -> None:
-    body = _body({0: (960, 540)}, _hand({0: (1460, 790)}))
+def test_someone_else_s_hand_is_at_its_arm_s_wrist_depth() -> None:
+    # The forearm ends at the arm's wrist, 1 m away; the wall, 3 m, is seen through the fingers.
+    depth = _depth(3.0)
+    depth.metres[190:205, 360:370] = 1.0
+    body = _body({10: (1460, 790)}, _hand({}))
+    body = body.model_copy(update={"right_hand": _hand({0: (1500, 700), 5: (1520, 690)})})
 
-    lifted = Lifter(INTRINSICS).lift(_scene(body), _depth(2.0), None)
+    lifted = Lifter(INTRINSICS).lift(_scene(body), depth, None)
 
-    assert lifted.bodies[1] == body
+    hand = lifted.bodies[1].right_hand
+    assert hand is not None
+    wrist = hand.keypoints[0]
+    assert wrist is not None and wrist.position is not None
+    assert _xyz(wrist.position) == pytest.approx((0.54, 0.16, 1.0), abs=1e-6)

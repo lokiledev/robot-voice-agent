@@ -75,6 +75,7 @@ from rva_schemas.dialogue import (
     UserUtterance,
 )
 from rva_schemas.frames import StaticTransforms
+from rva_schemas.observation import VisualObservation
 from rva_schemas.profile import Profile
 from rva_schemas.vision import UnknownTrackError
 from rva_ui.media import (
@@ -1079,10 +1080,11 @@ async def _see(
             group = await stack.enter_async_context(asyncio.TaskGroup())
             tasks = [
                 group.create_task(_name_nearest_face(vision, keys)),
-                group.create_task(_attend(vision, config.attention, gaze_out(config), recorder)),
-                group.create_task(closed.wait()),
                 # People engaging and disengaging are logged, and their scores recorded.
-                group.create_task(_interact(vision, interaction)),
+                group.create_task(
+                    _watch(vision, config.attention, gaze_out(config), interaction, recorder)
+                ),
+                group.create_task(closed.wait()),
             ]
             if speaker is not None:
                 microphone = await stack.enter_async_context(
@@ -1130,17 +1132,38 @@ def _monitor(
     )
 
 
-async def _attend(
-    vision: FaceVision, config: VisualAttentionConfig, gaze: GazeOut | None, recorder: Recorder
+async def _watch(
+    vision: FaceVision,
+    config: VisualAttentionConfig,
+    gaze: GazeOut | None,
+    interaction: Interaction | None,
+    recorder: Recorder,
 ) -> None:
     """Attend to what the camera sees, until cancelled, sending each target to `gaze` if any.
 
-    Each state is recorded, so whatever shows the camera marks the target.
+    With an `interaction`, it is shown each frame first, and tells the attention which face
+    speaks. Each state is recorded, so whatever shows the camera marks the target.
     """
     async with vision.observations() as observations:
-        async for state in follow(observations, VisualAttention(config), recorder):
+        frames = _with_speaker(observations, interaction)
+        async for state in follow(frames, VisualAttention(config), recorder):
             if gaze is not None:
                 gaze.send(state)
+
+
+async def _with_speaker(
+    observations: AsyncIterator[VisualObservation], interaction: Interaction | None
+) -> AsyncIterator[tuple[VisualObservation, int | None]]:
+    """Each observation with the face speaking in it, shown to `interaction` first.
+
+    Nobody speaks without an interaction.
+    """
+    async for observation in observations:
+        if interaction is None:
+            yield observation, None
+        else:
+            interaction.observe(observation)
+            yield observation, interaction.speaker()
 
 
 async def _on_first_frame(vision: FaceVision, then: Callable[[], None]) -> None:
@@ -1148,12 +1171,6 @@ async def _on_first_frame(vision: FaceVision, then: Callable[[], None]) -> None:
     async with vision.observations() as observations:
         await anext(aiter(observations))
     then()
-
-
-async def _interact(vision: FaceVision, interaction: Interaction) -> None:
-    """Show `interaction` what the camera sees in each frame, until cancelled."""
-    async with vision.observations() as observations:
-        await interaction.run(observations)
 
 
 async def _speaker(config: ActiveSpeakerConfig | None) -> SpeakerDetector | None:
@@ -1324,11 +1341,9 @@ async def _with_vision(
             if on_ready is not None:
                 group.create_task(_on_first_frame(vision, on_ready))
             seeing = group.create_task(vision.run())
-            watching = [group.create_task(_attend(vision, attention, gaze, recorder))]
-            if interaction is not None:
-                watching.append(group.create_task(_interact(vision, interaction)))
-                if doa is not None:
-                    watching.append(group.create_task(interaction.listen(doa.directions())))
+            watching = [group.create_task(_watch(vision, attention, gaze, interaction, recorder))]
+            if interaction is not None and doa is not None:
+                watching.append(group.create_task(interaction.listen(doa.directions())))
             await main
             seeing.cancel()
             for task in watching:

@@ -317,9 +317,11 @@ flowchart LR
   too far at desk distance; the assumed focal length scales it by a further 1.19. `--no-depth`,
   or `depth: null` in the profile, leaves it out.
 - **People in 3D.** With depth and intrinsics, each face gets a gaze ray from between its irises,
-  and the main user's skeleton and hands a position per keypoint, in the camera's frame (x right,
-  y down, z forward, in metres). Only theirs: gestures are read from the main user alone, and a
-  hand's fit is paid per hand, so a crowd in view costs nothing more. A keypoint's depth is the 25th percentile of a 5x5 patch of the depth map
+  and each skeleton and hand a position per keypoint, in the camera's frame (x right, y down,
+  z forward, in metres). Only the main user's hands are fitted, as below: gestures are read from
+  the main user alone, and a hand's fit is paid per hand, so a crowd in view costs little more.
+  Everyone else's hands lie flat at their wrist's depth, which tells the attention where a hand
+  is, not its shape. A keypoint's depth is the 25th percentile of a 5x5 patch of the depth map
   around it: keypoints sit on the edges of limbs and fingers, where the patch also holds the room
   behind, and the person is the nearer side. The gaze angles are measured from the line from the
   eyes to the camera, so the ray turns that line by the yaw towards the image's right and the
@@ -387,24 +389,29 @@ flowchart LR
 ### Visual attention
 
 Which face or hand in view the robot attends to, as a point in the camera's frame, which the head
-controller turns the head to (see the robot's section) when the profile has one. It is a package of its own, `rva-attention`, fed by the
-vision loop and never importing it: one observation per frame, the people in view with the
-frame's time and the main user's track, over a queue that keeps only the latest frame. Every
-dynamic runs on the frames' times, so a recorded sequence gives the same states back, and the
-core does no I/O.
+controller turns the head to (see the robot's section) when the profile has one. It is a package of its own, `rva-attention`, never importing the vision or the interaction:
+one observation per frame, the people in view with the frame's time, over a queue that keeps
+only the latest frame, with the face speaking in it. The app shows each frame to the interaction
+first, which tells the face speaking (see "Who said it" and "Where the speech comes from"), then
+to the attention. Every dynamic runs on the frames' times, so a recorded sequence gives the same
+states back, and the core does no I/O.
 
 - **Candidates** are the confirmed faces placed in 3D, at the point between the irises so the
-  gaze meets the eyes, and the main user's hands at the centre of the palm; only theirs are
-  placed in 3D. Skeletons without a face have neither a track nor a point, so they are left out.
-- **Score.** Seven features from 0 to 1: closeness, centrality (the angle off the camera's axis),
-  speaking (the active speaker), eye contact (the gaze's angle off the camera), moving (the speed
-  along the path over the last 0.3 s, so a hand waving in place counts), known, and novelty,
-  which is 1 as an entity appears and decays over a second or two. A hand has only its motion
-  and its novelty. The score is their weighted mean, so from 0 to 1 whatever the weights, times
-  the entity's habituation, which decays towards a floor while attended and recovers while not.
-  So a newcomer is worth a glance, a wave draws the eye, and a hand's habituation is ten times
-  faster than a face's so the wave yields to its owner's face within a couple of seconds.
-  Everything is in the profile's `attention` section.
+  gaze meets the eyes, and their hands, at the centre of the palm. Skeletons without a face have
+  neither a track nor a point, so they are left out.
+- **Score.** Eight features from 0 to 1: closeness, centrality (the angle off the camera's axis),
+  speaking, eye contact (the gaze's angle off the camera), moving (the speed along the path over
+  the last 0.3 s, so a hand waving in place counts), known, novelty, which is 1 as an entity
+  appears and decays over a second or two, and raised, for a hand above its owner's shoulders in
+  the image. Speaking is the interaction's one face per frame, not every face Light-ASD flags: in
+  the simulation it flagged all three people while one talked, and the listener the head was
+  not worn down on won. A hand has only its motion, its novelty and raised, so a hand moving
+  below the shoulders, talking, does not draw the head from its face; a wave does. The score is
+  their weighted mean, so from 0 to 1 whatever the weights, times the entity's habituation,
+  which decays towards a floor while attended and recovers while not. So a newcomer is worth a
+  glance, a wave draws the eye, and a hand's habituation is ten times faster than a face's so
+  the wave yields to its owner's face within a couple of seconds; a wave that goes on draws it
+  back now and then. Everything is in the profile's `attention` section.
 - **Selection** with hysteresis: the best candidate takes over only once the current target was
   attended for the minimum dwell and scores better by the margin. Below the minimum score nothing
   is attended: a still person far at the edge, once no longer new, is as good as nobody. The

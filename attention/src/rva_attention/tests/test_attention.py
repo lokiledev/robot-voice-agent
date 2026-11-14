@@ -30,6 +30,7 @@ CONFIG = VisualAttentionConfig(
         moving=2.0,
         known=0.5,
         novelty=1.0,
+        raised=2.5,
     ),
     far_m=4.0,
     edge_deg=45.0,
@@ -39,11 +40,11 @@ CONFIG = VisualAttentionConfig(
     novelty_decay_s=1.0,
     face=HabituationConfig(floor=0.3, decay_s=10.0, recovery_s=5.0),
     hand=HabituationConfig(floor=0.1, decay_s=1.0, recovery_s=3.0),
-    # The weights add up to 7.5, which the score is over.
-    margin=0.3 / 7.5,
+    # The weights add up to 10, which the score is over.
+    margin=0.3 / 10,
     min_dwell_s=1.0,
     hold_s=0.3,
-    min_score=0.2 / 7.5,
+    min_score=0.2 / 10,
     lifetime_s=2.0,
 )
 ALICE = KnownPerson(user_id=UUID("00000000-0000-0000-0000-000000000001"), name="Alice")
@@ -71,12 +72,22 @@ def face(point: Point3D | None, gaze: Gaze) -> FaceFeatures:
     )
 
 
-def hand(point: Point3D) -> Hand:
-    """A hand whose wrist and finger bases are at `point`."""
+SHOULDERS_Y = 500.0
+"""Where everyone's shoulders are in the image: a hand above, at a smaller y, is raised."""
+
+
+def hand(point: Point3D, y: float) -> Hand:
+    """A hand whose wrist and finger bases are at `point`, at `y` in the image."""
     keypoints: list[Keypoint | None] = [None] * 21
     for index in (0, 1, 5, 9, 13, 17):
-        keypoints[index] = Keypoint(x=0.0, y=0.0, score=1.0, position=point)
+        keypoints[index] = Keypoint(x=0.0, y=y, score=1.0, position=point)
     return Hand(keypoints=tuple(keypoints))
+
+
+def body(right_hand: Hand) -> Body:
+    shoulder = Keypoint(x=0.0, y=SHOULDERS_Y, score=1.0, position=None)
+    keypoints = (None,) * 5 + (shoulder, shoulder) + (None,) * 6
+    return Body(box=BOX, keypoints=keypoints, left_hand=None, right_hand=right_hand)
 
 
 def person(
@@ -85,8 +96,9 @@ def person(
     *,
     gaze: Gaze = STRAIGHT,
     known: KnownPerson | None = None,
-    speaking: bool | None = None,
+    seen_speaking: bool | None = None,
     right_hand: Point3D | None = None,
+    raised: bool = False,
     confirmed: bool = True,
 ) -> TrackedPerson:
     return TrackedPerson(
@@ -99,12 +111,12 @@ def person(
         face=face(point, gaze),
         body=None
         if right_hand is None
-        else Body(box=BOX, keypoints=(None,) * 13, left_hand=None, right_hand=hand(right_hand)),
-        speaker=None if speaking is None else ActiveSpeaker(score=1.0, speaking=speaking),
+        else body(hand(right_hand, SHOULDERS_Y - 200 if raised else SHOULDERS_Y + 200)),
+        speaker=None if seen_speaking is None else ActiveSpeaker(score=1.0, speaking=seen_speaking),
     )
 
 
-def observe(time: float, *people: TrackedPerson, main_user: int | None = None) -> VisualObservation:
+def observe(time: float, *people: TrackedPerson) -> VisualObservation:
     return VisualObservation(
         time=time,
         people=PeopleInView(
@@ -115,7 +127,6 @@ def observe(time: float, *people: TrackedPerson, main_user: int | None = None) -
             people=people,
             unmatched_bodies=(),
         ),
-        main_user=main_user,
     )
 
 
@@ -134,7 +145,7 @@ def changes(states: list[AttentionState]) -> list[tuple[float, FaceEntity | Hand
 def test_the_one_face_in_view_is_attended_between_its_irises() -> None:
     attention = VisualAttention(CONFIG)
 
-    state = attention.observe(observe(0.0, person(7, IN_FRONT)))
+    state = attention.observe(observe(0.0, person(7, IN_FRONT)), None)
 
     assert state.target is not None
     assert state.target.entity == FaceEntity(track_id=7, person=None)
@@ -148,17 +159,18 @@ def test_the_one_face_in_view_is_attended_between_its_irises() -> None:
         "moving": 0.0,
         "known": 0.0,
         "novelty": 1.0,
+        "raised": 0.0,
     }
     assert candidate.habituation == 1.0
-    # Closeness 0.5, centrality 1, eye contact 1 and novelty 1, of 7.5.
-    assert candidate.score == pytest.approx(3.5 / 7.5)
+    # Closeness 0.5, centrality 1, eye contact 1 and novelty 1, of 10.
+    assert candidate.score == pytest.approx(3.5 / 10)
 
 
 def test_nothing_is_attended_without_a_point_in_3d_or_before_a_track_is_confirmed() -> None:
     attention = VisualAttention(CONFIG)
 
-    flat = attention.observe(observe(0.0, person(7, None)))
-    unconfirmed = attention.observe(observe(0.1, person(8, IN_FRONT, confirmed=False)))
+    flat = attention.observe(observe(0.0, person(7, None)), None)
+    unconfirmed = attention.observe(observe(0.1, person(8, IN_FRONT, confirmed=False)), None)
 
     assert flat.target is None and flat.candidates == ()
     assert unconfirmed.target is None and unconfirmed.candidates == ()
@@ -170,7 +182,7 @@ def test_a_closer_face_takes_over_once_the_first_was_attended_for_the_dwell() ->
 
     states = [
         attention.observe(
-            observe(t / 10, person(1, IN_FRONT), *([person(2, closer)] if t >= 5 else []))
+            observe(t / 10, person(1, IN_FRONT), *([person(2, closer)] if t >= 5 else [])), None
         )
         for t in range(16)
     ]
@@ -184,32 +196,62 @@ def test_a_closer_face_takes_over_once_the_first_was_attended_for_the_dwell() ->
     assert at_half.candidates[0].score > at_half.candidates[1].score + CONFIG.margin
 
 
-def test_a_waving_hand_draws_attention_then_yields_to_the_face() -> None:
+def test_a_raised_waving_hand_draws_attention_then_yields_to_the_face() -> None:
     attention = VisualAttention(CONFIG)
     states = []
     for t in range(60):
-        time = t / 10
-        waving = Point3D(x=0.3 * (t % 2), y=0.0, z=1.5) if t >= 30 else None
-        states.append(
-            attention.observe(observe(time, person(1, IN_FRONT, right_hand=waving), main_user=1))
-        )
+        # The hand hangs still at the hip, then waves above the shoulders from 3 to 5 s.
+        up = 30 <= t < 50
+        palm = Point3D(x=0.3 * (t % 2), y=-0.3, z=1.5) if up else Point3D(x=0.0, y=0.5, z=1.5)
+        seen = person(1, IN_FRONT, right_hand=palm, raised=up)
+        states.append(attention.observe(observe(t / 10, seen), None))
 
     assert changes(states) == [
         (0.0, FaceEntity(track_id=1, person=None)),
-        (3.1, HandEntity(track_id=1, side="right")),
+        (3.0, HandEntity(track_id=1, side="right")),
         (4.1, FaceEntity(track_id=1, person=None)),
     ]
-    just_waving = states[32]
-    assert [c.entity.kind for c in just_waving.candidates] == ["hand", "face"]
-    assert just_waving.candidates[0].features.moving == 1.0
+    down, waving = states[29].candidates, states[31].candidates
+    assert [c.entity.kind for c in down] == ["face", "hand"]
+    assert down[1].features.raised == 0.0
+    assert [c.entity.kind for c in waving] == ["hand", "face"]
+    assert (waving[0].features.raised, waving[0].features.moving) == (1.0, 1.0)
 
 
-def test_a_hand_of_someone_else_than_the_main_user_is_no_candidate() -> None:
+def test_a_hand_moving_below_the_shoulders_does_not_draw_attention() -> None:
     attention = VisualAttention(CONFIG)
+    states = []
+    for t in range(30):
+        # Talking with the hands: they move fast, low.
+        palm = Point3D(x=0.3 * (t % 2), y=0.5, z=1.5)
+        states.append(
+            attention.observe(observe(t / 10, person(1, IN_FRONT, right_hand=palm)), None)
+        )
 
-    state = attention.observe(observe(0.0, person(1, IN_FRONT, right_hand=IN_FRONT), main_user=2))
+    assert changes(states) == [(0.0, FaceEntity(track_id=1, person=None))]
+    hand = states[-1].candidates[1]
+    assert (hand.features.raised, hand.features.moving) == (0.0, 1.0)
 
-    assert [c.entity.kind for c in state.candidates] == ["face"]
+
+def test_everyone_s_hands_are_candidates() -> None:
+    attention = VisualAttention(CONFIG)
+    beside = Point3D(x=0.5, y=0.0, z=2.0)
+
+    state = attention.observe(
+        observe(
+            0.0,
+            person(1, IN_FRONT, right_hand=IN_FRONT),
+            person(2, beside, right_hand=beside, raised=True),
+        ),
+        None,
+    )
+
+    assert {(c.entity.kind, c.entity.track_id) for c in state.candidates} == {
+        ("face", 1),
+        ("hand", 1),
+        ("face", 2),
+        ("hand", 2),
+    }
 
 
 def test_the_target_is_held_through_a_missed_frame_and_dropped_after_the_hold() -> None:
@@ -217,7 +259,7 @@ def test_the_target_is_held_through_a_missed_frame_and_dropped_after_the_hold() 
     seen = [True] * 6 + [False] + [True] * 3 + [False] * 5
 
     states = [
-        attention.observe(observe(t / 10, *([person(1, IN_FRONT)] if there else [])))
+        attention.observe(observe(t / 10, *([person(1, IN_FRONT)] if there else [])), None)
         for t, there in enumerate(seen)
     ]
 
@@ -230,10 +272,10 @@ def test_the_target_is_held_through_a_missed_frame_and_dropped_after_the_hold() 
 def test_a_face_that_leaves_is_dropped_at_once_and_comes_back_habituated() -> None:
     attention = VisualAttention(CONFIG)
     for t in range(20):
-        attention.observe(observe(t / 10, person(1, IN_FRONT)))
+        attention.observe(observe(t / 10, person(1, IN_FRONT)), None)
 
-    gone = attention.observe(observe(2.3))
-    back = attention.observe(observe(2.5, person(1, IN_FRONT)))
+    gone = attention.observe(observe(2.3), None)
+    back = attention.observe(observe(2.5, person(1, IN_FRONT)), None)
 
     assert gone.target is None and gone.candidates == ()
     assert back.target is not None and back.target.entity == FaceEntity(track_id=1, person=None)
@@ -245,10 +287,10 @@ def test_a_face_that_leaves_is_dropped_at_once_and_comes_back_habituated() -> No
 def test_a_known_person_back_on_a_new_track_is_not_new_again() -> None:
     attention = VisualAttention(CONFIG)
     for t in range(20):
-        attention.observe(observe(t / 10, person(1, IN_FRONT, known=ALICE)))
-    attention.observe(observe(2.3))
+        attention.observe(observe(t / 10, person(1, IN_FRONT, known=ALICE)), None)
+    attention.observe(observe(2.3), None)
 
-    back = attention.observe(observe(2.5, person(2, IN_FRONT, known=ALICE)))
+    back = attention.observe(observe(2.5, person(2, IN_FRONT, known=ALICE)), None)
 
     assert back.target is not None
     assert back.target.entity == FaceEntity(track_id=2, person=ALICE)
@@ -260,9 +302,9 @@ def test_a_known_person_back_on_a_new_track_is_not_new_again() -> None:
 
 def test_a_forgotten_face_is_new_again() -> None:
     attention = VisualAttention(CONFIG)
-    attention.observe(observe(0.0, person(1, IN_FRONT)))
+    attention.observe(observe(0.0, person(1, IN_FRONT)), None)
 
-    back = attention.observe(observe(2.5, person(1, IN_FRONT)))
+    back = attention.observe(observe(2.5, person(1, IN_FRONT)), None)
 
     assert back.candidates[0].features.novelty == 1.0
 
@@ -273,31 +315,66 @@ def test_a_still_face_far_at_the_edge_looking_away_is_as_good_as_nobody() -> Non
     away = Gaze(yaw=40.0, pitch=0.0)
 
     states = [
-        attention.observe(observe(t / 10, person(1, far_aside, gaze=away))) for t in range(31)
+        attention.observe(observe(t / 10, person(1, far_aside, gaze=away)), None) for t in range(31)
     ]
 
     assert states[0].target is not None, "new, it is worth a glance"
     assert states[-1].target is None
-    # Its novelty alone, fading as it is attended: under 0.2 of the 7.5 after 1.6 s.
+    # Its novelty alone, fading as it is attended: under 0.2 of the 10 after 1.6 s.
     assert changes(states) == [(0.0, FaceEntity(track_id=1, person=None)), (1.6, None)]
     [candidate] = states[-1].candidates
     assert candidate.features.closeness == 0.0
     assert candidate.features.centrality == 0.0
     assert candidate.features.eye_contact == 0.0
-    # A novelty of 0.05 after 3 s, of 7.5, a little habituated still.
+    # A novelty of 0.05 after 3 s, of 10, a little habituated still.
     assert candidate.features.novelty == pytest.approx(0.05, abs=0.001)
-    assert candidate.score == pytest.approx(0.0061, abs=0.0002)
+    assert candidate.score == pytest.approx(0.0046, abs=0.0002)
 
 
 def test_speaking_and_moving_count() -> None:
     attention = VisualAttention(CONFIG)
     states = [
-        attention.observe(
-            observe(t / 10, person(1, Point3D(x=0.1 * t, y=0.0, z=2.0), speaking=True))
-        )
+        attention.observe(observe(t / 10, person(1, Point3D(x=0.1 * t, y=0.0, z=2.0))), 1)
         for t in range(4)
     ]
 
     features = states[-1].candidates[0].features
     assert features.speaking == 1.0
     assert features.moving == 1.0, "1 m/s is over the 0.5 m/s scale"
+
+
+def test_only_the_face_speaking_counts_as_speaking_whoever_else_is_seen_to() -> None:
+    attention = VisualAttention(CONFIG)
+    beside = Point3D(x=0.5, y=0.0, z=2.0)
+
+    state = attention.observe(
+        observe(
+            0.0,
+            person(1, IN_FRONT, seen_speaking=True),
+            person(2, beside, seen_speaking=True),
+        ),
+        2,
+    )
+
+    speaking = {c.entity.track_id: c.features.speaking for c in state.candidates}
+    assert speaking == {1: 0.0, 2: 1.0}
+
+
+def test_the_face_attended_keeps_the_head_while_it_speaks_however_habituated() -> None:
+    # Two people side by side; whoever has been attended for 8 s speaks, the other listens. The
+    # active speaker sees both speak; the direction of the speech tells the speaker.
+    attention = VisualAttention(CONFIG)
+    left, right = Point3D(x=-0.3, y=0.0, z=2.0), Point3D(x=0.3, y=0.0, z=2.0)
+    states = []
+    for t in range(120):
+        speaker = None
+        if t >= 80:
+            attended = states[79].target
+            assert attended is not None
+            speaker = attended.entity.track_id
+        both = (person(1, left, seen_speaking=t >= 80), person(2, right, seen_speaking=t >= 80))
+        states.append(attention.observe(observe(t / 10, *both), speaker))
+
+    before = states[79].target
+    assert before is not None
+    assert [s.target.entity for s in states[80:] if s.target is not None] == [before.entity] * 40

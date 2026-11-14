@@ -30,7 +30,7 @@ type AttentionEntity = Annotated[FaceEntity | HandEntity, Field(discriminator="k
 class AttentionFeatures(RVABaseModel):
     """What draws attention to an entity, each from 0 to 1.
 
-    A hand has only `moving` and `novelty`.
+    A hand has only `moving`, `novelty` and `raised`; a face never `raised`.
     """
 
     closeness: float
@@ -38,7 +38,7 @@ class AttentionFeatures(RVABaseModel):
     centrality: float
     """1 on the camera's axis, 0 from the configured angle off it on."""
     speaking: float
-    """1 while the active speaker detector hears them speak."""
+    """1 for the face speaking: the one seen speaking, the speech heard from its direction."""
     eye_contact: float
     """1 when the gaze is on the camera, 0 from the configured angle off it on."""
     moving: float
@@ -47,6 +47,8 @@ class AttentionFeatures(RVABaseModel):
     """1 for someone the robot knows by name."""
     novelty: float
     """1 as the entity appears, decaying since: a newcomer is worth a glance."""
+    raised: float
+    """1 for a hand above its owner's shoulders: a wave, or a hand up to be seen."""
 
 
 class AttentionCandidate(RVABaseModel):

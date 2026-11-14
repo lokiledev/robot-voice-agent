@@ -64,12 +64,9 @@ class Interaction:
         )
         self._speaking: frozenset[int] = frozenset()
         """The tracks seen speaking in the last frame."""
+        self._speaker: int | None = None
+        """The face speaking in the last frame, among those seen to."""
         self._subscribers: Final[set[asyncio.Queue[EngagementEvent]]] = set()
-
-    async def run(self, observations: AsyncIterator[VisualObservation]) -> None:
-        """Follow what the camera sees until `observations` ends."""
-        async for observation in observations:
-            self.observe(observation)
 
     async def listen(self, directions: AsyncIterator[HeardDirection]) -> None:
         """Follow where a microphone array hears speech from until `directions` ends."""
@@ -91,8 +88,7 @@ class Interaction:
     def observe(self, observation: VisualObservation) -> EngagementState:
         self._camera_frame = observation.people.frame
         self._gaze.observe(observation)
-        if self._speakers is not None:
-            self._speakers.observe(observation)
+        self._speaker = None if self._speakers is None else self._speakers.observe(observation)
         self._speaking = frozenset(
             person.track_id
             for person in observation.people.people
@@ -117,6 +113,14 @@ class Interaction:
 
     def engaged(self) -> frozenset[int]:
         return self._engagement.engaged
+
+    def speaker(self) -> int | None:
+        """The track of the face speaking in the last frame, if any.
+
+        One at most: among the faces seen speaking, the one the speech is heard from, or else the
+        one the active speaker is surest of. `None` without an active speaker.
+        """
+        return self._speaker
 
     def may_interrupt(self) -> bool:
         """Whether speech heard now may stop the robot's: see `InteractionConfig.barge_in`."""

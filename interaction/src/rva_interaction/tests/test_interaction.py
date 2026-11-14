@@ -149,6 +149,28 @@ def test_typed_lines_and_everything_without_an_active_speaker_pass_as_they_are()
     assert deaf.hear(spoken(0.0, 1.0)) == spoken(0.0, 1.0)
 
 
+def test_the_face_speaking_in_the_last_frame_is_told_only_with_an_active_speaker() -> None:
+    heard = interaction()
+    deaf = Interaction(
+        config("engaged"),
+        score_delay_s=None,
+        transforms=StaticTransforms(()),
+        recorder=_NoRecorder(),
+    )
+    both = frame(
+        0.0,
+        seen(1, face(AT_ROBOT, HERE), speaking=False),
+        seen(2, face(AT_ROBOT, at(0.8, 1.5)), speaking=True),
+    )
+
+    heard.observe(both)
+    deaf.observe(both)
+
+    assert (heard.speaker(), deaf.speaker()) == (2, None)
+    heard.observe(frame(0.1, seen(1, face(AT_ROBOT, HERE), speaking=False)))
+    assert heard.speaker() is None
+
+
 def test_only_an_engaged_person_seen_speaking_may_interrupt_once_someone_is_engaged() -> None:
     heard = interaction()
     assert heard.may_interrupt()

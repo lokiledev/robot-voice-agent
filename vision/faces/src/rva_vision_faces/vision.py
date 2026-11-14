@@ -296,11 +296,7 @@ class FaceVision:
                     last_logged = now
                 people = self._record(frame, scene, depth, main_user, timings, models.intrinsics)
                 if self._observers:
-                    observation = VisualObservation(
-                        time=captured_at,
-                        people=people,
-                        main_user=None if main_user is None else main_user.track_id,
-                    )
+                    observation = VisualObservation(time=captured_at, people=people)
                     loop.call_soon_threadsafe(self._observe, observation)
         finally:
             models.pool.shutdown()

@@ -157,14 +157,16 @@ attention:
   weights:
     closeness: 1.0
     centrality: 0.5
-    # Whoever speaks draws the head, over the others in view: 0.4 of the score, where the
-    # default profile's 1.0 gave 0.18, and the head often stayed on a listener.
+    # Whoever speaks draws the head, over the others in view: 3 of the weights' 10.5, where the
+    # default profile's 1 of 7.5 often left the head on a listener.
     speaking: 3.0
     eye_contact: 0.7
     moving: 1.0
     known: 0.3
     # A newcomer is worth a glance: as much as a face in front, for a second or two.
     novelty: 1.0
+    # A hand above the shoulders, a wave, draws the eye from a face; it yields within seconds.
+    raised: 3.0
   far_m: 4.0
   edge_deg: 45.0
   eye_contact_deg: 20.0
@@ -175,11 +177,12 @@ attention:
   # draws the eye, then yields to its owner's face.
   face: {floor: 0.4, decay_s: 15.0, recovery_s: 5.0}
   hand: {floor: 0.1, decay_s: 1.5, recovery_s: 3.0}
-  margin: 0.055
+  # 0.41 and 0.27 of the weights' sum, 10.5.
+  margin: 0.039
   min_dwell_s: 1.0
   # A face the mesh or the depth misses for a frame has not left.
   hold_s: 0.3
-  min_score: 0.036
+  min_score: 0.026
   lifetime_s: 2.0
 
 # The simulation's own, and best left missing: the ids are those of a face database made anew

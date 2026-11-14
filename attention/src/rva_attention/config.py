@@ -16,6 +16,7 @@ class FeatureWeights(RVABaseModel):
     moving: float = Field(ge=0)
     known: float = Field(ge=0)
     novelty: float = Field(ge=0)
+    raised: float = Field(ge=0)
 
     @model_validator(mode="after")
     def _some_weight(self) -> "FeatureWeights":

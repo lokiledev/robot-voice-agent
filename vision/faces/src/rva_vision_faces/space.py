@@ -45,9 +45,10 @@ missed for a frame starts again from where it was, not from scratch."""
 class Lifter:
     """Places what is seen in the camera's frame, from the depth and the camera's intrinsics.
 
-    Every face is placed, with its gaze. One skeleton is, the main user's, with their hands as a
-    kinematic hand fitted to their keypoints, each from its fit in the last frames: gestures are
-    read from the main user alone, and a hand's fit is paid per hand.
+    Every face is placed, with its gaze, and every skeleton, with its hands. The main user's hands
+    are a kinematic hand fitted to their keypoints, each from its fit in the last frames: gestures
+    are read from the main user alone, and a hand's fit is paid per hand. Everyone else's are flat
+    at their wrist's depth, which is enough to tell where a hand is.
     """
 
     def __init__(self, intrinsics: CameraIntrinsics) -> None:
@@ -59,10 +60,9 @@ class Lifter:
         """The latest fitted sizes of each person's hands."""
 
     def lift(self, scene: Scene, depth: DepthMap, main_user: int | None) -> Scene:
-        """The scene placed in the camera's frame.
+        """The scene placed in the camera's frame: every face, gaze, skeleton and hand.
 
-        Every face and gaze is, and the skeleton and hands of the track `main_user`, if it has
-        one.
+        The hands of the track `main_user` are fitted, if it has a skeleton.
         """
         intrinsics = self._intrinsics
         self._sizes = {id_: sizes for id_, sizes in self._sizes.items() if id_ in scene.bodies}
@@ -71,7 +71,11 @@ class Lifter:
             for key, (params, age) in self._hands.items()
             if age + 1 < _FIT_KEPT_FRAMES
         }
-        bodies = dict(scene.bodies)
+        bodies = {
+            track_id: _place_hands(_lift_body(body, depth, intrinsics), depth, intrinsics)
+            for track_id, body in scene.bodies.items()
+            if track_id != main_user
+        }
         if main_user is not None and (body := scene.bodies.get(main_user)) is not None:
             sizes = self._sizes.setdefault(main_user, deque(maxlen=_SIZE_SAMPLES))
             size = statistics.median(sizes) if sizes else 1.0
@@ -225,6 +229,30 @@ def _lift_hands(
     return body.model_copy(
         update={"left_hand": lifted["left"], "right_hand": lifted["right"]}
     ), fits
+
+
+def _place_hands(body: Body, depth: DepthMap, intrinsics: CameraIntrinsics) -> Body:
+    """The body with each hand's points placed at the depth of its wrist, as on a flat hand.
+
+    Cheaper than a fit, and good enough to tell where the hand is: its depth around the fingers
+    is often the wall's behind.
+    """
+    placed: dict[Side, Hand | None] = {}
+    for side, hand, arm in zip(_SIDES, (body.left_hand, body.right_hand), _ARM_WRISTS, strict=True):
+        if hand is None or not (found := [k for k in hand.keypoints if k is not None]):
+            placed[side] = hand
+            continue
+        wrist_z = _hand_depth(hand, _position(body.keypoints, arm), depth, intrinsics)
+        pixels = np.array([(k.x, k.y) for k in found])
+        points = _unproject(pixels, np.full(len(found), wrist_z), intrinsics).tolist()
+        positions = iter(Point3D(x=x, y=y, z=z) for x, y, z in points)
+        placed[side] = Hand(
+            keypoints=tuple(
+                None if k is None else k.model_copy(update={"position": next(positions)})
+                for k in hand.keypoints
+            )
+        )
+    return body.model_copy(update={"left_hand": placed["left"], "right_hand": placed["right"]})
 
 
 def _hand_depth(

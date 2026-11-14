@@ -62,5 +62,4 @@ def frame(time: float, *people: TrackedPerson) -> VisualObservation:
             people=people,
             unmatched_bodies=(),
         ),
-        main_user=None,
     )

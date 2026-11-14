@@ -29,9 +29,12 @@ what exists and why.
 - **Someone unknown who leaves the view and comes back** is a newcomer: a reply cut short for
   them is not picked up, and they are greeted again.
 - **Other formulas for the attention's score.** It is a weighted mean of the features times the
-  habituation, so speaking can only weigh so much against the rest: the Reachy profile raised
-  its weight to 3 of 7.5 for the speaker to draw the head. A speech onset could spike like
-  novelty does, or speaking could hold a floor while it lasts; to explore.
+  habituation, so a feature can only weigh so much against the rest, and each new one dilutes
+  the others: the Reachy profile weighs speaking and a raised hand 3 each, of 10.5, and the
+  margin and minimum score were scaled down with the sum. Habituation also wears the speaking
+  bonus down: a speaker attended long scores less than a fresh face would speaking. A speech
+  onset could spike like novelty does, or speaking could hold a floor while it lasts; to
+  explore.
 - **Someone the head does not look at reads further from eye contact** in the simulation, so
   engages slowly, if at all. It is not the perspective: the gaze's crop is now normalized to a
   virtual camera looking at the face, which takes the image's skew out, but changed the readings
@@ -140,8 +143,10 @@ what exists and why.
   response measured on a Reachy Mini would settle them.
 - **The simulated direction of arrival is exact.** The simulated microphones hear the loudest
   person speaking from their head, with no error, delay or echoes, where the reSpeaker is off
-  by several degrees and 60 ms late. Light-ASD is back on in the Reachy profile with it; how
-  well the two pick the face speaking among the simulated people is not measured yet.
+  by several degrees and 60 ms late. Light-ASD is back on in the Reachy profile with it. In one
+  run of `newcomer` it flagged two or three faces in most frames of a line, listeners included;
+  with the direction, the face picked was the talker in 17 and 18 of the 19 frames of two lines.
+  More lines, and the reSpeaker's error, are not measured yet.
 - **The attention swings between two people every few seconds.** In `greeting` it goes from Mia
   to Ben and back every 2 to 7 s, as habituation wears the one attended down; the head now
   turns smoothly, but often. With nobody in view the head drifts back ahead; exploring would be

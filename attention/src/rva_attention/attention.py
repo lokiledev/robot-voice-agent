@@ -16,13 +16,15 @@ from rva_schemas.attention import (
 )
 from rva_schemas.observation import VisualObservation
 from rva_schemas.record import TrackedPerson
-from rva_schemas.vision import Hand, Point3D
+from rva_schemas.vision import Body, Hand, Point3D
 
 _IRISES: Final = (468, 473)
 """The centres of the irises among the face mesh's points."""
 _PALM: Final = (0, 1, 5, 9, 13, 17)
 """The wrist and the base of each finger among a hand's points: the palm's outline."""
 _PALM_POINTS_NEEDED: Final = 3
+_SHOULDERS: Final = (5, 6)
+"""The left and right shoulders among `Body.keypoints`."""
 _EPSILON_S: Final = 1e-6
 
 type Side = Literal["left", "right"]
@@ -33,8 +35,8 @@ type EntityKey = tuple[Literal["face"], int] | tuple[Literal["hand"], int, Side]
 class VisualAttention:
     """Picks the face or hand in view the robot attends to, frame after frame.
 
-    Fed one observation per frame, in order. Nothing here does I/O: fed a recorded sequence, it
-    gives the same states back.
+    Fed one observation per frame, in order, with the face speaking in it. Nothing here does I/O:
+    fed a recorded sequence, it gives the same states back.
     """
 
     def __init__(self, config: VisualAttentionConfig) -> None:
@@ -45,7 +47,15 @@ class VisualAttention:
         self._attended_since = 0.0
         self._time: float | None = None
 
-    def observe(self, observation: VisualObservation) -> AttentionState:
+    def observe(self, observation: VisualObservation, speaker: int | None) -> AttentionState:
+        """Attend to what is in view in one frame.
+
+        Args:
+            observation: The people in view.
+            speaker: The track of the face speaking, if any: one at most, told from the faces
+                seen speaking by the direction the speech is heard from. The active speaker
+                alone often sees listeners speak too.
+        """
         now = observation.time
         elapsed = 0.0 if self._time is None else max(now - self._time, 0.0)
         self._time = now
@@ -58,7 +68,7 @@ class VisualAttention:
             entity.habituate(key == target, elapsed)
         people = {person.track_id: person for person in observation.people.people}
         candidates = sorted(
-            (self._score(sighting.key, people, now) for sighting in sightings),
+            (self._score(sighting.key, people, speaker, now) for sighting in sightings),
             key=lambda candidate: candidate.score,
             reverse=True,
         )
@@ -107,7 +117,7 @@ class VisualAttention:
                 assert_never(key[0])
 
     def _score(
-        self, key: EntityKey, people: dict[int, TrackedPerson], now: float
+        self, key: EntityKey, people: dict[int, TrackedPerson], speaker: int | None, now: float
     ) -> AttentionCandidate:
         config = self._config
         entity = self._entities[key]
@@ -121,14 +131,17 @@ class VisualAttention:
                 features = AttentionFeatures(
                     closeness=_fade(_norm(point), config.far_m),
                     centrality=_fade(_off_axis(point), config.edge_deg),
-                    speaking=float(person.speaker is not None and person.speaker.speaking),
+                    speaking=float(track_id == speaker),
                     eye_contact=_fade(person.face.gaze.off_camera(), config.eye_contact_deg),
                     moving=moving,
                     known=float(person.person is not None),
                     novelty=novelty,
+                    raised=0.0,
                 )
                 attended: AttentionEntity = FaceEntity(track_id=track_id, person=person.person)
             case ("hand", track_id, side):
+                body = people[track_id].body
+                assert body is not None
                 features = AttentionFeatures(
                     closeness=0.0,
                     centrality=0.0,
@@ -137,6 +150,7 @@ class VisualAttention:
                     moving=moving,
                     known=0.0,
                     novelty=novelty,
+                    raised=float(_raised(body, side)),
                 )
                 attended = HandEntity(track_id=track_id, side=side)
             case _:
@@ -245,7 +259,7 @@ class _Entity:
 
 
 def _sightings(observation: VisualObservation) -> Iterator[_Sighting]:
-    """Every confirmed face and every hand of the main user placed in 3D."""
+    """Every face and hand placed in 3D, of the confirmed tracks."""
     for person in observation.people.people:
         if not person.confirmed:
             continue
@@ -254,7 +268,7 @@ def _sightings(observation: VisualObservation) -> Iterator[_Sighting]:
             left, right = (face.in_3d.landmarks[iris] for iris in _IRISES)
             person_id = None if person.person is None else person.person.user_id
             yield _Sighting(("face", person.track_id), _mean((left, right)), person_id)
-        if person.track_id != observation.main_user or person.body is None:
+        if person.body is None:
             continue
         for side, hand in (("left", person.body.left_hand), ("right", person.body.right_hand)):
             palm = None if hand is None else _palm(hand)
@@ -270,6 +284,20 @@ def _palm(hand: Hand) -> Point3D | None:
         if (keypoint := hand.keypoints[index]) is not None and keypoint.position is not None
     ]
     return _mean(points) if len(points) >= _PALM_POINTS_NEEDED else None
+
+
+def _raised(body: Body, side: Side) -> bool:
+    """Whether the hand is above the shoulders in the image, the higher one when both are seen.
+
+    The robot's head barely rolls, so up in the image is up.
+    """
+    hand = body.left_hand if side == "left" else body.right_hand
+    assert hand is not None
+    palm = [k.y for index in _PALM if (k := hand.keypoints[index]) is not None]
+    shoulders = [k.y for index in _SHOULDERS if (k := body.keypoints[index]) is not None]
+    if not palm or not shoulders:
+        return False
+    return sum(palm) / len(palm) < min(shoulders)
 
 
 def _key(entity: AttentionEntity) -> EntityKey:

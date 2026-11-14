@@ -76,7 +76,6 @@ def frame(time: float, *people: TrackedPerson) -> VisualObservation:
             people=people,
             unmatched_bodies=(),
         ),
-        main_user=None,
     )
 
 
@@ -92,7 +91,6 @@ def wide(time: float, *people: TrackedPerson) -> VisualObservation:
             people=people,
             unmatched_bodies=(),
         ),
-        main_user=None,
     )
 
 
@@ -273,6 +271,22 @@ def test_the_direction_heard_tells_the_talker_from_a_listener_seen_speaking() ->
     assert attribution.attribute(SpeechSpan(start=0.0, end=0.9)) == SeenSpeaking(
         track_id=1, person=None, to_robot=True
     )
+
+
+def test_each_frame_tells_the_one_face_speaking_in_it() -> None:
+    attribution = attributing(score_delay_s=0.0)
+    talker, listener = (
+        at(tracked(1, speaking=True), LEFT),
+        surely(at(tracked(2, speaking=True), RIGHT), 2.0),
+    )
+    attribution.hear(heard(0.0, -26.6))
+
+    heard_from_the_left = attribution.observe(wide(0.0, talker, listener))
+    # The direction is too old by then: the lips decide.
+    surest = attribution.observe(wide(0.3, talker, listener))
+    silent = attribution.observe(wide(0.4, at(tracked(1, speaking=False), LEFT)))
+
+    assert (heard_from_the_left, surest, silent) == (1, 2, None)
 
 
 def test_speech_from_out_of_view_is_nobodys_in_view() -> None:

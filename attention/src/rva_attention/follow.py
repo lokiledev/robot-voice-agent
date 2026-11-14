@@ -10,15 +10,18 @@ from rva_schemas.observation import VisualObservation
 
 
 async def follow(
-    observations: AsyncIterator[VisualObservation], attention: VisualAttention, recorder: Recorder
+    frames: AsyncIterator[tuple[VisualObservation, int | None]],
+    attention: VisualAttention,
+    recorder: Recorder,
 ) -> AsyncIterator[AttentionState]:
-    """Attend to each observation as it comes, recording each state and logging each new target.
+    """Attend to each frame as it comes, recording each state and logging each new target.
 
-    Yields every state, for whatever wants the target: the gaze, the body, a page.
+    Each frame is an observation and the track of the face speaking in it, if any. Yields every
+    state, for whatever wants the target: the gaze, the body, a page.
     """
     previous: AttentionEntity | None = None
-    async for observation in observations:
-        state = attention.observe(observation)
+    async for observation, speaker in frames:
+        state = attention.observe(observation, speaker)
         recorder.record(state)
         entity = None if state.target is None else state.target.entity
         if entity != previous:

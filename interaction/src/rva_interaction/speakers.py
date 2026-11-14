@@ -58,7 +58,8 @@ class SpeakerAttribution:
         while self._directions[0].time < direction.time - self._history_s:
             self._directions.popleft()
 
-    def observe(self, observation: VisualObservation) -> None:
+    def observe(self, observation: VisualObservation) -> int | None:
+        """Take a frame; returns the track of the face speaking in it, if any."""
         time = observation.time - self._score_delay_s
         speaker = self._speaking(observation.people, self._heard_at(time))
         self._frames.append(
@@ -70,6 +71,7 @@ class SpeakerAttribution:
         )
         while self._frames[0].time < time - self._history_s:
             self._frames.popleft()
+        return None if speaker is None else speaker.track_id
 
     def segments(self, speech: SpeechSpan) -> tuple[SpeechSpan, ...]:
         """`speech` cut where the face speaking changes, into pieces that cover it in order.

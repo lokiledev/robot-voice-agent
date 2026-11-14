@@ -137,6 +137,8 @@ attention:
     known: 0.3
     # A newcomer is worth a glance: as much as a face in front, for a second or two.
     novelty: 1.0
+    # A hand above the shoulders, a wave, draws the eye from a face; it yields within seconds.
+    raised: 2.0
   far_m: 4.0
   edge_deg: 45.0
   eye_contact_deg: 20.0
@@ -147,11 +149,12 @@ attention:
   # draws the eye, then yields to its owner's face.
   face: {floor: 0.4, decay_s: 15.0, recovery_s: 5.0}
   hand: {floor: 0.1, decay_s: 1.5, recovery_s: 3.0}
-  margin: 0.055
+  # 0.3 and 0.2 of the weights' sum, 7.5.
+  margin: 0.04
   min_dwell_s: 1.0
   # A face the mesh or the depth misses for a frame has not left.
   hold_s: 0.3
-  min_score: 0.036
+  min_score: 0.027
   lifetime_s: 2.0
 
 admins: ~/.config/robot-voice-agent/admins.yaml
