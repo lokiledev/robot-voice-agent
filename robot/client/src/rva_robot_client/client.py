@@ -150,8 +150,8 @@ class RobotCamera:
         self._size: Final = size
         self._silence_s: Final = config.silence_timeout_s
 
-    def read(self) -> npt.NDArray[np.uint8]:
-        """The latest frame, BGR.
+    def read(self) -> tuple[npt.NDArray[np.uint8], float]:
+        """The latest frame, BGR, and when the robot took it, on the monotonic clock.
 
         Raises:
             RobotUnavailableError: If the robot has been silent too long.
@@ -168,7 +168,7 @@ class RobotCamera:
             raise RuntimeError(
                 f"The robot's camera gives {width}x{height}, not {self._size[0]}x{self._size[1]}"
             )
-        return frame.image
+        return frame.image, frame.timestamp
 
     def close(self) -> None:
         """Nothing to release: the subscription ends with the object."""

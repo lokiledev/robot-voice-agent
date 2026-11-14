@@ -29,6 +29,7 @@ from rva_robot_kinematics.head import (
     HeadPoseNotFoundError,
     UnreachableHeadPoseError,
 )
+from rva_robot_kinematics.motion import HeadMotion
 from rva_robot_schemas.head import GazeTarget, HeadPose
 from rva_robot_schemas.joints import JointState
 from rva_robot_sim.description import install_reachy_mini
@@ -44,11 +45,13 @@ _MAX_GAP_S: Final = 0.05
 async def control_head(
     config: HeadControllerConfig, robot_config: RobotClientConfig, viewer: bool
 ) -> None:
-    """Drive the head to each pose received, and its camera to each gaze target, until cancelled.
+    """Move the head towards each pose received, and its camera towards each gaze target.
 
-    Poses the head cannot reach are logged and left out; the head stays where it was. A gaze target
-    is placed from where the head was when the camera saw it, so that the head's own motion since
-    does not move it.
+    The poses and targets only set where the head heads for: a loop moves it there, smoothly and
+    within the limits of `config.motion`, whatever they jump. A gaze target is placed from where
+    the head was when the camera saw it, so that the head's own motion since does not move it.
+    Once gaze targets stop coming, the head drifts back to looking ahead. Poses the head cannot
+    reach stop it where it last could go.
 
     Args:
         config: The head controller's.
@@ -69,30 +72,90 @@ async def control_head(
     ):
         state = await anext(states)
         controller = HeadController(kinematics, _position(state, "yaw_body"))
+        start = kinematics.forward({joint.name: joint.position for joint in state.joints}, None)
+        x, y, z = config.gaze_position
+        ahead = HeadPose(x=x, y=y, z=z, roll=0.0, pitch=0.0, yaw=0.0)
+        goal = _Goal(start, ahead, config.recentre_after_s)
+        motion = HeadMotion(start, config.motion)
         trail = HeadTrail(_TRAIL_S, _MAX_GAP_S)
         logger.info("Head controller ready in kickmsg namespace {}", robot_config.namespace)
         notify_ready()
         async with asyncio.TaskGroup() as group:
             group.create_task(_follow(states, kinematics, trail, view))
-            group.create_task(_look(gazes, gaze, trail, controller, robot, view))
-            await _aim(targets, controller, robot, view)
+            group.create_task(_look(gazes, gaze, trail, goal, view))
+            group.create_task(_aim(targets, goal, view))
+            await _drive(goal, motion, controller, robot, config)
 
 
-async def _aim(
-    targets: AsyncIterator[HeadPose],
+class _Goal:
+    """Where the head heads for.
+
+    The last pose or gaze target sent, or ahead once gaze targets have stopped coming a while.
+    """
+
+    def __init__(self, start: HeadPose, ahead: HeadPose, recentre_after_s: float) -> None:
+        self._pose = start
+        self._ahead: Final = ahead
+        self._recentre_after_s: Final = recentre_after_s
+        self._gazed_at: float | None = None
+        """When the last gaze target came, on the monotonic clock; `None` after a pose."""
+
+    def send(self, pose: HeadPose) -> None:
+        """A pose to hold until another comes, e.g. from `lune robot`."""
+        self._pose = pose
+        self._gazed_at = None
+
+    def gaze(self, pose: HeadPose, now: float) -> None:
+        """Where a gaze target puts the head; gaze targets keep coming while there is one."""
+        self._pose = pose
+        self._gazed_at = now
+
+    def at(self, now: float) -> tuple[HeadPose, bool]:
+        """The pose to head for at `now`, and whether it is ahead because the gaze stopped."""
+        if self._gazed_at is not None and now - self._gazed_at > self._recentre_after_s:
+            return self._ahead, True
+        return self._pose, False
+
+
+async def _drive(
+    goal: _Goal,
+    motion: HeadMotion,
     controller: HeadController,
     robot: RobotClient,
-    view: HeadView | None,
+    config: HeadControllerConfig,
 ) -> None:
+    """Move the head towards the goal at the control rate, until cancelled."""
+    period = 1 / config.control_hz
+    last = time.monotonic()
+    reached = motion.pose
+    reachable = recentring = False
+    while True:
+        await asyncio.sleep(period)
+        now = time.monotonic()
+        target, back = goal.at(now)
+        if back != recentring:
+            logger.info("{}", "No gaze target: looking ahead again" if back else "Gazing again")
+            recentring = back
+        pose = motion.step(target, now - last, config.recentre_speed_deg_s if back else None)
+        last = now
+        try:
+            command = controller.aim(pose)
+        except UnreachableHeadPoseError as error:
+            if reachable:
+                logger.warning("Out of reach, stopped: {} ({})", _describe(pose), error)
+            reachable = False
+            motion.hold(reached)
+            continue
+        reachable = True
+        reached = pose
+        robot.command(command)
+
+
+async def _aim(targets: AsyncIterator[HeadPose], goal: _Goal, view: HeadView | None) -> None:
     async for target in targets:
         if view is not None:
             view.show_target(time.monotonic(), target)
-        try:
-            command = controller.aim(target)
-        except UnreachableHeadPoseError as error:
-            logger.warning("Out of reach, left out: {} ({})", _describe(target), error)
-            continue
-        robot.command(command)
+        goal.send(target)
         logger.info("Head to {}", _describe(target))
 
 
@@ -100,15 +163,10 @@ async def _look(
     targets: AsyncIterator[GazeTarget],
     gaze: Gaze,
     trail: HeadTrail,
-    controller: HeadController,
-    robot: RobotClient,
+    goal: _Goal,
     view: HeadView | None,
 ) -> None:
-    """Point the camera at each target, logging only when targets go out of reach and back.
-
-    The targets come with every frame the attention has one in: logging each would flood.
-    """
-    reachable = True
+    """Head the camera for each target, placed from where the head was when the camera saw it."""
     async for target in targets:
         try:
             head = trail.at(target.timestamp)
@@ -119,22 +177,7 @@ async def _look(
         pose = gaze.aim(point)
         if view is not None:
             view.show_gaze(time.monotonic(), point, pose)
-        try:
-            command = controller.aim(pose)
-        except UnreachableHeadPoseError as error:
-            if reachable:
-                logger.warning(
-                    "Gaze targets out of reach, left out: {} needs {} ({})",
-                    _describe_point(point),
-                    _describe(pose),
-                    error,
-                )
-            reachable = False
-            continue
-        if not reachable:
-            logger.info("Gaze targets back in reach: {}", _describe_point(point))
-        reachable = True
-        robot.command(command)
+        goal.gaze(pose, time.monotonic())
 
 
 async def _follow(

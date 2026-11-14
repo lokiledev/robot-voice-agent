@@ -7,6 +7,7 @@ from rva_pydantic import RVABaseModel
 from rva_robot_sim.hdri import HdriConfig
 from rva_robot_sim.people import AvatarsConfig
 from rva_robot_sim.scenarios import SCENARIOS
+from rva_robot_sim.servos import PassiveJointsConfig, ServoConfig
 from rva_robot_sim.speech import SpeechConfig
 
 
@@ -55,6 +56,9 @@ class SimConfig(RVABaseModel):
     `greeting`. `lune-sim --scenario` and `lune --scenario` run another."""
     speech: SpeechConfig
     """What the people say: where it is kept once synthesized, and where it is played."""
+    servos: tuple[ServoConfig, ...]
+    """What drives each of the robot's actuated joints: Reachy Mini's Dynamixels."""
+    passive_joints: PassiveJointsConfig
     physics_dt: float
     """Seconds of simulated time per physics step."""
     state_rate: float

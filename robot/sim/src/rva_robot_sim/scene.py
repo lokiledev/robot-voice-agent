@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Final, assert_never
 
@@ -22,6 +22,7 @@ from rva_robot_sim.hearing import heard_azimuth
 from rva_robot_sim.mjcf import CameraMount, read_facts
 from rva_robot_sim.npc import PersonPose
 from rva_robot_sim.people import standing
+from rva_robot_sim.servos import PassiveJointsConfig, ServoConfig, Servos
 from rva_robot_sim.skinning import Floats
 
 _TABLE_SIZE: Final = (0.6, 1.0)
@@ -58,6 +59,8 @@ class ReachyMiniScene:
         mjcf: Path,
         table_height: float,
         people: Mapping[str, tuple[Path, Actor]],
+        servos: Sequence[ServoConfig],
+        passive: PassiveJointsConfig,
         renderer: CameraRenderer,
         hdri: Path | None,
         physics_dt: float,
@@ -70,6 +73,9 @@ class ReachyMiniScene:
             table_height: Of the table top the robot stands on, in meters.
             people: Each person's avatar and the actor that plays it, from `actor.cast`, by their
                 name.
+            servos: What drives each actuated joint, in place of the MJCF's actuators.
+            passive: The joints no servo drives, in place of the MJCF's joints' damping and
+                friction.
             renderer: What renders the head camera.
             hdri: The panorama Nyx lights the world with, from `install_hdri`; `None` with the
                 rasterizer, which takes none.
@@ -133,7 +139,20 @@ class ReachyMiniScene:
         self._upper: Final = upper.numpy()
         self._targets: Final = np.zeros(len(self._names))
         """Where each joint is driven to, starting at the MJCF's rest pose, head upright."""
-        self._robot.control_dofs_position(self._targets, self._dofs)
+        self._servos: Final = Servos(servos, self._names)
+        # The MJCF's actuators are ideal, 20 N m each: the servos' torques replace them, and
+        # their gearboxes the joints' inertia and friction.
+        self._robot.set_dofs_armature(self._servos.armature, self._dofs)
+        self._robot.set_dofs_frictionloss(self._servos.frictionloss, self._dofs)
+        self._robot.set_dofs_damping(np.zeros(len(self._dofs)), self._dofs)
+        # The MJCF gives the rods' ball joints an actuator's damping and friction, which only
+        # 20 N m actuators could overcome.
+        rods = [
+            dof for name in passive.joints for dof in self._robot.get_joint(name).dofs_idx_local
+        ]
+        self._robot.set_dofs_damping(np.zeros(len(rods)), rods)
+        self._robot.set_dofs_frictionloss(np.full(len(rods), passive.frictionloss_nm), rods)
+        self._robot.set_dofs_armature(np.full(len(rods), passive.armature), rods)
         self._orders: Final = [
             vertex_order(actor.skin, tensor_to_array(entity.get_vverts()))
             for entity, actor in self._people.values()
@@ -141,6 +160,11 @@ class ReachyMiniScene:
         self.animate(0.0)
 
     def step(self) -> None:
+        """One physics step, each joint driven by its servo towards its goal."""
+        positions = self._robot.get_dofs_position(self._dofs).numpy()
+        velocities = self._robot.get_dofs_velocity(self._dofs).numpy()
+        torques = self._servos.torques(self._targets, positions, velocities)
+        self._robot.control_dofs_force(torques, self._dofs)
         self._scene.step()
 
     def command(self, command: JointCommand) -> None:
@@ -155,7 +179,6 @@ class ReachyMiniScene:
         for target in command.targets:
             index = self._names.index(target.name)
             self._targets[index] = np.clip(target.position, self._lower[index], self._upper[index])
-        self._robot.control_dofs_position(self._targets, self._dofs)
 
     def place(self, pose: PersonPose) -> None:
         """Move one of the people, from the next `animate`.

@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Self
 
 from loguru import logger
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from rva_agent.config import AgentConfig
 from rva_app.doa import DoaConfig, RobotDoaConfig
@@ -15,6 +15,7 @@ from rva_multimodal.config import ActiveSpeakerConfig
 from rva_observability.session import ObservabilityConfig
 from rva_pydantic import RVABaseModel, load_yaml
 from rva_robot_client.client import RobotClientConfig
+from rva_robot_kinematics.motion import MotionLimits
 from rva_robot_sim.config import ReachyMiniDescriptionConfig
 from rva_schemas.frames import FrameTransform, StaticTransforms
 from rva_schemas.profile import Admins
@@ -40,6 +41,14 @@ class HeadControllerConfig(RVABaseModel):
     """Where the head frame stays while the head looks at the gaze targets it is sent, in the
     robot's base frame, in meters: only its pitch and yaw change. Pollen's SDK holds it at
     (0, 0, 0.177), which leaves the platform room to turn the head."""
+    control_hz: float = Field(gt=0)
+    """How often the joints are sent where the head is to be."""
+    motion: MotionLimits
+    """How fast and how abruptly the head moves towards where it is sent."""
+    recentre_after_s: float = Field(gt=0)
+    """How long after the last gaze target the head drifts back to looking ahead."""
+    recentre_speed_deg_s: float = Field(gt=0)
+    """How fast it drifts back."""
 
 
 class RuntimeConfig(RVABaseModel):

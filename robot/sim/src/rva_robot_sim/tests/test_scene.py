@@ -31,6 +31,8 @@ def scene() -> ReachyMiniScene:
         mjcf,
         two_by_the_table().table_height,
         {},
+        config.servos,
+        config.passive_joints,
         Rasterizer(),
         None,
         config.physics_dt,
@@ -61,7 +63,9 @@ def test_joints_go_where_they_are_told_and_the_camera_sees(scene: ReachyMiniScen
         "left_antenna",
     ]
     for name, position in targets:
-        assert positions[name] == pytest.approx(position, abs=0.02)
+        # Within the servo's dead band, its gearbox's friction over its P gain, about 3 degrees,
+        # and a little more lifting the head's weight.
+        assert positions[name] == pytest.approx(position, abs=0.08)
     assert frame.image.shape == (720, 1280, 3)
     # Not a blank image: the sky and the floor are seen.
     assert np.ptp(frame.image) > 50

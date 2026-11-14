@@ -39,13 +39,15 @@ def test_a_video_file_starts_with_its_first_frame_and_holds_its_last(tmp_path: P
     video = VideoFile(path, CAMERA, started)
     assert not started.is_set()
 
-    first = video.read()
+    first, first_at = video.read()
 
     assert started.is_set()
     assert first.shape == (36, 64, 3)
     assert first.mean() < 10
     # Whatever frames are skipped to keep the pace, the file ends on its last one and stays there.
-    frames = [video.read() for _ in range(5)]
+    read = [video.read() for _ in range(5)]
+    frames = [frame for frame, _ in read]
+    assert [first_at, *(at for _, at in read)] == sorted([first_at, *(at for _, at in read)])
     assert abs(frames[-1].mean() - 200) < 10
     assert frames[-1] is frames[-2]
     video.close()

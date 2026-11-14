@@ -634,6 +634,18 @@ targets.
   Genesis' path tracer, in about 4 ms at 1280×720, only when a frame is due. Nyx drives the GPU
   through torch, which is why the workspace has torch's CUDA build. Genesis' rasterizer
   (`kind: rasterizer` in `sim.yaml`) needs no ray-tracing GPU, for the tests and other machines.
+- **Servos as Dynamixels, not ideal actuators.** The MJCF drives every joint with an ideal
+  position actuator of 20 N m, which snapped the head to each command, and gives the platform's
+  passive ball joints an actuator's damping and friction. The simulation drives each actuated
+  joint with a torque from a model of its Dynamixel (`rva_robot_sim.servos`): the position error
+  times Pollen's P gain gives a PWM duty cycle, clipped at full scale, which gives the stall
+  torque at most, less the back-EMF's share as it turns, none at its no-load speed, and within
+  its current limit. The XL330-M288s of the platform, the XC330-M288 of the body and the
+  XL330-M077s of the antennas have ROBOTIS' stall torques and speeds at 5 V; the gearboxes'
+  inertia and friction are Pollen's estimate, to identify on a robot. The rods' ball joints are
+  nearly free. The body then turns at about 350 degrees/s at most, the platform's motors at
+  about 140, and each stops within a few degrees of its goal, where its gearbox's friction
+  outweighs its P gain: a P-only servo's dead band, as on the robot.
 - **People to look at.** Microsoft's [Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox)
   avatars, MIT-licensed, with photographed faces that the face detector takes. A scene, written
   as a function in `rva_robot_sim.scenes`, places them, facing the robot or turned away, each
@@ -697,8 +709,15 @@ zero, the head is upright 0.1496 m above the table, and Pollen holds it at 0.177
 The head controller puts the head where it is told. `HeadController` is the controller alone, a
 target in and the joints' targets out, keeping the body's yaw it last commanded; it does no input
 or output, so it could run inside the simulation's loop. For now `lune head` runs it in a process
-of its own: it takes head poses from the `head_target` mailbox of its kickmsg node, sends the
-joints' targets to the robot, and logs and leaves out the poses out of reach. Like the robot, it
+of its own: it takes head poses from the `head_target` mailbox of its kickmsg node, and gaze
+targets (below), which only set where the head heads for. A loop at 50 Hz, as Pollen's daemon
+writes the motors' goals, moves the pose it sends towards there (`HeadMotion`): each axis at a
+speed that falls as it nears its goal, within 120 degrees/s, changing by 600 degrees/s² at
+most, about what Pollen's default half-second minimum-jerk moves reach. So the head starts and
+stops smoothly however the targets jump: a camera turning as fast as the servos can loses the
+faces it tracks, and the tracker takes them back as new ones. Once gaze targets stop coming,
+for 3 s, the head drifts back to looking ahead at 20 degrees/s, where the people likely are. A
+pose out of reach stops the head where it last could go. Like the robot, it
 creates its mailbox when it starts and removes it when stopped, Ctrl+C or terminated, so that a
 sender can tell whether it runs. `lune` starts it after the simulation when the profile has one. With `--open-rerun` it shows in rerun the robot as its joints put it:
 the meshes of the base, of the body turned by its yaw, and of the head where forward kinematics
@@ -710,7 +729,10 @@ target, which `lune see`, `lune run` and the other commands that attend send wit
 frame was taken, whenever the controller runs. A target is a point in the camera's frame, seen a
 moment ago from wherever the head was then: the controller keeps two seconds of head poses, by
 forward kinematics of each joint state, places the point in the base frame from the pose nearest
-the frame's time, and only then aims. So the head's own motion since the frame does not move the
+the frame's time, and only then aims. The frame's time must be when it was taken: for the
+robot's camera, the timestamp the robot sends with it, not when vision read it, up to a frame
+later while the pipeline runs slower than the camera, during which a turning head moved on and
+the point would be placed further along its turn, which it would then chase. So the head's own motion since the frame does not move the
 point, and the loop does not chase its own lag. The aim keeps the head at the profile's
 `gaze_position` and level, and solves its pitch and yaw for the camera's axis, read from the
 MJCF's `camera_optical` site, to pass through the point; the camera sits 7 cm off the head's
@@ -719,7 +741,7 @@ logged once until they come back. The viewer shows the target's point too.
 
 In the simulation, with someone pacing 0.8 m each side of the robot's axis at 1.1 m, the head
 follows her bearing to a degree once its lag is taken out, a quarter to a third of a second: the
-camera pipeline's latency and the motors'. Nothing smooths or anticipates yet.
+camera pipeline's latency and the motors'. Nothing anticipates yet.
 
 `lune robot` drives the joints with sliders, or the head's pose through `lune head` when it runs,
 and shows the head camera, to check the simulation and the controller by hand.

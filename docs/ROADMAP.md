@@ -108,16 +108,19 @@ what exists and why.
 - **Reachy's gestures and the agent's gaze go to the mock's body API**, not to the simulated
   head, which follows the attention alone: a body client over kickmsg is to replace it, and to
   decide with the attention who has the head.
-- **The head controller goes straight to each pose** it is sent, with no trajectory or speed
-  limit, and does not notice a robot that stopped until its commands pile up.
+- **The head controller does not notice a robot that stopped** until its commands pile up.
+- **The servos' gearboxes are guessed.** Their inertia and friction are Pollen's estimate for the
+  XC330 ("would need to re-identify"), which leaves each simulated servo a dead band of about
+  3 degrees and the head a few degrees off its goal; their speed and torque are ROBOTIS'. A step
+  response measured on a Reachy Mini would settle them.
 - **The simulated direction of arrival is exact.** The simulated microphones hear the loudest
   person speaking from their head, with no error, delay or echoes, where the reSpeaker is off
   by several degrees and 60 ms late. Light-ASD is back on in the Reachy profile with it; how
   well the two pick the face speaking among the simulated people is not measured yet.
-- **The simulated head looks around too fast and gets stuck.** In a `greeting` run it moved
-  quickly, then caught a face far in the background, turned fully aside and stayed there a
-  while. To try: filtering or rate-limiting the gaze targets, and recentring slowly when no one
-  is in view (later, exploring instead).
+- **The attention swings between two people every few seconds.** In `greeting` it goes from Ana
+  to Ben and back every 2 to 7 s, as habituation wears the one attended down; the head now
+  turns smoothly, but often. With nobody in view the head drifts back ahead; exploring would be
+  better.
 - **A restarted simulation** replaces its topics: clients of the old one stop hearing from it and
   raise once silent too long, rather than reopening the new ones. Restart them with it.
 - **The real Reachy Mini** needs a bridge from Pollen's daemon to the same topics, so that the

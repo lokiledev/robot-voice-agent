@@ -35,7 +35,15 @@ class _Robot:
         # Without people or Nyx: only the robot's joints are looked at.
         table_height = two_by_the_table().table_height
         self.scene = ReachyMiniScene(
-            mjcf, table_height, {}, Rasterizer(), None, config.physics_dt, viewer=False
+            mjcf,
+            table_height,
+            {},
+            config.servos,
+            config.passive_joints,
+            Rasterizer(),
+            None,
+            config.physics_dt,
+            viewer=False,
         )
         self.geometry = read_head_geometry(mjcf)
         self.table_height = table_height
@@ -95,9 +103,11 @@ def test_the_head_goes_where_asked(
     head = _head_pose(robot)
     joints = {joint.name: joint.position for joint in robot.scene.joint_state(0.0).joints}
     assert _positions(command)["yaw_body"] == pytest.approx(math.radians(expected_body_yaw))
-    assert (head.x, head.y, head.z) == pytest.approx((target.x, target.y, target.z), abs=0.002)
+    # Near: each servo stops where its gearbox's friction outweighs its P gain, a few degrees
+    # from its goal, and six of them add up.
+    assert (head.x, head.y, head.z) == pytest.approx((target.x, target.y, target.z), abs=0.004)
     assert (head.roll, head.pitch, head.yaw) == pytest.approx(
-        (target.roll, target.pitch, target.yaw), abs=math.radians(1.5)
+        (target.roll, target.pitch, target.yaw), abs=math.radians(5)
     )
     # The motors only get near their targets; the head is where the angles they reached put it.
     assert _positions(_still_body(robot.geometry).solve(head, joints["yaw_body"])) == pytest.approx(

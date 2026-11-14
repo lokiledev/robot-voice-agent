@@ -27,6 +27,38 @@ speech:
   live_mouth:
     closed_dbfs: -50
     open_dbfs: -25
+# Reachy Mini's Dynamixels, at 5 V, with the P gains Pollen writes to them (hardware_config.yaml;
+# I and D are 0): stall torque and no-load speed from ROBOTIS' e-manual. The gearbox's inertia
+# and friction are Pollen's MJCF estimates for the XC330 ("would need to re-identify"), scaled by
+# the square of the gear ratio and the ratio for the antennas' 77.5:1.
+servos:
+  - model: XL330-M288-T
+    joints: [stewart_1, stewart_2, stewart_3, stewart_4, stewart_5, stewart_6]
+    stall_torque_nm: 0.52
+    no_load_rpm: 103
+    p_gain: 300
+    armature: 0.0018
+    frictionloss_nm: 0.058
+  - model: XC330-M288-T
+    joints: [yaw_body]
+    stall_torque_nm: 0.93
+    no_load_rpm: 81
+    p_gain: 200
+    armature: 0.0018
+    frictionloss_nm: 0.058
+  - model: XL330-M077-T
+    joints: [right_antenna, left_antenna]
+    stall_torque_nm: 0.215
+    no_load_rpm: 383
+    p_gain: 200
+    armature: 0.00013
+    frictionloss_nm: 0.016
+# The rods' ball joints, which the MJCF gives an actuator's damping and friction (0.15 N m s and
+# 0.1 N m on each axis): enough to hold the platform still against 0.52 N m servos. Nearly free.
+passive_joints:
+  joints: [passive_1, passive_2, passive_3, passive_4, passive_5, passive_6, passive_7]
+  frictionloss_nm: 0.002
+  armature: 0.0001
 physics_dt: 0.005
 state_rate: 100
 camera_fps: 30

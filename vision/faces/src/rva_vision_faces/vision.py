@@ -319,9 +319,8 @@ class FaceVision:
         """
         start = time.perf_counter()
         with _tracer.start_as_current_span("vision:capture"):
-            frame = camera.read()
+            frame, captured_at = camera.read()
         captured = time.perf_counter()
-        captured_at = time.monotonic()
         # Skeletons need no face: they are estimated meanwhile, on the other thread.
         found = (
             None if models.bodies is None else models.pool.submit(_estimate, models.bodies, frame)

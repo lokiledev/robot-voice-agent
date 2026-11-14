@@ -97,6 +97,8 @@ def main(
         mjcf,
         played.scene.table_height,
         actors,
+        config.servos,
+        config.passive_joints,
         config.camera_renderer,
         hdri,
         config.physics_dt,

@@ -13,8 +13,11 @@ from rva_vision_faces.detector import Image
 class FrameSource(Protocol):
     """Where the camera pipeline takes its frames from, in its own thread."""
 
-    def read(self) -> Image:
-        """The frame of the moment, BGR, blocking until there is one.
+    def read(self) -> tuple[Image, float]:
+        """The frame of the moment, BGR, blocking until there is one, and when it was taken.
+
+        The time is on the monotonic clock: what it was placed with, e.g. the head's pose then,
+        must be from that moment, even when the frame waited before it was read.
 
         Raises:
             RuntimeError: If the source stopped giving frames.
@@ -48,11 +51,12 @@ class Camera:
                 f"Camera {source.device} gives {size[0]}x{size[1]}, not {width}x{height}"
             )
 
-    def read(self) -> Image:
+    def read(self) -> tuple[Image, float]:
         ok, frame = self._capture.read()
         if not ok:
             raise RuntimeError(f"Camera {self._source.device} stopped giving frames")
-        return np.asarray(frame, np.uint8)
+        # As it comes out of the driver: V4L2's own timestamps are not on this clock.
+        return np.asarray(frame, np.uint8), time.monotonic()
 
     def close(self) -> None:
         self._capture.release()
@@ -90,7 +94,7 @@ class VideoFile:
         """Index of the next frame the file gives."""
         self._last: Image | None = None
 
-    def read(self) -> Image:
+    def read(self) -> tuple[Image, float]:
         if self._start is None:
             self._start = time.monotonic()
             self._started.set()
@@ -102,11 +106,11 @@ class VideoFile:
             if self._last is None:
                 raise RuntimeError(f"{self._path} has no frame")
             time.sleep(1 / self._fps)
-            return self._last
+            return self._last, time.monotonic()
         time.sleep(max(self._start + self._next / self._fps - time.monotonic(), 0.0))
         self._next += 1
         self._last = fit(np.asarray(frame, np.uint8), self._size)
-        return self._last
+        return self._last, time.monotonic()
 
     def close(self) -> None:
         self._capture.release()
