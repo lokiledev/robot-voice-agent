@@ -445,13 +445,14 @@ class Agent:
     async def _respond(self, listener: int | None) -> set[tuple[str, str]]:
         """Let the LLM speak and call tools until it has nothing left to do.
 
-        `listener` is the track of the person answered, if it is one person: when they are engaged
-        as the reply starts and stop being so, the reply stops after its sentence.
+        The reply stops after its sentence once nobody is engaged any more, if someone was as it
+        started. `listener` is the track of the person answered, if it is one person: back after
+        that, they get it picked up.
 
         Returns:
             The calls run, by name and arguments.
         """
-        keep_going = self._while_listening(listener)
+        keep_going = self._while_listened_to()
         # The calls made in this turn, by name and arguments.
         called: set[tuple[str, str]] = set()
         for _ in range(self._config.max_tool_rounds):
@@ -580,12 +581,16 @@ class Agent:
         self._history.append(ToolResultMessage(tool_call_id=call.id, content=result.content))
         return result
 
-    def _while_listening(self, listener: int | None) -> Callable[[], bool]:
-        """Whether to keep talking: until a `listener` engaged now no longer is."""
+    def _while_listened_to(self) -> Callable[[], bool]:
+        """Whether to keep talking: until nobody is engaged any more, if someone is now.
+
+        Anyone engaged counts, not only whoever is answered: with several people, one looking
+        away leaves the others listening.
+        """
         engagement = self._engagement
-        if engagement is None or listener is None or listener not in engagement.engaged():
+        if engagement is None or not engagement.engaged():
             return _always
-        return lambda: listener in engagement.engaged()
+        return lambda: bool(engagement.engaged())
 
     async def _call_tool(self, call: ToolCall) -> ToolResult:
         if call.name not in self._tool_names:

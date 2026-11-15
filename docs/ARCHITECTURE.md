@@ -610,9 +610,11 @@ second one is refused rather than queued:
 - **People.** The LLM hears of people when they engage, not when a face is detected: an engaged
   person is greeted, once per track, and a known one not again within `regreet_after_s`. Faces
   coming and going are only recorded; `who_is_here` lists them.
-- **A listener lost.** A reply to one person stops after the sentence being said once they are
-  no longer engaged, if they were as it started. The history keeps what was heard and why it
-  stopped; when they engage again, the LLM gets a turn to pick it up or let it go.
+- **Nobody listening.** A reply stops after the sentence being said once nobody is engaged any
+  more, if someone was as it started: the robot does not talk on to an empty room, and with
+  several people, one looking away leaves the others listening. The history keeps what was
+  heard and why it stopped; when whoever it answered engages again, the LLM gets a turn to
+  pick it up or let it go.
 - **History.** One session's messages, trimmed from the oldest when the context fills; the
   system prompt always stays.
 

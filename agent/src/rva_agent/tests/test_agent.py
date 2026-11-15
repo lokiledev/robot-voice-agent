@@ -1118,3 +1118,29 @@ async def test_a_reply_does_not_end_while_something_heard_waits_for_its_turn() -
         RobotLine(text="It is noon.", interrupted=False),
         RobotReplyEnded(),
     ]
+
+
+async def test_a_reply_goes_on_while_someone_else_still_listens() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Once upon a time. There was a robot.")]])
+    user, recorder = QueueUserInput(), ListRecorder()
+    engagement = FakeEngagement([7, 8])
+    speech = RecordingSpeech(interrupt_after=None)
+
+    def look_away(sentence: str) -> None:
+        if sentence == "Once upon a time.":
+            # Alice, who asked; Bob still listens on track 8.
+            engagement.show(Disengaged(track_id=7, person=person("Alice"), left=False))
+
+    speech.after_sentence = look_away
+    running = _running(llm, user, speech, recorder, FakeVision([]), engagement)
+
+    user.say_as("A story?", SeenSpeaking(track_id=7, person=person("Alice"), to_robot=True))
+    await speech.wait_for("There was a robot.")
+    user.leave()
+    await running
+
+    assert speech.said == ["Once upon a time.", "There was a robot."]
+    assert (
+        RobotLine(text="Once upon a time. There was a robot.", interrupted=False)
+        in recorder.entries
+    )
