@@ -65,6 +65,17 @@ class RobotLine(RVABaseModel):
     """Whether the robot stopped there: the user talked over it, or stopped listening."""
 
 
+class RobotReplyEnded(RVABaseModel):
+    """The robot has said all it has to, for now.
+
+    After the last `RobotLine` of a reply: none follows from a tool it called, and nothing it
+    heard or noticed waits for its turn. A `RobotLine` alone ends a stretch of speech, and the
+    robot may go on a moment later.
+    """
+
+    kind: Literal["robot_reply_ended"] = "robot_reply_ended"
+
+
 class ToolInvocation(RVABaseModel):
     kind: Literal["tool"] = "tool"
     name: str
@@ -187,6 +198,7 @@ type Record = Annotated[
     | UserLine
     | RobotSentence
     | RobotLine
+    | RobotReplyEnded
     | ToolInvocation
     | TaskUpdate
     | MotionUpdate

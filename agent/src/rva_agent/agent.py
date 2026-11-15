@@ -51,6 +51,7 @@ from rva_schemas.record import (
     FaceUpdate,
     MuteUpdate,
     RobotLine,
+    RobotReplyEnded,
     Speaker,
     ToolInvocation,
     UserLine,
@@ -162,6 +163,8 @@ class Agent:
         self._cut_short_for: int | None = None
         # Who they are, if known: out of view and back, they are on a new track.
         self._cut_short_person: UUID | None = None
+        # Whether the robot said something that no `RobotReplyEnded` followed yet.
+        self._replying = False
         # When the robot last stopped saying words out loud, on the utterances' clock.
         self._said_until: datetime | None = None
         # What was said to the robot lately, as heard: a name it remembers is one of these words.
@@ -247,6 +250,11 @@ class Agent:
                             self._on_disengaged(item)
                         case _:
                             assert_never(item)
+                # Every round of the reply is said by now; with nothing else waiting for its
+                # turn, the robot has no more to say until something new happens.
+                if self._replying and self._inbox.empty():
+                    self._replying = False
+                    self._recorder.record(RobotReplyEnded())
             finally:
                 self._inbox.task_done()
 
@@ -655,6 +663,7 @@ class Agent:
         # Interrupted in its first sentence, a reply has no words heard, but one was started.
         if message.content.strip() or interrupted:
             self._recorder.record(RobotLine(text=message.content, interrupted=interrupted))
+            self._replying = True
 
     def _is_stop_word(self, text: str) -> bool:
         return _normalized(text) in self._config.stop_words

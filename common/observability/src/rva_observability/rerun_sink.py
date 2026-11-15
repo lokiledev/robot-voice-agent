@@ -28,6 +28,7 @@ from rva_schemas.record import (
     PeopleInView,
     Record,
     RobotLine,
+    RobotReplyEnded,
     RobotSentence,
     Sound,
     Speaker,
@@ -160,6 +161,8 @@ class RerunRecorder:
             case RobotLine():
                 text = f"{entry.text} [interrupted]" if entry.interrupted else entry.text
                 self._recording.log("dialogue/robot", rr.TextLog(text))
+            case RobotReplyEnded():
+                self._recording.log("dialogue/robot/replies", rr.TextLog("ended"))
             case ToolInvocation():
                 text = f"{entry.name}({entry.arguments}) -> {entry.result}"
                 self._recording.log("agent/tools", rr.TextLog(text))

@@ -27,6 +27,7 @@ from rva_schemas.record import (
     PeopleInView,
     Record,
     RobotLine,
+    RobotReplyEnded,
     RobotSentence,
     Sound,
     TaskUpdate,
@@ -98,8 +99,10 @@ class UiServer:
                 | AttentionState()
                 | EngagementState()
                 | Sound()
+                | RobotReplyEnded()
             ):
-                # The boxes are drawn into the video stream instead, and the sound is not played.
+                # The boxes are drawn into the video stream instead, the sound is not played, and
+                # the page shows each line of a reply, not where it ends.
                 return
             case Measurement():
                 replayed = False

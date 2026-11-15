@@ -36,6 +36,7 @@ from rva_schemas.record import (
     AgentStarted,
     FaceUpdate,
     RobotLine,
+    RobotReplyEnded,
     Speaker,
     TaskUpdate,
     ToolInvocation,
@@ -116,6 +117,7 @@ async def test_answers_a_question() -> None:
     assert dialogue == [
         UserLine(text="What's your name?", speaker=None),
         RobotLine(text="I'm Lune. Nice to meet you.", interrupted=False),
+        RobotReplyEnded(),
     ]
 
 
@@ -1058,3 +1060,61 @@ async def test_warming_up_has_the_llm_read_the_prompt_and_says_nothing() -> None
     assert [message.role for message in request] == ["system", "user"]
     assert speech.said == []
     assert recorder.entries == []
+
+
+async def test_a_reply_ends_once_after_its_last_round_not_after_each() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [
+                TextDelta(text="Let me stop."),
+                # Nothing to cancel: an error, which the robot is asked to tell.
+                ToolCall(id="call_1", name="cancel_task", arguments="{}"),
+            ],
+            [TextDelta(text="I am doing nothing.")],
+        ]
+    )
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("What are you doing?")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
+        None,
+    ).run()
+
+    said = [e for e in recorder.entries if isinstance(e, RobotLine | RobotReplyEnded)]
+    assert said == [
+        RobotLine(text="Let me stop.", interrupted=False),
+        RobotLine(text="I am doing nothing.", interrupted=False),
+        RobotReplyEnded(),
+    ]
+
+
+async def test_a_reply_does_not_end_while_something_heard_waits_for_its_turn() -> None:
+    llm = ScriptedLanguageModel([[TextDelta(text="Hi.")], [TextDelta(text="It is noon.")]])
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("Hello?")
+    user.say("What time is it?")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        None,
+        None,
+    ).run()
+
+    said = [e for e in recorder.entries if isinstance(e, RobotLine | RobotReplyEnded)]
+    assert said == [
+        RobotLine(text="Hi.", interrupted=False),
+        RobotLine(text="It is noon.", interrupted=False),
+        RobotReplyEnded(),
+    ]
