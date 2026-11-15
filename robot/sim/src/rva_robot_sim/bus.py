@@ -8,6 +8,7 @@ from rva_robot_schemas.joints import JointCommand, JointState
 from rva_robot_schemas.sound import SoundDirection
 from rva_robot_schemas.topics import CAMERA, JOINT_COMMAND, JOINT_STATE, ROBOT_NODE, SOUND_DIRECTION
 from rva_robot_sim.npc import PERSON_POSE, SCENARIO_START, SIM_NODE, PersonPose, ScenarioStart
+from rva_robot_sim.robot_speech import ROBOT_SPEECH, RobotSpeech, decode, topic_config
 
 _MAX_JSON: Final = 16 * 1024
 """Bytes a joint state or command may take as JSON; a few hundred for Reachy Mini."""
@@ -18,8 +19,9 @@ _MAX_SUBSCRIBERS: Final = 8
 class RobotBus:
     """The robot's end of its kickmsg topics, and the simulation's mailboxes.
 
-    It creates them all, publishes joint states, frames and where speech is heard from, and takes the commands, the people's
-    poses and the scenario's start that clients send.
+    It creates them all, publishes joint states, frames and where speech is heard from, and takes
+    the commands, the people's poses and the scenario's start that clients send, and what the
+    agent says the robot says.
     Topics left by a robot that did not close are replaced, so clients of that robot must reopen
     them. Not thread-safe: use it from one thread.
     """
@@ -45,6 +47,8 @@ class RobotBus:
         self._frames: Final = self._node.advertise(
             CAMERA, _config(encoded_size(*camera_size), _MAX_SUBSCRIBERS, ring=2)
         )
+        # Created here so that it is there whenever the agent starts, and removed with the rest.
+        self._speech: Final = self._sim.subscribe_or_create(ROBOT_SPEECH, topic_config())
         # Only the simulation reads its mailboxes. The robot's comes last: once it is there, so is
         # everything else.
         self._poses: Final = self._sim.create_mailbox(
@@ -115,6 +119,22 @@ class RobotBus:
                 logger.exception("Ignored an invalid scenario start: {!r}", message[:200])
         return starts
 
+    def robot_speech(self) -> list[RobotSpeech]:
+        """What the agent said the robot says since the last call, oldest first.
+
+        Invalid records are logged and left out, like commands.
+        """
+        records = []
+        while (message := self._speech.try_receive()) is not None:
+            assert isinstance(message, bytes)
+            try:
+                records.append(decode(message))
+            except ValueError:
+                logger.exception(
+                    "Ignored an invalid record of the robot's speech: {!r}", message[:200]
+                )
+        return records
+
     def close(self) -> None:
         """Remove the topics; clients still reading them get nothing more."""
         self._unlink()
@@ -123,6 +143,7 @@ class RobotBus:
         self._node.unlink_topic(JOINT_STATE)
         self._node.unlink_topic(CAMERA)
         self._node.unlink_topic(SOUND_DIRECTION)
+        self._sim.unlink_topic(ROBOT_SPEECH)
         self._node.unlink_mailbox(JOINT_COMMAND)
         self._sim.unlink_mailbox(PERSON_POSE)
         self._sim.unlink_mailbox(SCENARIO_START)

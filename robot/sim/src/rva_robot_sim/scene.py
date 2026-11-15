@@ -197,11 +197,6 @@ class ReachyMiniScene:
         _, actor = self._people[pose.person]
         actor.place(standing(pose.position, pose.turned_deg))
 
-    def begin(self, time: float) -> None:
-        """Begin the people's scripts at `time`, in seconds since the simulation started."""
-        for _, actor in self._people.values():
-            actor.begin(time)
-
     def animate(self, time: float) -> None:
         """Pose the people as they are `time` seconds into the simulation; before a render."""
         voices = []

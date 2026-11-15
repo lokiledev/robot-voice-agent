@@ -20,7 +20,6 @@ from loguru import logger
 from pydantic import model_validator
 
 from rva_pydantic import RVABaseModel
-from rva_robot_sim.scenarios import Say
 from rva_robot_sim.skinning import Floats
 from rva_schemas.abc.speech import SpeechSynthesizer
 from rva_schemas.audio import AudioClip
@@ -69,15 +68,11 @@ class SpeechConfig(RVABaseModel):
 
 
 class SpokenLine(RVABaseModel, arbitrary_types_allowed=True):
-    """A line as it sounds, and when it starts."""
+    """A line as it sounds, and when it started."""
 
     at_s: float
-    """When it starts, in seconds of simulated time."""
+    """When it started, in seconds of simulated time."""
     clip: AudioClip
-
-    @property
-    def end_s(self) -> float:
-        return self.at_s + self.clip.duration
 
     def opening(self, time: float) -> float:
         """How open the mouth is at `time`, from 0 to 1: as loud as the line is then; 0 outside."""
@@ -97,14 +92,22 @@ class SpokenLine(RVABaseModel, arbitrary_types_allowed=True):
 
 
 class ScriptedMouth:
-    """Opens as loud as their lines are while they say them."""
+    """Opens as loud as the line they say is, while they say it."""
 
-    def __init__(self, lines: Sequence[SpokenLine]) -> None:
-        self._lines: Final = tuple(lines)
+    def __init__(self) -> None:
+        self._line: SpokenLine | None = None
+
+    def say(self, line: SpokenLine) -> None:
+        """Follow `line` from now on, instead of the one before."""
+        self._line = line
+
+    def shut(self) -> None:
+        """Stop following the line, cut before its end."""
+        self._line = None
 
     def opening(self, time: float) -> float:
         """How open it is at `time`, in seconds of simulated time, from 0 to 1."""
-        return max((line.opening(time) for line in self._lines), default=0.0)
+        return 0.0 if self._line is None else self._line.opening(time)
 
 
 class LiveMouth:
@@ -130,32 +133,31 @@ class LiveMouth:
 
 
 async def bake(
-    lines: Sequence[Say],
+    texts: Sequence[str],
     voice: str,
     synthesizer: Callable[[str], SpeechSynthesizer],
     directory: Path,
-) -> list[SpokenLine]:
-    """The lines as `voice` says them, synthesized the first time and kept in `directory`.
+) -> dict[str, AudioClip]:
+    """The lines as `voice` says them, by their text, synthesized the first time and kept.
 
     Args:
-        lines: What is said and when; their gestures do not matter.
+        texts: What is said.
         voice: Whose voice says them, as the synthesizer names it.
         synthesizer: Gives the synthesizer of a voice; asked only for lines not baked yet.
         directory: Where lines are kept, by voice and text: one per synthesizer and its
             settings, since what is kept does not say which said it.
     """
-    spoken = []
-    for line in lines:
-        path = _path(directory, voice, line.text)
+    spoken = {}
+    for text in texts:
+        path = _path(directory, voice, text)
         if not await asyncio.to_thread(path.exists):
-            logger.info("Synthesizing {!r} in {}'s voice", line.text, voice)
-            clips = [clip async for clip in synthesizer(voice).synthesize(line.text)]
+            logger.info("Synthesizing {!r} in {}'s voice", text, voice)
+            clips = [clip async for clip in synthesizer(voice).synthesize(text)]
             rates = {clip.sample_rate for clip in clips}
             assert len(rates) == 1, f"one sample rate, not {rates}"
             samples = np.concatenate([clip.samples for clip in clips])
             await asyncio.to_thread(_keep, path, samples, rates.pop())
-        clip = await asyncio.to_thread(_load, path)
-        spoken.append(SpokenLine(at_s=line.at_s, clip=clip))
+        spoken[text] = await asyncio.to_thread(_load, path)
     return spoken
 
 

@@ -2,87 +2,103 @@ import math
 from pathlib import Path
 
 import pytest
+from py_trees.behaviour import Behaviour
+from py_trees.composites import Sequence
 from pydantic import ValidationError
 
 from rva_pydantic import load_yaml
 from rva_robot_sim.animation_assets import ClipName
 from rva_robot_sim.config import SimConfig
-from rva_robot_sim.scenarios import SCENARIOS, Live, Play, Say, Scenario, Scripted, describe
+from rva_robot_sim.scenarios import SCENARIOS, Scenario, describe
 from rva_robot_sim.scenes import Person, Scene, chatting_by_the_table, two_by_the_table
+from rva_robot_sim.steps import Play, RobotVoice, Say, Stage
 
 SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
 TALK = ClipName.parse("static/f_gestic_talk_neutral_01")
 
 
+def _lines(scenario: Scenario) -> list[tuple[str, str]]:
+    return [(act.who, act.text) for act in scenario.acts() if isinstance(act, Say)]
+
+
+def _plays(scenario: Scenario) -> list[tuple[str, list[str]]]:
+    return [
+        (act.who, [clip.name for clip in act.clips])
+        for act in scenario.acts()
+        if isinstance(act, Play)
+    ]
+
+
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
-def test_every_scenario_scripts_everyone_in_its_scene(name: str) -> None:
+def test_every_scenario_has_idle_clips_for_everyone_in_its_scene(name: str) -> None:
     scenario = describe(name)
 
-    assert sorted(scenario.scripts) == sorted(person.name for person in scenario.scene.people)
+    assert sorted(scenario.idle) == sorted(person.name for person in scenario.scene.people)
     assert all(person.avatar.startswith("Adults/") for person in scenario.scene.people)
 
 
 def test_mia_greets_the_robot_while_ben_listens() -> None:
     scenario = describe("greeting")
 
-    mia, ben = scenario.scripts["mia"], scenario.scripts["ben"]
-    assert isinstance(mia, Scripted) and isinstance(ben, Scripted)
-    assert [(step.at_s, step.text) for step in mia.steps if isinstance(step, Say)] == [
-        (3.0, "Hello Milo! How are you today?"),
-        (23.0, "What can you do?"),
-        (43.0, "Can you tell me a joke?"),
-        (63.0, "Ha, that's a good one. Thank you!"),
+    assert _lines(scenario) == [
+        ("mia", "Hello Milo! How are you today?"),
+        ("mia", "What can you do?"),
+        ("mia", "Can you tell me a joke?"),
+        ("mia", "Ha, that's a good one. Thank you!"),
     ]
-    assert not any(isinstance(step, Say) for step in ben.steps)
+    assert _plays(scenario) == [
+        ("ben", ["m_gestic_listen_neutral_01"]),
+        ("ben", ["m_gestic_listen_neutral_02"]),
+    ]
+    assert scenario.live is None
     assert scenario.scene.person("mia").voice != scenario.scene.person("ben").voice
 
 
-@pytest.mark.parametrize(
-    ("name", "live", "scripted"),
-    [("greeting_as_mia", "mia", "ben"), ("greeting_as_ben", "ben", "mia")],
-)
-def test_you_speak_for_one_of_them_while_the_other_keeps_their_script(
-    name: str, live: str, scripted: str
-) -> None:
-    scenario = describe(name)
+def test_you_speak_for_mia_while_ben_still_listens() -> None:
+    scenario = describe("greeting_as_mia")
 
-    assert scenario.scripts[live] == Live(idle=scenario.scripts[live].idle, steps=())
-    assert scenario.scripts[scripted] == describe("greeting").scripts[scripted]
+    assert scenario.live == "mia"
+    assert _lines(scenario) == []
+    assert _plays(scenario) == _plays(describe("greeting"))
+
+
+def test_you_speak_for_ben_among_mias_lines() -> None:
+    scenario = describe("greeting_as_ben")
+
+    assert scenario.live == "ben"
+    assert _lines(scenario) == _lines(describe("greeting"))
+    assert _plays(scenario) == []
 
 
 def test_mia_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
     scenario = describe("newcomer")
 
-    lines = sorted(
-        (step.at_s, name, step.text)
-        for name, script in scenario.scripts.items()
-        if isinstance(script, Scripted)
-        for step in script.steps
-        if isinstance(step, Say)
-    )
-    assert lines == [
-        (2.0, "mia", "So, did you get the demo working in the end?"),
-        (6.0, "ben", "Almost. The head still wobbles when it turns."),
-        (10.0, "mia", "Look, it's watching us. Let's say hi."),
-        (19.5, "mia", "Hi Milo! I'm Mia."),
-        (34.0, "ben", "And I'm Ben. Can you tell us a story about a robot who learns to dance?"),
-        (50.0, "mia", "Sorry, hold on. Someone's coming."),
-        (58.0, "cleo", "Hi, I'm Cleo. I just joined the team."),
-        (67.0, "cleo", "Nice to meet you. Who else is here?"),
-        (77.0, "ben", "Right, back to work. See you later!"),
+    assert _lines(scenario) == [
+        ("mia", "So, did you get the demo working in the end?"),
+        ("ben", "Almost. The head still wobbles when it turns."),
+        ("mia", "Look, it's watching us. Let's say hi."),
+        ("mia", "Hi Milo! I'm Mia."),
+        ("ben", "And I'm Ben."),
+        ("ben", "Can you tell us a story about a robot who learns to dance?"),
+        ("mia", "Sorry, hold on. Someone's coming."),
+        ("cleo", "Hi, I'm Cleo. I just joined the team."),
+        ("cleo", "Nice to meet you. Who else is here?"),
+        ("ben", "Right, back to work. See you later!"),
     ]
-    cleo = scenario.scripts["cleo"]
-    assert isinstance(cleo, Scripted)
-    assert cleo.steps[0] == Play(
-        at_s=41.0,
-        clips=(
-            ClipName.parse("xy/f_walk_start"),
-            ClipName.parse("xy/f_walk_neutral_01"),
-            ClipName.parse("xy/f_walk_stop"),
-            ClipName.parse("xyz/f_turn_left_60"),
-            ClipName.parse("static/f_wave_01"),
+    assert _plays(scenario) == [
+        ("mia", ["f_turn_right_60"]),
+        ("ben", ["m_turn_left_60"]),
+        (
+            "cleo",
+            ["f_walk_start", "f_walk_neutral_01", "f_walk_stop", "f_turn_left_60", "f_wave_01"],
         ),
-    )
+        # Ben holds still while the story is told to him.
+        ("ben", ["m_idle_neutral_01", "m_idle_neutral_01", "m_idle_neutral_01"]),
+        # While the robot greets her, then answers each of her lines.
+        ("cleo", ["f_gestic_listen_neutral_01"]),
+        ("cleo", ["f_gestic_listen_neutral_01"]),
+        ("cleo", ["f_gestic_listen_neutral_01"]),
+    ]
 
 
 def test_mia_and_ben_face_each_other_and_cleo_starts_out_of_the_robots_view() -> None:
@@ -95,50 +111,54 @@ def test_mia_and_ben_face_each_other_and_cleo_starts_out_of_the_robots_view() ->
     assert len({person.voice for person in scene.people}) == 3
 
 
-def test_you_speak_for_mia_who_still_turns_to_the_robot_at_her_time() -> None:
+def test_you_speak_for_mia_who_still_turns_to_the_robot() -> None:
     scenario = describe("newcomer_as_mia")
 
-    assert scenario.scripts["mia"] == Live(
-        idle=scenario.scripts["mia"].idle,
-        steps=(Play(at_s=13.0, clips=(ClipName.parse("xyz/f_turn_right_60"),)),),
-    )
-    assert scenario.scripts["ben"] == describe("newcomer").scripts["ben"]
-    assert scenario.scripts["cleo"] == describe("newcomer").scripts["cleo"]
-
-
-def test_a_play_step_plays_at_least_one_clip() -> None:
-    with pytest.raises(ValidationError, match="at least 1"):
-        Play(at_s=1.0, clips=())
+    assert scenario.live == "mia"
+    assert _lines(scenario) == [line for line in _lines(describe("newcomer")) if line[0] != "mia"]
+    assert _plays(scenario) == _plays(describe("newcomer"))
 
 
 def test_still_people_stand_silent_in_their_a_pose() -> None:
-    assert set(describe("still").scripts.values()) == {Scripted(idle=(), steps=())}
+    scenario = describe("still")
+
+    assert scenario.idle == {"mia": (), "ben": ()}
+    assert scenario.acts() == ()
 
 
-def test_a_live_script_cannot_say_lines() -> None:
-    with pytest.raises(ValidationError, match="play"):
-        Live.model_validate({"idle": [], "steps": [{"kind": "say", "at_s": 1.0, "text": "Hi"}]})
+def _nothing(stage: Stage, robot: RobotVoice) -> Behaviour:
+    return Sequence("nothing", memory=True)
 
 
-def test_steps_are_written_in_order() -> None:
-    with pytest.raises(ValidationError, match="not in order"):
-        Scripted(
-            idle=(), steps=(Play(at_s=10.0, clips=(TALK,)), Say(at_s=5.0, text="Hi", gesture=TALK))
+def _mia_says_hi(stage: Stage, robot: RobotVoice) -> Behaviour:
+    return Sequence("hi", memory=True, children=[Say(stage, "mia", "Hi", TALK)])
+
+
+def test_everyone_in_the_scene_has_idle_clips_and_nobody_else() -> None:
+    with pytest.raises(ValidationError, match=r"Idle clips for \['bob', 'mia'\], not the scene's"):
+        Scenario(scene=two_by_the_table(), idle={"mia": (), "bob": ()}, live=None, script=_nothing)
+
+
+def test_the_live_person_is_one_of_the_scene() -> None:
+    with pytest.raises(ValidationError, match="cleo is live, and not in the scene's"):
+        Scenario(
+            scene=two_by_the_table(), idle={"mia": (), "ben": ()}, live="cleo", script=_nothing
         )
 
 
-def test_everyone_in_the_scene_has_a_script_and_nobody_else() -> None:
-    script = Scripted(idle=(), steps=())
+def test_the_script_has_no_line_for_the_live_person() -> None:
+    with pytest.raises(ValidationError, match="mia is live, and the script has lines for them"):
+        Scenario(
+            scene=two_by_the_table(), idle={"mia": (), "ben": ()}, live="mia", script=_mia_says_hi
+        )
 
-    with pytest.raises(ValidationError, match=r"Scripts for \['bob', 'mia'\], not the scene's"):
-        Scenario(scene=two_by_the_table(), scripts={"mia": script, "bob": script})
 
+def test_the_script_only_has_steps_for_people_of_the_scene() -> None:
+    def script(stage: Stage, robot: RobotVoice) -> Behaviour:
+        return Sequence("wave", memory=True, children=[Play(stage, "cleo", (TALK,))])
 
-def test_one_microphone_speaks_for_one_person_at_most() -> None:
-    live = Live(idle=(), steps=())
-
-    with pytest.raises(ValidationError, match="one microphone speaks for one at most"):
-        Scenario(scene=two_by_the_table(), scripts={"mia": live, "ben": live})
+    with pytest.raises(ValidationError, match=r"Steps for \['cleo'\], not in the scene's"):
+        Scenario(scene=two_by_the_table(), idle={"mia": (), "ben": ()}, live=None, script=script)
 
 
 def test_names_in_a_scene_are_unique() -> None:

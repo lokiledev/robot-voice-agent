@@ -713,14 +713,29 @@ targets.
   as a function in `rva_robot_sim.scenes`, places them, facing the robot or turned away, each
   with a name and a Kokoro voice. A scenario, written as a function in
   `rva_robot_sim.scenarios` and named by `sim.yaml` (`--scenario` runs another), picks a scene
-  and gives each person a script: Rocketbox clips to idle with, and steps at fixed times,
-  clips to play one after the other or a line to say with a gesture; or the real microphone,
-  for a live person. A clip's root motion carries over to the next, so turning to the robot is
+  and says what its people do: Rocketbox clips to idle with, and a behavior tree of steps
+  (`rva_robot_sim.steps`, on [py_trees](https://github.com/splintered-reality/py_trees)):
+  a line to say with a gesture, clips to play one after the other, a wait; in sequence, or in
+  parallel; and the real microphone for a live person. Nothing is at a fixed time. A step
+  waits for the robot to have said all it has to, or to have spoken for a while, to talk
+  over it: the agent publishes each sentence it starts, each line it has said and the end of
+  each reply on the `robot_speech` kickmsg topic (`rva_robot_sim.robot_speech`, a `Recorder`
+  of its own), which the simulation reads, so the agent still knows nothing of scenarios. A
+  reply is often several stretches of speech, silent in between while a tool runs or the
+  next thing heard takes its turn, so a silence does not tell its end: the dialogue loop
+  records `RobotReplyEnded` once it has handled what it was given, the robot having spoken,
+  and nothing else waits in its inbox. The scenario waits for that one event, and measures
+  no silence. A wait the robot does
+  not meet fails, and its sequence with it: a demo wraps it to go on regardless after its
+  time, an integration test would let it fail. The simulation's loop ticks the tree once per
+  physics step, on its own clock; py_trees gives the composites and stops what still runs when
+  a parallel ends, which cuts that person's clip and line. The lines and clips are known
+  before anything plays, by reading the tree once, built on a stage that does nothing. A
+  clip's root motion carries over to the next, so turning to the robot is
   a turn clip, and walking in is a walk's start, cycles and stop, then a turn: where they end up
   is where Rocketbox's clips take them, a few centimetres off a straight line. The default,
   `newcomer`, has Mia and Ben chat, then meet the robot one after the other, before Cleo walks
-  in from out of view: its lines were timed by feeding the agent and the LLM the engagements and
-  utterances expected, in real time, then in the simulation. On first use each
+  in from out of view; Mia cuts the robot's story short only if it still goes on. On first use each
   avatar and clip is downloaded from GitHub at a pinned commit and baked once by headless
   Blender, since Genesis cannot read their FBX: the face FBX's mesh in its A-pose as a GLB, with
   its skin and face shapes as arrays, and each clip as its bones' rotations. Genesis shows the

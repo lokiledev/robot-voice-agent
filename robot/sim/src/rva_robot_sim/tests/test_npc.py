@@ -13,6 +13,8 @@ from rva_robot_sim.npc import (
     open_people_mover,
     start_scenario,
 )
+from rva_robot_sim.robot_speech import RobotSpeechPublisher, decode
+from rva_schemas.record import AgentStarted, RobotLine, RobotReplyEnded, RobotSentence
 
 
 @pytest.fixture
@@ -75,3 +77,31 @@ def test_the_scenario_is_started_through_the_simulations_mailbox(namespace: str)
         bus.close()
 
     assert starts == [ScenarioStart(by="lune"), ScenarioStart(by="npc start")]
+
+
+def test_what_the_robot_says_reaches_the_simulation_and_nothing_else_does(namespace: str) -> None:
+    sentence = RobotSentence(text="Hello Mia!")
+    line = RobotLine(text="Hello Mia!", interrupted=False)
+
+    bus = RobotBus(namespace, (4, 2))
+    try:
+        agent = RobotSpeechPublisher(namespace)
+        agent.record(AgentStarted(name="Milo", tools=()))
+        agent.record(sentence)
+        agent.record(line)
+        agent.record(RobotReplyEnded())
+        heard = bus.robot_speech()
+    finally:
+        bus.close()
+
+    assert heard == [sentence, line, RobotReplyEnded()]
+
+
+def test_the_robots_speech_is_read_from_its_json() -> None:
+    assert decode(b'{"kind":"robot_sentence","text":"Hi."}') == RobotSentence(text="Hi.")
+    assert decode(b'{"kind":"robot_line","text":"Hi.","interrupted":true}') == RobotLine(
+        text="Hi.", interrupted=True
+    )
+    assert decode(b'{"kind":"robot_reply_ended"}') == RobotReplyEnded()
+    with pytest.raises(ValueError, match="user_line"):
+        decode(b'{"kind":"user_line","text":"Hi.","speaker":null}')

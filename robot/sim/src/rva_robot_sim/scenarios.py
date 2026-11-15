@@ -1,99 +1,82 @@
-"""What happens around the simulated Reachy Mini: a scene, and a script for each of its people.
+"""What happens around the simulated Reachy Mini: a scene, and what its people do in it.
 
 Scenarios are written as code, each a function, picked by its name in `SCENARIOS`, e.g.
-`lune-sim --scenario greeting`. A person's script is scripted, saying lines with gestures at
-given times, or live, someone at the real microphone speaking for them. Steps happen at fixed
-times of the simulation: nothing waits for the robot.
+`lune-sim --scenario greeting`. What the people do is a behavior tree of the steps of `steps.py`:
+one after the other in a sequence, at once in a parallel. They wait for the robot to have answered
+rather than for a time, so a run takes as long as the robot's answers do. One of them may be live,
+someone at the real microphone speaking for them.
 """
 
 import functools
 from collections.abc import Callable, Mapping
-from typing import Annotated, Final, Literal
+from typing import Final, Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from py_trees.behaviour import Behaviour
+from py_trees.common import ParallelPolicy
+from py_trees.composites import Parallel, Sequence
+from pydantic import model_validator
 
 from rva_pydantic import RVABaseModel
 from rva_robot_sim.animation_assets import ClipName
 from rva_robot_sim.scenes import Scene, chatting_by_the_table, two_by_the_table
+from rva_robot_sim.steps import (
+    Play,
+    RobotVoice,
+    Say,
+    Stage,
+    Unstaged,
+    Wait,
+    WaitForRobot,
+    WaitUntilRobotSpoke,
+    alongside,
+    anyway,
+)
 
-
-class Say(RVABaseModel):
-    """Say a line, gesturing as long as it lasts: repeated if shorter, cut where it ends."""
-
-    kind: Literal["say"] = "say"
-    at_s: float = Field(ge=0)
-    """When they start, in seconds since the simulation started."""
-    text: str
-    """One or a few sentences, in their voice."""
-    gesture: ClipName
-
-
-class Play(RVABaseModel):
-    """Play clips once, one after the other, each from where the one before left them.
-
-    A walk is several: starting, walking, stopping, turning to face someone; idling in between
-    would stop them on the way.
-    """
-
-    kind: Literal["play"] = "play"
-    at_s: float = Field(ge=0)
-    """When it starts, in seconds since the simulation started."""
-    clips: tuple[ClipName, ...] = Field(min_length=1)
-
-
-type ScriptedStep = Annotated[Say | Play, Field(discriminator="kind")]
-
-
-class Scripted(RVABaseModel):
-    """What they do and say, step by step; their mouth follows their lines."""
-
-    kind: Literal["scripted"] = "scripted"
-    idle: tuple[ClipName, ...]
-    """Played one after the other, over and over, between the steps. None, and they stand in
-    their A-pose."""
-    steps: tuple[ScriptedStep, ...]
-    """In order; each must end before the next starts."""
-
-    @field_validator("steps")
-    @classmethod
-    def _in_order(cls, steps: tuple[ScriptedStep, ...]) -> tuple[ScriptedStep, ...]:
-        return _in_order(steps)
-
-
-class Live(RVABaseModel):
-    """Someone at the real microphone speaks for them; the steps only move them.
-
-    What the microphone hears opens their mouth and goes into the room the robot hears.
-    """
-
-    kind: Literal["live"] = "live"
-    idle: tuple[ClipName, ...]
-    """Played one after the other, over and over, between the steps."""
-    steps: tuple[Play, ...]
-    """In order; each must end before the next starts."""
-
-    @field_validator("steps")
-    @classmethod
-    def _in_order(cls, steps: tuple[Play, ...]) -> tuple[Play, ...]:
-        return _in_order(steps)
-
-
-type Script = Annotated[Scripted | Live, Field(discriminator="kind")]
+_SAID_S: Final = 4.0
+"""How long a live person is given to say a line of theirs, where the script has one."""
+_PAUSE_S: Final = 0.5
+"""How long someone lets pass after the robot's last word before they speak."""
+_ANSWERS_WITHIN_S: Final = 2.0
+"""How long after a line the robot has to start answering it, before the scene goes on: it takes
+about a second. Longer, and a line it does not answer leaves a gap."""
+_GREETS_WITHIN_S: Final = 5.0
+"""How long after someone starts turning to the robot it has to start greeting them: they
+engaged 2 s into the turn, and were greeted a second later."""
+_ANSWERS_A_NAME_WITHIN_S: Final = 4.0
+"""The same after someone gave their name: the robot first checks for the name and remembers
+the face, which took it 3 s."""
 
 
 class Scenario(RVABaseModel):
     scene: Scene
-    scripts: dict[str, Script]
-    """Everyone's in the scene, by their name. One at most is live: there is one microphone."""
+    idle: dict[str, tuple[ClipName, ...]]
+    """What each of the scene's people plays, one clip after the other, over and over, between
+    their steps, by their name. None, and they stand in their A-pose."""
+    live: str | None
+    """Whom someone at the real microphone speaks for: what it hears opens their mouth and goes
+    into the room the robot hears. They say no line of the script."""
+    script: Callable[[Stage, RobotVoice], Behaviour]
+    """What the people do, as a tree of steps on a stage, waiting on the robot's voice. Built
+    anew each time: once to read it, once to play it."""
+
+    def acts(self) -> tuple[Say | Play, ...]:
+        """Every line and every clip of the script, in the order it is written."""
+        tree = self.script(Unstaged(), RobotVoice())
+        return tuple(step for step in tree.iterate() if isinstance(step, Say | Play))
 
     @model_validator(mode="after")
-    def _everyone_once(self) -> "Scenario":
-        names = [person.name for person in self.scene.people]
-        if sorted(self.scripts) != sorted(names):
-            raise ValueError(f"Scripts for {sorted(self.scripts)}, not the scene's {names}")
-        live = sorted(name for name, script in self.scripts.items() if isinstance(script, Live))
-        if len(live) > 1:
-            raise ValueError(f"{live} are live; one microphone speaks for one at most")
+    def _everyone_in_the_scene(self) -> Self:
+        names = sorted(person.name for person in self.scene.people)
+        if sorted(self.idle) != names:
+            raise ValueError(f"Idle clips for {sorted(self.idle)}, not the scene's {names}")
+        if self.live is not None and self.live not in names:
+            raise ValueError(f"{self.live} is live, and not in the scene's {names}")
+        acts = self.acts()
+        strangers = sorted({act.who for act in acts} - set(names))
+        if strangers:
+            raise ValueError(f"Steps for {strangers}, not in the scene's {names}")
+        if any(isinstance(act, Say) and act.who == self.live for act in acts):
+            raise ValueError(f"{self.live} is live, and the script has lines for them")
         return self
 
 
@@ -101,51 +84,66 @@ def still() -> Scenario:
     """Mia and Ben standing still and silent in their A-pose."""
     return Scenario(
         scene=two_by_the_table(),
-        scripts={
-            "mia": Scripted(idle=(), steps=()),
-            "ben": Scripted(idle=(), steps=()),
-        },
+        idle={"mia": (), "ben": ()},
+        live=None,
+        script=lambda stage, robot: Sequence("still", memory=True),
     )
 
 
 def greeting(live: Literal["mia", "ben"] | None) -> Scenario:
     """Mia greets the robot, asks what it can do and for a joke; Ben listens.
 
-    Her lines are twenty seconds apart, leaving the robot time to answer. Both idle in between,
-    and look around now and then.
+    She waits for each of its answers before her next line. Both idle in between, and look
+    around now and then.
 
     Args:
-        live: Whom you speak for at the microphone. Mia: you replace her, and only gesture with
-            your own words. Ben: you speak among her lines, and he only idles.
+        live: Whom you speak for at the microphone. Mia: you replace her, and Ben listens now and
+            then. Ben: you speak among her lines, and he only idles.
     """
-    mia_idle = _clips("static/f_idle_neutral_01", "static/f_idle_look_around_01")
-    ben_idle = _clips("static/m_idle_neutral_01", "static/m_idle_look_around_01")
     talk = ClipName.parse("static/f_gestic_talk_neutral_01")
     talk_more = ClipName.parse("static/f_gestic_talk_neutral_02")
-    mia: Script = Scripted(
-        idle=mia_idle,
-        steps=(
-            Say(at_s=3.0, text="Hello Milo! How are you today?", gesture=talk),
-            Say(at_s=23.0, text="What can you do?", gesture=talk_more),
-            Say(at_s=43.0, text="Can you tell me a joke?", gesture=talk),
-            Say(at_s=63.0, text="Ha, that's a good one. Thank you!", gesture=talk_more),
-        ),
+
+    def script(stage: Stage, robot: RobotVoice) -> Behaviour:
+        def asks(text: str, gesture: ClipName) -> Behaviour:
+            said: Behaviour = (
+                Wait(stage, _SAID_S) if live == "mia" else Say(stage, "mia", text, gesture)
+            )
+            answered = _heard_out(stage, robot, _ANSWERS_WITHIN_S)
+            return Sequence(f"mia asks: {text}", memory=True, children=[said, answered])
+
+        def listened_to(asking: Behaviour, clip: str) -> Behaviour:
+            if live == "ben":
+                return asking
+            return alongside(asking, Play(stage, "ben", _clips(clip)))
+
+        return Sequence(
+            "greeting",
+            memory=True,
+            children=[
+                Wait(stage, 3.0),
+                listened_to(
+                    asks("Hello Milo! How are you today?", talk),
+                    "static/m_gestic_listen_neutral_01",
+                ),
+                asks("What can you do?", talk_more),
+                listened_to(
+                    asks("Can you tell me a joke?", talk), "static/m_gestic_listen_neutral_02"
+                ),
+                Wait(stage, _SAID_S)
+                if live == "mia"
+                else Say(stage, "mia", "Ha, that's a good one. Thank you!", talk_more),
+            ],
+        )
+
+    return Scenario(
+        scene=two_by_the_table(),
+        idle={
+            "mia": _clips("static/f_idle_neutral_01", "static/f_idle_look_around_01"),
+            "ben": _clips("static/m_idle_neutral_01", "static/m_idle_look_around_01"),
+        },
+        live=live,
+        script=script,
     )
-    ben: Script = Scripted(
-        idle=ben_idle,
-        steps=(
-            Play(at_s=4.0, clips=_clips("static/m_gestic_listen_neutral_01")),
-            Play(at_s=44.0, clips=_clips("static/m_gestic_listen_neutral_02")),
-        ),
-    )
-    match live:
-        case "mia":
-            mia = Live(idle=mia_idle, steps=())
-        case "ben":
-            ben = Live(idle=ben_idle, steps=())
-        case None:
-            pass
-    return Scenario(scene=two_by_the_table(), scripts={"mia": mia, "ben": ben})
 
 
 def newcomer(live: Literal["mia"] | None) -> Scenario:
@@ -154,95 +152,167 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
     What it shows, in order: speech not said to the robot, while the head turns to whoever
     speaks; Mia engaging and giving her name, the first, who becomes the operator; Ben asking for
     a story and Mia cutting it short; Cleo walking in from out of view and waving, greeted and
-    asked her name as an unknown face; then who is here, recognized. Lines are at fixed times,
-    tuned for the robot's answers to fit between them, with the LLM fed the events expected;
-    start with an empty face database. Each turns to the robot and lets it greet them before
-    speaking: a line said as they engage would cut the greeting off. Cleo gives her name soon
-    after she engages, greeted or not: kept waiting, she looks away and disengages.
+    asked her name as an unknown face; then who is here, recognized. Start with an empty face
+    database.
+
+    Each turns to the robot and lets it greet them before speaking: a line said as they engage
+    would cut the greeting off. Each then waits for its answer before the next line, but only
+    a couple of seconds for it to start: a robot that says nothing leaves no long gap. Cleo starts walking once the story is
+    under way, and Mia cuts it short five seconds in, only if it still goes on then. Cleo listens to the robot
+    with a clip that keeps her facing it, rather than idle and look away.
 
     Args:
         live: Whom you speak for at the microphone. Mia: you replace her lines, chatting with
-            Ben, and still turn to the robot at her time.
+            Ben, each given a few seconds, and still turn to the robot at her time.
     """
-    mia_idle = _clips("static/f_idle_neutral_01", "static/f_idle_neutral_02")
-    mia: Script = Scripted(
-        idle=mia_idle,
-        steps=(
-            Say(
-                at_s=2.0,
-                text="So, did you get the demo working in the end?",
-                gesture=ClipName.parse("static/f_gestic_talk_neutral_01"),
-            ),
-            Say(
-                at_s=10.0,
-                text="Look, it's watching us. Let's say hi.",
-                gesture=ClipName.parse("static/f_gestic_talk_neutral_02"),
-            ),
-            Play(at_s=13.0, clips=_clips("xyz/f_turn_right_60")),
-            Say(
-                at_s=19.5,
-                text="Hi Milo! I'm Mia.",
-                gesture=ClipName.parse("static/f_gestic_talk_relaxed_01"),
-            ),
-            Say(
-                at_s=50.0,
-                text="Sorry, hold on. Someone's coming.",
-                gesture=ClipName.parse("static/f_gestic_talk_excited_01"),
-            ),
-        ),
-    )
-    ben: Script = Scripted(
-        idle=_clips("static/m_idle_neutral_01", "static/m_idle_neutral_02"),
-        steps=(
-            Say(
-                at_s=6.0,
-                text="Almost. The head still wobbles when it turns.",
-                gesture=ClipName.parse("static/m_gestic_talk_neutral_01"),
-            ),
-            Play(at_s=26.0, clips=_clips("xyz/m_turn_left_60")),
-            Say(
-                at_s=34.0,
-                text="And I'm Ben. Can you tell us a story about a robot who learns to dance?",
-                gesture=ClipName.parse("static/m_gestic_talk_relaxed_01"),
-            ),
-            Say(
-                at_s=77.0,
-                text="Right, back to work. See you later!",
-                gesture=ClipName.parse("static/m_gestic_talk_neutral_02"),
-            ),
-        ),
-    )
-    cleo: Script = Scripted(
-        idle=_clips("static/f_idle_neutral_03"),
-        steps=(
-            Play(
-                at_s=41.0,
-                clips=_clips(
-                    "xy/f_walk_start",
-                    "xy/f_walk_neutral_01",
-                    "xy/f_walk_stop",
-                    "xyz/f_turn_left_60",
-                    "static/f_wave_01",
+
+    def script(stage: Stage, robot: RobotVoice) -> Behaviour:
+        def mia_says(text: str, gesture: str) -> Behaviour:
+            if live == "mia":
+                return Wait(stage, _SAID_S)
+            return Say(stage, "mia", text, ClipName.parse(gesture))
+
+        def greeted(within_s: float) -> Behaviour:
+            return _heard_out(stage, robot, within_s)
+
+        def answered(within_s: float) -> Behaviour:
+            return _heard_out(stage, robot, within_s)
+
+        def cleo_listens(until: Behaviour) -> Behaviour:
+            # Her idle clip turns her head as far as 70 degrees, half the time over 15: she
+            # would stop looking at the robot, and what she says next not be said to it. This
+            # one keeps it within 10.
+            return alongside(
+                until, Play(stage, "cleo", _clips("static/f_gestic_listen_neutral_01"))
+            )
+
+        return Sequence(
+            "newcomer",
+            memory=True,
+            children=[
+                Wait(stage, 2.0),
+                mia_says(
+                    "So, did you get the demo working in the end?",
+                    "static/f_gestic_talk_neutral_01",
                 ),
-            ),
-            Say(
-                at_s=58.0,
-                text="Hi, I'm Cleo. I just joined the team.",
-                gesture=ClipName.parse("static/f_gestic_talk_relaxed_02"),
-            ),
-            Say(
-                at_s=67.0,
-                text="Nice to meet you. Who else is here?",
-                gesture=ClipName.parse("static/f_gestic_talk_neutral_03"),
-            ),
-        ),
+                Wait(stage, 0.7),
+                Say(
+                    stage,
+                    "ben",
+                    "Almost. The head still wobbles when it turns.",
+                    ClipName.parse("static/m_gestic_talk_neutral_01"),
+                ),
+                Wait(stage, 0.7),
+                mia_says(
+                    "Look, it's watching us. Let's say hi.", "static/f_gestic_talk_neutral_02"
+                ),
+                Parallel(
+                    "mia turns to the robot, which greets her",
+                    ParallelPolicy.SuccessOnAll(),
+                    [Play(stage, "mia", _clips("xyz/f_turn_right_60")), greeted(_GREETS_WITHIN_S)],
+                ),
+                mia_says("Hi Milo! I'm Mia.", "static/f_gestic_talk_relaxed_01"),
+                answered(_ANSWERS_A_NAME_WITHIN_S),
+                Parallel(
+                    "ben turns to the robot, which greets him",
+                    ParallelPolicy.SuccessOnAll(),
+                    [Play(stage, "ben", _clips("xyz/m_turn_left_60")), greeted(_GREETS_WITHIN_S)],
+                ),
+                # Two lines: said in one, the robot answers his name while he still speaks.
+                Say(
+                    stage,
+                    "ben",
+                    "And I'm Ben.",
+                    ClipName.parse("static/m_gestic_talk_relaxed_01"),
+                ),
+                answered(_ANSWERS_A_NAME_WITHIN_S),
+                Say(
+                    stage,
+                    "ben",
+                    "Can you tell us a story about a robot who learns to dance?",
+                    ClipName.parse("static/m_gestic_talk_neutral_01"),
+                ),
+                # The story is told to Ben, and stops if he looks away: he keeps to the idle clip
+                # that turns his head least, 24 degrees at most. His listening clips turn it 40.
+                alongside(
+                    Sequence(
+                        "the story, cut short as cleo walks in",
+                        memory=True,
+                        children=[
+                            anyway(WaitUntilRobotSpoke(stage, robot, for_s=1.5, within_s=6.0)),
+                            Parallel(
+                                "cleo walks in, and mia cuts the story short",
+                                ParallelPolicy.SuccessOnAll(),
+                                [
+                                    Play(
+                                        stage,
+                                        "cleo",
+                                        _clips(
+                                            "xy/f_walk_start",
+                                            "xy/f_walk_neutral_01",
+                                            "xy/f_walk_stop",
+                                            "xyz/f_turn_left_60",
+                                            "static/f_wave_01",
+                                        ),
+                                    ),
+                                    # Not said to a robot that has finished its story already:
+                                    # a short one is two sentences, ten seconds.
+                                    anyway(
+                                        Sequence(
+                                            "mia cuts the story short",
+                                            memory=True,
+                                            children=[
+                                                WaitUntilRobotSpoke(
+                                                    stage, robot, for_s=5.0, within_s=6.0
+                                                ),
+                                                mia_says(
+                                                    "Sorry, hold on. Someone's coming.",
+                                                    "static/f_gestic_talk_excited_01",
+                                                ),
+                                            ],
+                                        )
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    Play(stage, "ben", _clips(*["static/m_idle_neutral_01"] * 3)),
+                ),
+                # She engages 4 to 8 s after her wave.
+                cleo_listens(greeted(10.0)),
+                Say(
+                    stage,
+                    "cleo",
+                    "Hi, I'm Cleo. I just joined the team.",
+                    ClipName.parse("static/f_gestic_talk_relaxed_02"),
+                ),
+                cleo_listens(answered(_ANSWERS_A_NAME_WITHIN_S)),
+                Say(
+                    stage,
+                    "cleo",
+                    "Nice to meet you. Who else is here?",
+                    ClipName.parse("static/f_gestic_talk_neutral_03"),
+                ),
+                cleo_listens(answered(_ANSWERS_WITHIN_S)),
+                Say(
+                    stage,
+                    "ben",
+                    "Right, back to work. See you later!",
+                    ClipName.parse("static/m_gestic_talk_neutral_02"),
+                ),
+            ],
+        )
+
+    return Scenario(
+        scene=chatting_by_the_table(),
+        idle={
+            "mia": _clips("static/f_idle_neutral_01", "static/f_idle_neutral_02"),
+            "ben": _clips("static/m_idle_neutral_01", "static/m_idle_neutral_02"),
+            "cleo": _clips("static/f_idle_neutral_03"),
+        },
+        live=live,
+        script=script,
     )
-    match live:
-        case "mia":
-            mia = Live(idle=mia_idle, steps=(Play(at_s=13.0, clips=_clips("xyz/f_turn_right_60")),))
-        case None:
-            pass
-    return Scenario(scene=chatting_by_the_table(), scripts={"mia": mia, "ben": ben, "cleo": cleo})
 
 
 SCENARIOS: Final[Mapping[str, Callable[[], Scenario]]] = {
@@ -267,11 +337,21 @@ def describe(name: str) -> Scenario:
     return SCENARIOS[name]()
 
 
-def _in_order[Step: Say | Play](steps: tuple[Step, ...]) -> tuple[Step, ...]:
-    starts = [step.at_s for step in steps]
-    if starts != sorted(starts):
-        raise ValueError(f"Steps start at {starts}, not in order")
-    return steps
+def _heard_out(stage: Stage, robot: RobotVoice, within_s: float) -> Behaviour:
+    """Wait for the robot to have said all it has to, then a pause; or go on if it says nothing.
+
+    Args:
+        stage: Whose clock the wait is on.
+        robot: Whose reply is waited for.
+        within_s: How long the robot has to start, before the scene goes on without it.
+    """
+    return anyway(
+        Sequence(
+            "the robot is heard out",
+            memory=True,
+            children=[WaitForRobot(stage, robot, within_s), Wait(stage, _PAUSE_S)],
+        )
+    )
 
 
 def _clips(*names: str) -> tuple[ClipName, ...]:

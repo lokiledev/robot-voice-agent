@@ -171,8 +171,10 @@ systemctl --user restart pipewire pipewire-pulse wireplumber
 ```
 
 What happens is a scenario of `rva_robot_sim/scenarios.py`, `sim.yaml`'s `scenario` or
-`--scenario` for one run, which picks a scene, the table and the people, and gives each person a
-script. A scripted person says their lines, into the room and out of the reSpeaker for you to
+`--scenario` for one run, which picks a scene, the table and the people, and says what they do:
+a behavior tree of lines, clips and waits, in which they wait for Milo to have answered before
+their next line, for a time, rather than speak at fixed times. A scripted person says their
+lines, into the room and out of the reSpeaker for you to
 hear; the reSpeaker's echo canceller keeps them out of the microphone, as it does the robot's
 voice. A live person speaks with your voice: the reSpeaker's microphone opens their mouth and
 `lune-sim` relays it into the room, so the robot hears only what the people in the scene say.
@@ -183,9 +185,9 @@ uv run lune --profile config/reachy_mini_sim --scenario newcomer_as_mia
 
 | Scenario | What happens |
 |---|---|
-| `newcomer` | The default, about 80 s. Mia and Ben chat, turned to each other, which Milo does not answer; Mia turns to it and gives her name, becoming its operator; Ben gives his and asks for a story, which Mia cuts short as Cleo walks in from out of view and waves; Milo asks the stranger her name, and she asks who else is here |
+| `newcomer` | The default, a minute and a half or more, as long as Milo's answers. Mia and Ben chat, turned to each other, which Milo does not answer; Mia turns to it and gives her name, becoming its operator; Ben gives his and asks for a story, which Mia cuts short five seconds in, if it still goes on, as Cleo walks in from out of view and waves; Milo asks the stranger her name, and she asks who else is here |
 | `newcomer_as_mia` | The same, with you speaking for Mia: chat with Ben's lines, introduce yourself after she turns to Milo, interrupt its story |
-| `greeting` | Mia greets Milo, asks what it can do and for a joke, 20 s apart; Ben listens |
+| `greeting` | Mia greets Milo, asks what it can do and for a joke, each once it has answered; Ben listens |
 | `greeting_as_ben` | The same, with you speaking for Ben among her lines |
 | `greeting_as_mia` | You speak for Mia instead of her lines; Ben listens |
 | `still` | Both stand silent in their A-pose |
@@ -193,7 +195,8 @@ uv run lune --profile config/reachy_mini_sim --scenario newcomer_as_mia
 `lune` starts its own simulation, and refuses to start while one is running. The people idle
 until everything is up, the agent last, its camera's first frame seen; `lune` then starts the
 scenario, and the first line comes 2 or 3 s after. Run by hand, with `lune-sim` and `lune run` or
-`lune see`, start it with `uv run npc start`.
+`lune see`, start it with `uv run npc start`; without an agent, each wait for Milo's answer
+times out after a few seconds and the scenario goes on.
 
 ### Become an operator
 

@@ -17,6 +17,8 @@ dependencies = [
   "matplotlib>=3.7",
   "numpy>=2.0",
   "opencv-python>=4.10",
+  # Runs a scenario's steps as a behavior tree; only its composites, not its timers.
+  "py-trees>=2.6",
   "pydantic>=2.11",
   "rva-pydantic",
   "rva-robot-schemas",

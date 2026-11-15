@@ -1,22 +1,17 @@
-"""The simulation's people, played: idling, acting their scripts at their times, blinking."""
+"""The simulation's people, played: idling, acting what they are told to, blinking."""
 
-import functools
-import itertools
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Final, assert_never
+from typing import Final
 
 import httpx
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
-from pydantic import Field
 
-from rva_pydantic import RVABaseModel
 from rva_robot_sim.animation_assets import ClipName, install_clip, install_skin
 from rva_robot_sim.people import AvatarsConfig, standing
-from rva_robot_sim.scenarios import Play, Say, Script
 from rva_robot_sim.scenes import Person
 from rva_robot_sim.skinning import (
     Floats,
@@ -32,7 +27,6 @@ from rva_robot_sim.skinning import (
     sample,
     truncate,
 )
-from rva_robot_sim.speech import SpokenLine
 
 STILL_BONES: Final = frozenset({"Bip01 REye", "Bip01 LEye", "Bip01 MJaw"})
 """Bones of the face the clips would move from their own rest pose, which is not the avatar's: the
@@ -43,33 +37,19 @@ _BLINK_PERIOD_S: Final = 3.7
 _BLINK_S: Final = 0.16
 
 
-class Action(RVABaseModel, arbitrary_types_allowed=True):
-    """Clips played one after the other from a time, cutting the idle clip playing then."""
-
-    at_s: float
-    """When it starts, in seconds of simulated time."""
-    clips: tuple[tuple[ClipName, Motion], ...] = Field(min_length=1)
-
-    @property
-    def end_s(self) -> float:
-        return self.at_s + sum(motion.duration for _, motion in self.clips)
-
-
 class Actor:
-    """One person playing their idle clips over and over, and their actions at their times.
+    """One person playing their idle clips over and over, and what they are told to in between.
 
-    They idle until their script begins, from when the actions' times count. An action cuts the
-    idle clip playing when it starts; once it ends, the next idle clip starts. Their mouth stays
-    shut until then too. They blink, and their mouth opens as their speech says: a script's or a live voice's.
-    The clips' root motion carries over: a clip that turns them leaves the next facing the new
-    way.
+    Playing clips or gesturing cuts the clip playing; once they end, the next idle clip starts.
+    They blink, and their mouth opens as their speech says: a line's or a live voice's. The clips'
+    root motion carries over: a clip that turns them leaves the next facing the new way.
     """
 
     def __init__(
         self,
         skin: Skin,
-        idle: Sequence[tuple[ClipName, Motion]],
-        actions: Sequence[Action],
+        idle: Sequence[ClipName],
+        motions: Mapping[ClipName, Motion],
         placement: Floats,
         mouth: Callable[[float], float],
     ) -> None:
@@ -77,24 +57,14 @@ class Actor:
 
         Args:
             skin: The avatar.
-            idle: Retargeted to `skin`, each with its name; none, and they stand still at rest
-                between actions.
-            actions: In order, retargeted to `skin`, at their times from the script's beginning.
+            idle: Played between what they are told to; none, and they stand still at rest.
+            motions: Every clip they may play, the idle ones too, retargeted to `skin`.
             placement: 4×4, where they stand on the floor at the start, from `people.standing`.
-            mouth: How open their mouth is at a time since the script began, from 0 to 1.
-
-        Raises:
-            ValueError: If an action starts before the one before it ends.
+            mouth: How open their mouth is at a time, in seconds, from 0 to 1.
         """
-        for before, after in itertools.pairwise(actions):
-            if after.at_s < before.end_s:
-                raise ValueError(
-                    f"The step at {after.at_s:g} s starts before the one at {before.at_s:g} s"
-                    f" ends, at {before.end_s:.2f} s"
-                )
         self.skin: Final = skin
         self._idle: Final = list(idle)
-        self._actions: Final = list(actions)
+        self._motions: Final = motions
         self._opening: Final = mouth
         self._still: Final = rest(skin)
         self._blinks: Final = [
@@ -104,19 +74,34 @@ class Actor:
         self._mouth: Final = skin.shape_index("AA_VI_10_aa")
         self._weights: Final = np.zeros(len(skin.shape_names))
         self._next_idle = 0
-        self._next_action = 0
-        self._begun: float | None = None
-        # The clips of the action playing that are still to come; None while idle.
+        # The clips still to come of what they were told to play; None while idle.
         self._acting: list[tuple[ClipName, Motion]] | None = None
         self._motion = self._idle_clip()
         self._started = 0.0
         self.anchor = placement
         """4×4: where the current clip started on the floor."""
 
-    def begin(self, time: float) -> None:
-        """Begin their script at `time`, in seconds: its actions count from then."""
-        assert self._begun is None, "a script begins once"
-        self._begun = time
+    def play(self, clips: Sequence[ClipName], time: float) -> float:
+        """Play `clips` once from `time`, one after the other, cutting what plays then.
+
+        Returns:
+            How long they last together, in seconds.
+        """
+        acting = [(name, self._motions[name]) for name in clips]
+        lasts = sum(motion.duration for _, motion in acting)
+        self._act(acting, time)
+        return lasts
+
+    def gesture(self, name: ClipName, seconds: float, time: float) -> None:
+        """Gesture with the clip `name` from `time`, for `seconds`: as long as a line lasts."""
+        self._act(lasting(name, self._motions[name], seconds), time)
+
+    def cut(self, time: float) -> None:
+        """Stop what they play at `time`: they idle from where they are."""
+        self._advance(time)
+        self._move_on(time)
+        self._acting = None
+        self._motion = self._idle_clip()
 
     def place(self, placement: Floats) -> None:
         """Move them: the current clip goes on from `placement` as if it had started there."""
@@ -142,37 +127,30 @@ class Actor:
 
     def voice(self, time: float) -> float:
         """How loud they speak at `time`, from 0 to 1: how open their mouth is."""
-        return 0.0 if self._begun is None else self._opening(time - self._begun)
+        return self._opening(time)
 
     def head(self, bones: Floats) -> Floats:
         """3: where their head is, posed by `bones`, in the world."""
         return bones[self.skin.bone_names.index(HEAD_BONE), :3, 3]
 
+    def _act(self, acting: list[tuple[ClipName, Motion]], time: float) -> None:
+        self._advance(time)
+        self._move_on(time)
+        self._acting = acting
+        self._motion = self._action_clip(acting)
+
     def _advance(self, time: float) -> None:
         while True:
             standing_still = self._acting is None and not self._idle
             ends = math.inf if standing_still else self._started + self._motion.duration
-            cut = math.inf
-            if (
-                self._begun is not None
-                and self._acting is None
-                and self._next_action < len(self._actions)
-            ):
-                cut = self._begun + self._actions[self._next_action].at_s
-            if time < min(ends, cut):
+            if time < ends:
                 return
-            if cut <= ends:
-                self._move_on(cut)
-                self._acting = list(self._actions[self._next_action].clips)
-                self._next_action += 1
+            self._move_on(ends)
+            if self._acting is not None and len(self._acting) > 0:
                 self._motion = self._action_clip(self._acting)
             else:
-                self._move_on(ends)
-                if self._acting is not None and len(self._acting) > 0:
-                    self._motion = self._action_clip(self._acting)
-                else:
-                    self._acting = None
-                    self._motion = self._idle_clip()
+                self._acting = None
+                self._motion = self._idle_clip()
 
     def _move_on(self, time: float) -> None:
         """Leave the current clip at `time`: the next starts where it left them."""
@@ -187,7 +165,8 @@ class Actor:
     def _idle_clip(self) -> Motion:
         if not self._idle:
             return self._still
-        name, motion = self._idle[self._next_idle]
+        name = self._idle[self._next_idle]
+        motion = self._motions[name]
         self._next_idle = (self._next_idle + 1) % len(self._idle)
         logger.debug("Idling {}/{}", name.motion, name.name)
         return motion
@@ -196,69 +175,47 @@ class Actor:
 def cast(
     config: AvatarsConfig,
     person: Person,
-    script: Script,
-    lines: Sequence[SpokenLine],
+    idle: Sequence[ClipName],
+    clips: Iterable[ClipName],
     mouth: Callable[[float], float],
     client: httpx.Client,
 ) -> tuple[Path, Actor]:
-    """The person's avatar, to load in Genesis, and the actor that plays its script.
+    """The person's avatar, to load in Genesis, and the actor that plays them.
 
-    A line's gesture lasts as long as the line. The avatar and the clips are downloaded and
-    baked with Blender on first use.
+    The avatar and the clips are downloaded and baked with Blender on first use.
 
     Args:
         config: Where the avatars and the clips come from.
         person: Who they are.
-        script: What they do.
-        lines: What they say, the script's `Say` steps spoken, in order.
+        idle: What they play between what they are told to.
+        clips: Every other clip they may be told to play or gesture with.
         mouth: How open their mouth is at a time, from 0 to 1.
         client: For the downloads.
 
     Raises:
         RuntimeError: If Blender fails to bake one.
         httpx.HTTPError: If a download fails, e.g. for an avatar or a clip that does not exist.
-        ValueError: If a step starts before the one before it ends, as long as its clips and
-            lines turn out.
     """
     glb, skin_path = install_skin(config, person.avatar, client)
     skin = load_skin(skin_path)
-
-    @functools.cache
-    def motion(name: ClipName) -> Motion:
-        return retarget(skin, load_clip(install_clip(config, name, client)), STILL_BONES)
-
-    spoken = iter(lines)
-    actions = []
-    for step in script.steps:
-        match step:
-            case Say(gesture=gesture):
-                line = next(spoken)
-                actions.append(saying(step.at_s, line.clip.duration, gesture, motion(gesture)))
-            case Play(clips=clips):
-                played = tuple((clip, motion(clip)) for clip in clips)
-                actions.append(Action(at_s=step.at_s, clips=played))
-            case _:
-                assert_never(step)
-    assert next(spoken, None) is None, "one line per Say step"
-    idle = [(name, motion(name)) for name in script.idle]
-    try:
-        actor = Actor(skin, idle, actions, standing(person.position, person.turned_deg), mouth)
-    except ValueError as error:
-        raise ValueError(f"{person.name}: {error}") from error
-    return glb, actor
+    motions = {
+        name: retarget(skin, load_clip(install_clip(config, name, client)), STILL_BONES)
+        for name in dict.fromkeys((*idle, *clips))
+    }
+    return glb, Actor(skin, idle, motions, standing(person.position, person.turned_deg), mouth)
 
 
-def saying(at_s: float, line_s: float, name: ClipName, gesture: Motion) -> Action:
-    """Gesturing while saying a line `line_s` seconds long from `at_s`, as long as it lasts.
+def lasting(name: ClipName, gesture: Motion, seconds: float) -> list[tuple[ClipName, Motion]]:
+    """The clips of a gesture that lasts `seconds`, as a line does.
 
     The gesture repeats while the line goes on, and is cut where it ends: Rocketbox's talking
     clips are long takes, half a minute, not one gesture each.
     """
-    whole, rest = divmod(line_s, gesture.duration)
+    whole, rest = divmod(seconds, gesture.duration)
     clips = [(name, gesture)] * int(whole)
     if rest > 0:
         clips.append((name, truncate(gesture, rest)))
-    return Action(at_s=at_s, clips=tuple(clips))
+    return clips
 
 
 def vertex_order(skin: Skin, loaded: Floats) -> npt.NDArray[np.intp]:

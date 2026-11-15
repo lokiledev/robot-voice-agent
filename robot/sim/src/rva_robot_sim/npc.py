@@ -45,8 +45,7 @@ class PersonPose(RVABaseModel):
 class ScenarioStart(RVABaseModel):
     """Start the scenario now.
 
-    Its steps and lines count from here, and a live person's voice is heard. Until then the
-    people idle.
+    Its steps begin, and a live person's voice is heard. Until then the people idle.
     """
 
     by: str

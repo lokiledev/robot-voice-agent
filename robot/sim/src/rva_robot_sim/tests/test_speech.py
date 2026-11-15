@@ -5,8 +5,6 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from rva_robot_sim.animation_assets import ClipName
-from rva_robot_sim.scenarios import Say
 from rva_robot_sim.speech import LiveMouth, LiveMouthConfig, ScriptedMouth, SpokenLine, bake
 from rva_schemas.abc.speech import SpeechSynthesizer
 from rva_schemas.audio import AudioClip
@@ -26,16 +24,12 @@ class _Synthesizer:
             yield AudioClip(samples=samples, sample_rate=1000)
 
 
-def _say(at_s: float, text: str) -> Say:
-    return Say(at_s=at_s, text=text, gesture=ClipName.parse("static/f_gestic_talk_neutral_01"))
-
-
 def _refuse(voice: str) -> SpeechSynthesizer:
     raise AssertionError(f"{voice} was asked to synthesize a line kept already")
 
 
 async def test_lines_are_synthesized_once_then_kept(tmp_path: Path) -> None:
-    lines = (_say(1.0, "Hi"), _say(4.0, "Bye!"))
+    lines = ("Hi", "Bye!")
     said: list[tuple[str, str]] = []
 
     first = await bake(lines, "af_bella", lambda voice: _Synthesizer(voice, said), tmp_path)
@@ -43,14 +37,12 @@ async def test_lines_are_synthesized_once_then_kept(tmp_path: Path) -> None:
 
     assert said == [("af_bella", "Hi"), ("af_bella", "Bye!")]
     for spoken in (first, again):
-        assert [line.at_s for line in spoken] == [1.0, 4.0]
         # Both clips of each text, joined.
-        assert [line.clip.duration for line in spoken] == [0.4, 0.8]
-        assert [line.end_s for line in spoken] == [1.4, 4.8]
+        assert {text: clip.duration for text, clip in spoken.items()} == {"Hi": 0.4, "Bye!": 0.8}
 
 
 async def test_each_voice_keeps_its_own(tmp_path: Path) -> None:
-    lines = (_say(0.0, "Hi"),)
+    lines = ("Hi",)
     said: list[tuple[str, str]] = []
 
     await bake(lines, "af_bella", lambda voice: _Synthesizer(voice, said), tmp_path)
@@ -75,11 +67,18 @@ def test_the_mouth_opens_as_loud_as_the_line(time: float, opening: float) -> Non
     assert line.opening(time) == pytest.approx(opening)
 
 
-def test_a_scripted_mouth_opens_for_the_line_said() -> None:
+def test_a_scripted_mouth_opens_for_the_line_being_said() -> None:
     loud = AudioClip(samples=np.full(1000, 0.3, np.float32), sample_rate=1000)
-    mouth = ScriptedMouth([SpokenLine(at_s=1.0, clip=loud), SpokenLine(at_s=5.0, clip=loud)])
+    mouth = ScriptedMouth()
 
-    assert [mouth.opening(time) for time in (0.5, 1.5, 3.0, 5.5)] == [0.0, 1.0, 0.0, 1.0]
+    before = mouth.opening(0.5)
+    mouth.say(SpokenLine(at_s=1.0, clip=loud))
+    first = [mouth.opening(time) for time in (1.5, 3.0)]
+    mouth.say(SpokenLine(at_s=5.0, clip=loud))
+    second = mouth.opening(5.5)
+    mouth.shut()
+
+    assert (before, first, second, mouth.opening(5.6)) == (0.0, [1.0, 0.0], 1.0, 0.0)
 
 
 @pytest.mark.parametrize(

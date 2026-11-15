@@ -95,22 +95,36 @@ what exists and why.
   - *Controlling the robots*: bridging their sensors and actuators with outside controllers. Today
     `RobotBus` and `serve`, over the robot's kickmsg topics.
   - *Controlling the NPCs*: today `rva_robot_sim.npc`, which places people through the
-    `person_pose` mailbox of the simulation's `sim` node, by name, and its `npc` CLI. Nothing yet
-    tells them, while the sim runs, to play a clip, to talk or to look somewhere.
-  - *Executing a scenario*: a script per person of what they do and say, over time, to test the
-    interactive loops (attention, visual servoing, engagement, the dialogue) by hand and in
-    integration tests. Built for fixed times (`rva_robot_sim.scenarios`, played by
-    `rva_robot_sim.actor`), picked by name by `sim.yaml`'s `scenario`, `lune --scenario` or
-    `lune-sim --scenario`; a person's script is scripted or live, someone at the microphone
-    speaking for them. The people idle until `lune` has everything up, the agent last, and
-    starts the scenario through the sim's `scenario_start` mailbox (or `npc start`). Not yet: steps that wait on the robot
-    (its answer, its gaze), walking to a given point and looking somewhere, and checks of what
-    the robot did. Fixed times make `newcomer` fragile: an answer longer than in the pretest
-    runs into the next line, which then cuts it off as a barge-in would, and a short one leaves
-    a silence. Cleo engages 4 to 8 s after her wave, 52 to 56 s in, and the robot asks her name
-    within a few seconds; she gives it at 58 s. At 66 s, in three runs, she had stopped looking
-    at the robot by then, disengaged, and once her name was dropped as not said to it. Steps
-    that wait on events (an answer, an engagement) were judged overkill for now.
+    `person_pose` mailbox of the simulation's `sim` node, by name, and its `npc` CLI. Only the
+    scenario, inside the simulation, tells them to play a clip or to talk (`steps.Stage`);
+    nothing from outside does, and nothing tells them to look somewhere.
+  - *Executing a scenario*: what the people do and say, to test the interactive loops
+    (attention, visual servoing, engagement, the dialogue) by hand and in integration tests. A
+    py_trees behavior tree of steps (`rva_robot_sim.scenarios`, `rva_robot_sim.steps`), ticked
+    by the simulation's loop, picked by name by `sim.yaml`'s `scenario`, `lune --scenario` or
+    `lune-sim --scenario`; one person may be live, someone at the microphone speaking for them.
+    The people idle until `lune` has everything up, the agent last, and starts the scenario
+    through the sim's `scenario_start` mailbox (or `npc start`). Steps wait on the robot's
+    speech, which the agent publishes on the `robot_speech` topic. Not yet:
+    - **The waits' times come from four runs of `newcomer`**: 2 s for the robot to start an
+      answer, 4 s after a name, 5 s for a greeting after a turn, a story cut short 5 s in.
+      The last run was clean; `greeting` was not run since it waits on the robot.
+    - **The people must keep facing the robot while it talks to them**, or it stops: a glance
+      away of 0.9 s cut a story. Cleo plays a listening clip that keeps her head within 10
+      degrees, Ben his steadiest idle clip, 24 at most; the men's listening clips turn it 40.
+      To settle on the agent's side: how long a look away ends an engagement.
+    - **A line of two sentences is heard as two utterances**, the turn ending after 0.2 s of
+      silence: the robot starts answering the first and the second cuts it, a second lost.
+      Ben's was split in two lines with a wait; Mia's two still do it.
+    - **A view of a run as a timeline**: a lane of speech and one of clips per person, the
+      robot's speech, and each wait with how it ended. A tool of its own, not the session
+      page; the steps' starts and ends are only logged today, and would be published for it.
+    - **Waits on more than speech**: on an engagement or the robot's gaze, e.g. Cleo giving her
+      name once the robot looks at her. A wait for the robot's speech is met by anything it
+      says, to anyone.
+    - **Checks of what the robot did**, for integration tests: a wait that fails already fails
+      the scenario unless wrapped with `anyway`.
+    - Walking to a given point and looking somewhere.
 - **The simulated people walk only where their clips take them.** In `greeting` they idle, talk
   with gestures and listen, blinking, skinned in numpy and shown by Nyx through a patch
   ([AVATAR_ANIMATION.md](AVATAR_ANIMATION.md)). Mia says her lines at their times, gesturing,

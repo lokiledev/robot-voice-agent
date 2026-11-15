@@ -58,6 +58,7 @@ from rva_robot_schemas.topics import HEAD_CONTROLLER_NODE, HEAD_TARGET, JOINT_CO
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.mjcf import read_facts
 from rva_robot_sim.npc import SimulationNotRunningError, start_scenario
+from rva_robot_sim.robot_speech import RobotSpeechPublisher
 from rva_schemas.abc.camera import CameraPoses
 from rva_schemas.abc.conversation import SpeechOutput, UserInput
 from rva_schemas.abc.recorder import Recorder
@@ -583,9 +584,15 @@ def _page(
     return serve_page(config.ui, config.ui.video_page if camera else None)
 
 
-def _recorder(session: Recorder, page: UiServer | None, monitor: CameraMonitor | None) -> Recorder:
-    others = [recorder for recorder in (page, monitor) if recorder is not None]
-    return session if not others else Recorders(session, *others)
+def _recorder(session: Recorder, *others: Recorder | None) -> Recorder:
+    """`session`, and those of `others` there are."""
+    there = [recorder for recorder in others if recorder is not None]
+    return session if not there else Recorders(session, *there)
+
+
+def _speech_topic(config: RuntimeConfig) -> RobotSpeechPublisher | None:
+    """Tells a simulated robot's scenario what the robot says, for its people to wait on."""
+    return None if config.robot is None else RobotSpeechPublisher(config.robot.namespace)
 
 
 def _typed_too(user_input: UserInput, page: UiServer | None) -> UserInput:
@@ -745,7 +752,7 @@ async def _run_voice_agent(
         HttpBodyClient(config.body) as body,
     ):
         monitor = _monitor(config, camera, show, stream=page is not None, on_key=None)
-        recorder = _recorder(session.recorder, page, monitor)
+        recorder = _recorder(session.recorder, page, monitor, _speech_topic(config))
         speaker = await _speaker(config.active_speaker) if camera else None
         vision = (
             await asyncio.to_thread(
@@ -919,7 +926,7 @@ async def _run_text_agent(
         HttpBodyClient(config.body) as body,
     ):
         monitor = _monitor(config, camera, show, stream=page is not None, on_key=None)
-        recorder = _recorder(session.recorder, page, monitor)
+        recorder = _recorder(session.recorder, page, monitor, _speech_topic(config))
         vision = (
             await asyncio.to_thread(
                 _face_vision,

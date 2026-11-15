@@ -1,4 +1,4 @@
-"""The simulated room's sound: the people's lines as they come due, and the live voice."""
+"""The simulated room's sound: the people's lines as they say them, and the live voice."""
 
 import threading
 from collections.abc import Sequence
@@ -10,7 +10,8 @@ import numpy.typing as npt
 import sounddevice
 from loguru import logger
 
-from rva_robot_sim.speech import LiveMouth, SpeechConfig, SpokenLine
+from rva_robot_sim.speech import LiveMouth, SpeechConfig
+from rva_schemas.audio import AudioClip
 
 _BLOCK_S: Final = 0.01
 """How much sound each call of the audio threads makes: how often a live mouth moves."""
@@ -33,6 +34,11 @@ class Mix:
         with self._lock:
             self._playing.append((samples, 0))
 
+    def stop(self, samples: _Samples) -> None:
+        """Stop the clip started with these very `samples`, if it still plays."""
+        with self._lock:
+            self._playing[:] = [clip for clip in self._playing if clip[0] is not samples]
+
     def next(self, frames: int) -> _Samples:
         """The next `frames` samples of all the clips playing, summed, unclipped: zeros if none."""
         mixed = np.zeros(frames, dtype=np.float32)
@@ -48,7 +54,7 @@ class Mix:
 
 
 class Room:
-    """Plays the scripted lines when the scenario reaches them, and relays the live voice.
+    """Plays the scripted lines as the people say them, and relays the live voice.
 
     Both go into the room's device, a PipeWire sink whose monitor the agent listens to: the
     simulated robot hears the people as a microphone would. The scripted lines go to the
@@ -57,12 +63,12 @@ class Room:
     """
 
     def __init__(
-        self, lines: Sequence[SpokenLine], live: LiveMouth | None, config: SpeechConfig
+        self, lines: Sequence[AudioClip], live: LiveMouth | None, config: SpeechConfig
     ) -> None:
         """Open the devices; playing starts on entering.
 
         Args:
-            lines: The scripted people's lines.
+            lines: Every line the scripted people may say.
             live: The mouth of the person the microphone speaks for; None, and it is not opened.
             config: The devices and the sample rate.
 
@@ -70,11 +76,9 @@ class Room:
             ValueError: If a line has another sample rate than the room's.
             sounddevice.PortAudioError: If a device does not exist.
         """
-        rates = {line.clip.sample_rate for line in lines} - {config.sample_rate}
+        rates = {line.sample_rate for line in lines} - {config.sample_rate}
         if rates:
             raise ValueError(f"Lines at {sorted(rates)} Hz, not {config.sample_rate}")
-        self._due: Final = sorted(lines, key=lambda line: line.at_s)
-        self._next = 0
         self._live: Final = live
         # Read on the audio thread: a bool is swapped whole.
         self._begun = False
@@ -129,13 +133,15 @@ class Room:
         """Relay the live voice from now."""
         self._begun = True
 
-    def speak(self, scenario: float) -> None:
-        """Start the lines due by `scenario` seconds since it began, which have not started yet."""
-        while self._next < len(self._due) and self._due[self._next].at_s <= scenario:
-            samples = self._due[self._next].clip.samples
-            self._next += 1
-            self._into_room.start(samples)
-            self._into_loudspeaker.start(samples)
+    def play(self, line: AudioClip) -> None:
+        """Start `line` now."""
+        self._into_room.start(line.samples)
+        self._into_loudspeaker.start(line.samples)
+
+    def cut(self, line: AudioClip) -> None:
+        """Stop `line` if it still plays, as started with `play`."""
+        self._into_room.stop(line.samples)
+        self._into_loudspeaker.stop(line.samples)
 
     def _play(
         self, outdata: _Samples, frames: int, time: object, status: sounddevice.CallbackFlags
