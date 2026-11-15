@@ -7,6 +7,7 @@ clip's actor even though their rest poses differ: arms down in the clips, an A-p
 """
 
 import math
+from collections.abc import Sequence
 from functools import cached_property
 from pathlib import Path
 
@@ -156,6 +157,29 @@ def rest(skin: Skin) -> Motion:
     return Motion(rotations=rotations[None], root_position=skin.bone_rest[None, 0, :3, 3], fps=1.0)
 
 
+def aimed(
+    skin: Skin, motion: Motion, aims: Sequence[tuple[str, str, tuple[float, float, float]]]
+) -> Motion:
+    """The motion with some bones held pointing one way all along, e.g. an arm that carries.
+
+    Args:
+        skin: The avatar the motion is retargeted to.
+        motion: What the other bones keep playing.
+        aims: Each a bone, the bone at its end, and the way from the one to the other, in the
+            skin's frame at rest: it faces -y, +x is its left. Never the root; a bone comes
+            after its parent when both are aimed. The way holds while the bone's parent stands as at rest, and
+            turns with it.
+    """
+    rest_world = skin.bone_rest[:, :3, :3].copy()
+    rotations = motion.rotations.copy()
+    for name, end, way in aims:
+        bone, tip = skin.bone_names.index(name), skin.bone_names.index(end)
+        along = skin.bone_rest[tip, :3, 3] - skin.bone_rest[bone, :3, 3]
+        rest_world[bone] = _turn(along, np.array(way)) @ rest_world[bone]
+        rotations[:, bone] = _quaternion(rest_world[skin.bone_parents[bone]].T @ rest_world[bone])
+    return Motion(rotations=rotations, root_position=motion.root_position, fps=motion.fps)
+
+
 def truncate(motion: Motion, seconds: float) -> Motion:
     """Its first `seconds`, or all of it if shorter."""
     frames = min(len(motion.rotations), math.floor(seconds * motion.fps) + 1)
@@ -250,6 +274,14 @@ def _descendants(skin: Skin, roots: frozenset[str]) -> frozenset[str]:
         if name in roots or (parent >= 0 and skin.bone_names[parent] in kept):
             kept.add(name)
     return frozenset(kept)
+
+
+def _turn(start: Floats, end: Floats) -> Floats:
+    """The smallest 3×3 rotation that points `start` the way of `end`; they are not opposite."""
+    start, end = start / np.linalg.norm(start), end / np.linalg.norm(end)
+    x, y, z = np.cross(start, end)
+    skew = np.array(((0.0, -z, y), (z, 0.0, -x), (-y, x, 0.0)))
+    return np.eye(3) + skew + skew @ skew / (1 + start @ end)
 
 
 def _rigid(rotation: Floats, translation: Floats) -> Floats:

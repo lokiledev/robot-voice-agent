@@ -14,6 +14,19 @@ _LAMPS: Final = tuple((x, y, 2.6) for x in (-2.0, 1.0, 4.0, 7.0, 10.0) for y in 
 """Over the reception's counter and down its lounge, under the ceiling."""
 
 
+class Prop(RVABaseModel):
+    """Something a person carries, seen and not touched: one glTF model."""
+
+    name: str
+    """What the model is kept as once downloaded, e.g. `pizzas`."""
+    url: str
+    """Where the model is downloaded from on first use, as a binary glTF."""
+    sha256: str
+    """Of the download, in hexadecimal."""
+    scale: float
+    """Meters per unit of the model."""
+
+
 class Person(RVABaseModel):
     """One of a scene's people: who they are and where they stand at the start."""
 
@@ -30,6 +43,9 @@ class Person(RVABaseModel):
     turned_deg: float
     """How far they are turned from facing the robot, in degrees, counterclockwise seen from
     above; 0 faces it."""
+    carries: Prop | None
+    """What they hold level on their left forearm, which then keeps still under it; None, and
+    their arms are the clips'."""
 
 
 class Interior(RVABaseModel):
@@ -105,6 +121,7 @@ def two_by_the_table() -> Scene:
                 voice="af_bella",
                 position=(1.1, 0.0),
                 turned_deg=0.0,
+                carries=None,
             ),
             Person(
                 name="ben",
@@ -112,6 +129,7 @@ def two_by_the_table() -> Scene:
                 voice="am_michael",
                 position=(0.8, -0.65),
                 turned_deg=0.0,
+                carries=None,
             ),
         ),
         interior=None,
@@ -132,7 +150,8 @@ def at_the_front_desk() -> Scene:
     3.6 m to the robot's right, 71 degrees off its axis and out of view, facing its left:
     Rocketbox's walk clips take her to (1.3, -0.75), 30 degrees off its axis, where a 60-degree
     turn to her left faces her to it; at 34 degrees, her name was not heard as said to the robot.
-    She starts between a plant and an armchair.
+    She starts between a plant and an armchair, and carries four pizzas: "Pizza Box" by
+    ManuMagana, CC BY 4.0, from Sketchfab through Objaverse.
     """
     return Scene(
         table_height=1.08,
@@ -143,6 +162,7 @@ def at_the_front_desk() -> Scene:
                 voice="af_bella",
                 position=(1.2, 0.3),
                 turned_deg=60.0,
+                carries=None,
             ),
             Person(
                 name="ben",
@@ -150,6 +170,7 @@ def at_the_front_desk() -> Scene:
                 voice="am_michael",
                 position=(1.2, -0.2),
                 turned_deg=-60.0,
+                carries=None,
             ),
             Person(
                 name="cleo",
@@ -158,6 +179,13 @@ def at_the_front_desk() -> Scene:
                 position=(1.24, -3.6),
                 # Facing the robot's left, along +y.
                 turned_deg=-19.0,
+                carries=Prop(
+                    name="pizzas",
+                    url="https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-101/f671b486002848adbfe2f3771f3266e3.glb",
+                    sha256="418389212904f3cd325f780cb9fbd9e28981f1ee32c60bd39e03cf91137c0c13",
+                    # Four boxes 0.3 m wide, stacked as high.
+                    scale=0.45,
+                ),
             ),
         ),
         interior=Interior(

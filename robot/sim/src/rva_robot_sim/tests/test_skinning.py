@@ -6,6 +6,7 @@ import pytest
 from rva_robot_sim.skinning import (
     Clip,
     Skin,
+    aimed,
     deform,
     displacement,
     nlerp,
@@ -119,6 +120,32 @@ def test_retargeting_needs_every_bone_that_is_not_still() -> None:
 
     with pytest.raises(ValueError, match="tail"):
         retarget(skin, _clip(IDENTITY, IDENTITY, (0.5, 0.5)), still=frozenset())
+
+
+def test_an_aimed_bone_points_its_end_the_way_given_whatever_the_clip_plays() -> None:
+    # A hand 1 m to the left of the chest, which the clip turns a quarter turn.
+    skin = _skin().model_copy(
+        update={
+            "bone_names": ("hip", "chest", "hand"),
+            "bone_parents": np.array([-1, 0, 1], dtype=np.int32),
+            "bone_rest": np.stack(
+                [_translation(0, 0, 1), _translation(0, 0, 2), _translation(1, 0, 2)]
+            ),
+        }
+    )
+    clip = _clip(IDENTITY, QUARTER_TURN_Z, (0.5, 0.5)).model_copy(
+        update={
+            "bone_names": ("hip", "chest", "hand"),
+            "rotations": np.array([[IDENTITY, QUARTER_TURN_Z, IDENTITY]] * 2),
+        }
+    )
+    motion = aimed(skin, retarget(skin, clip, still=frozenset()), [("chest", "hand", (0, 0, 1))])
+
+    rotations, root = sample(motion, 0.0)
+    bones = pose(skin, rotations, root, np.eye(4))
+
+    # Straight above the chest, not a quarter turn around it.
+    np.testing.assert_allclose(bones[2, :3, 3], [0.0, 0.0, 3.0], atol=1e-12)
 
 
 def test_sampling_interpolates_between_frames_and_clamps_to_the_motion() -> None:

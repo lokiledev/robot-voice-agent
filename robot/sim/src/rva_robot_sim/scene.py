@@ -9,7 +9,7 @@ import gs_nyx.nyx_py_sdk as nps
 import numpy as np
 import numpy.typing as npt
 from genesis.engine.entities import RigidEntity
-from genesis.utils.geom import quat_to_R
+from genesis.utils.geom import R_to_quat, quat_to_R
 from genesis.utils.misc import tensor_to_array
 from gs_nyx_plugin.nyx_camera_options import NyxCameraOptions
 
@@ -23,7 +23,7 @@ from rva_robot_sim.hearing import heard_azimuth
 from rva_robot_sim.mjcf import CameraMount, read_facts
 from rva_robot_sim.npc import PersonPose
 from rva_robot_sim.people import standing
-from rva_robot_sim.scenes import Interior
+from rva_robot_sim.scenes import Interior, Prop
 from rva_robot_sim.servos import PassiveJointsConfig, ServoConfig, Servos
 from rva_robot_sim.skinning import Floats
 
@@ -67,6 +67,7 @@ class ReachyMiniScene:
         table_height: float,
         interior: tuple[Path, Interior] | None,
         people: Mapping[str, tuple[Path, Actor]],
+        carried: Mapping[str, tuple[Path, Prop]],
         servos: Sequence[ServoConfig],
         passive: PassiveJointsConfig,
         renderer: CameraRenderer,
@@ -79,10 +80,12 @@ class ReachyMiniScene:
         Args:
             mjcf: Reachy Mini's MJCF.
             table_height: Of the table top the robot stands on, in meters.
-            interior: The room around it and its model, from `install_interior`, whose furniture
+            interior: The room around it and its model, from `install_model`, whose furniture
                 the robot then stands on; None, and it stands on a table on a bare floor.
             people: Each person's avatar and the actor that plays it, from `actor.cast`, by their
                 name.
+            carried: What some of the people carry and its model, from `install_model`, by
+                the name of who carries it.
             servos: What drives each actuated joint, in place of the MJCF's actuators.
             passive: The joints no servo drives, in place of the MJCF's joints' damping and
                 friction.
@@ -136,6 +139,13 @@ class ReachyMiniScene:
             )
             for name, (avatar, actor) in people.items()
         }
+        # Seen, not touched either: `animate` moves each as a whole with who carries it.
+        props = {
+            name: self._scene.add_entity(
+                gs.morphs.Mesh(file=str(model), scale=prop.scale, fixed=True, collision=False)
+            )
+            for name, (model, prop) in carried.items()
+        }
         self._robot: Final = self._scene.add_entity(
             gs.morphs.MJCF(file=str(mjcf), pos=(0.0, 0.0, table_height))
         )
@@ -179,6 +189,11 @@ class ReachyMiniScene:
             vertex_order(actor.skin, tensor_to_array(entity.get_vverts()))
             for entity, actor in self._people.values()
         ]
+        # Each prop with the middle of its bottom, from its origin.
+        self._carried: Final = {
+            name: (entity, _bottom(tensor_to_array(entity.get_vAABB())))
+            for name, entity in props.items()
+        }
         self.animate(0.0)
 
     def step(self) -> None:
@@ -218,10 +233,15 @@ class ReachyMiniScene:
     def animate(self, time: float) -> None:
         """Pose the people as they are `time` seconds into the simulation; before a render."""
         voices = []
-        for (entity, actor), order in zip(self._people.values(), self._orders, strict=True):
+        for (name, (entity, actor)), order in zip(self._people.items(), self._orders, strict=True):
             bones = actor.pose(time)
             entity.set_vverts(actor.vertices(bones, time)[order])
             voices.append((actor.voice(time), actor.head(bones)))
+            if name in self._carried:
+                prop, bottom = self._carried[name]
+                frame = actor.carrying(bones)
+                prop.set_pos(frame[:3, 3] - frame[:3, :3] @ bottom)
+                prop.set_quat(R_to_quat(frame[:3, :3]))
         self._voices = voices
 
     def sound_direction(self, timestamp: float) -> SoundDirection:
@@ -259,6 +279,12 @@ class ReachyMiniScene:
         """What the head camera sees now."""
         rgb = tensor_to_array(self._camera.read().rgb)
         return CameraFrame(timestamp=timestamp, image=np.ascontiguousarray(rgb[..., ::-1]))
+
+
+def _bottom(box: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """3: the middle of the bottom of a box given as its lowest and highest corners."""
+    low, high = box
+    return np.array(((low[0] + high[0]) / 2, (low[1] + high[1]) / 2, low[2]))
 
 
 def _room(model: Path, interior: Interior) -> gs.morphs.Mesh:

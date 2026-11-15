@@ -53,7 +53,7 @@ class SimConfig(RVABaseModel):
     avatars: AvatarsConfig
     """Where the people of the scenes (`scenes.py`) come from."""
     interiors: InteriorsConfig
-    """Where the rooms of the scenes are kept."""
+    """Where the rooms of the scenes, and what their people carry, are kept."""
     scenario: str
     """What happens around the robot, in which scene: one of `scenarios.SCENARIOS`, by name, e.g.
     `greeting`. `lune-sim --scenario` and `lune --scenario` run another."""

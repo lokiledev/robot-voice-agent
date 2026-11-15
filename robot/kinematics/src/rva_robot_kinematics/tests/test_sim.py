@@ -39,6 +39,7 @@ class _Robot:
             table_height,
             None,
             {},
+            {},
             config.servos,
             config.passive_joints,
             Rasterizer(),

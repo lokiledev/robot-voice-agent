@@ -32,6 +32,7 @@ def scene() -> ReachyMiniScene:
         two_by_the_table().table_height,
         None,
         {},
+        {},
         config.servos,
         config.passive_joints,
         Rasterizer(),

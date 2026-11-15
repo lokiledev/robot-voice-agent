@@ -265,12 +265,12 @@ class ReactiveRobot:
             self._voice.hear(SENTENCE, now)
 
 
-HOLD_ON = "Hold that thought, here she comes."
+HOLD_ON = "Hold on, I think that's dinner."
 
 
 @pytest.mark.parametrize(
     ("answer_s", "cut_short", "ends_at"),
-    [(4.0, False, 97.5), (20.0, True, 197.9), (None, False, 92.5)],
+    [(4.0, False, 87.0), (20.0, True, 187.5), (None, False, 82.0)],
     ids=["short answers", "long answers", "a silent robot"],
 )
 def test_newcomer_keeps_its_order_however_long_the_robot_answers(
@@ -289,21 +289,21 @@ def test_newcomer_keeps_its_order_however_long_the_robot_answers(
 
     assert tree.status == Status.SUCCESS
     acts = [
-        ("mia", "We have a visitor at ten. What are we supposed to tell them?"),
-        ("ben", "No idea. Ask the robot, welcoming people is its job now."),
-        ("mia", "Good point. Let's see what it knows."),
+        ("mia", "Did you order the pizzas?"),
+        ("ben", "Twenty minutes ago. I could eat the box."),
+        ("mia", "Then come and meet the new receptionist while we wait."),
         ("mia", "f_turn_right_60"),
         ("mia", "I'm Mia."),
         ("ben", "m_turn_left_60"),
-        ("ben", "I'm Ben and I fix whatever she breaks."),
-        ("ben", "Please give us the long version of your welcome speech for visitors."),
+        ("ben", "I'm Ben and I'm very hungry."),
+        ("ben", "Tell us a long story to pass the time."),
         ("cleo", "f_walk_start+f_walk_neutral_01+f_walk_stop+f_turn_left_60+f_wave_01"),
         ("mia", HOLD_ON),
-        ("cleo", "Hi, I'm Cleo, I'm here for an interview."),
-        ("cleo", "Thank you. And who are these two?"),
-        ("mia", "Not bad for something I unboxed this morning. You're hired!"),
+        ("cleo", "Hi, I'm Cleo, I have four pizzas."),
+        ("cleo", "Thank you. Is Ben around?"),
+        ("ben", "Best receptionist we ever had."),
     ]
-    # Mia cuts the speech short only if it still goes on: nobody else talks over the robot.
+    # Mia cuts the story short only if it still goes on: nobody else talks over the robot.
     assert [(who, what) for _, who, what in stage.log if what not in LISTENING] == [
         act for act in acts if cut_short or act != ("mia", HOLD_ON)
     ]

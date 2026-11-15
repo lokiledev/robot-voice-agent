@@ -185,8 +185,8 @@ uv run lune --profile config/reachy_mini_sim --scenario newcomer_as_mia
 
 | Scenario | What happens |
 |---|---|
-| `newcomer` | The default, a minute and a half or more, as long as Milo's answers: its first day as the office's receptionist, on the front desk. Mia asks Ben what to tell the visitor they expect, and he sends her to the robot, both turned to each other, which Milo does not answer; Mia turns to it and gives her name, becoming its operator; Ben gives his and asks for its welcome speech, the long version, which Mia cuts short five seconds in, if it still goes on, as a visitor walks in from out of view and waves, Cleo; Milo asks the stranger her name, and she asks who the two are |
-| `newcomer_as_mia` | The same, with you speaking for Mia: chat with Ben's lines, introduce yourself after she turns to Milo, interrupt its speech |
+| `newcomer` | The default, a minute and a half or more, as long as Milo's answers: its first day as the office's receptionist, on the front desk. Mia and Ben, hungry, talk of the pizzas he ordered, both turned to each other, which Milo does not answer; Mia turns to it and gives her name, becoming its operator; Ben gives his and asks for a long story, which Mia cuts short five seconds in, if it still goes on, as Cleo walks in from out of view with four pizzas and waves; Milo asks the stranger her name, and she asks whether Ben is around |
+| `newcomer_as_mia` | The same, with you speaking for Mia: chat with Ben's lines, introduce yourself after she turns to Milo, interrupt its story |
 | `greeting` | Mia greets Milo, asks what it can do and for a joke, each once it has answered; Ben listens |
 | `greeting_as_ben` | The same, with you speaking for Ben among her lines |
 | `greeting_as_mia` | You speak for Mia instead of her lines; Ben listens |
@@ -195,7 +195,9 @@ uv run lune --profile config/reachy_mini_sim --scenario newcomer_as_mia
 `newcomer` plays in a reception: the robot stands on its counter and looks down its lounge. The
 room is one model, downloaded on first use like the people, ["Luiz IEDA -
 Recepção"](https://sketchfab.com/3d-models/d28ffb65c0be48e2b1821e649be0984e) by SrMonteiro,
-CC BY 4.0, from Objaverse; a scene of `rva_robot_sim/scenes.py` says where the robot stands in
+CC BY 4.0, from Objaverse, and the pizzas Cleo carries are ["Pizza
+Box"](https://sketchfab.com/3d-models/pizza-box-f671b486002848adbfe2f3771f3266e3) by ManuMagana,
+CC BY 4.0, from there too; a scene of `rva_robot_sim/scenes.py` says where the robot stands in
 it and where its lamps hang, since a closed room gets no light from the panorama. The other
 scenarios keep the bare floor and the table.
 

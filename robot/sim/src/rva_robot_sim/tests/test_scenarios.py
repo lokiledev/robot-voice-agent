@@ -74,16 +74,16 @@ def test_mia_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
     scenario = describe("newcomer")
 
     assert _lines(scenario) == [
-        ("mia", "We have a visitor at ten. What are we supposed to tell them?"),
-        ("ben", "No idea. Ask the robot, welcoming people is its job now."),
-        ("mia", "Good point. Let's see what it knows."),
+        ("mia", "Did you order the pizzas?"),
+        ("ben", "Twenty minutes ago. I could eat the box."),
+        ("mia", "Then come and meet the new receptionist while we wait."),
         ("mia", "I'm Mia."),
-        ("ben", "I'm Ben and I fix whatever she breaks."),
-        ("ben", "Please give us the long version of your welcome speech for visitors."),
-        ("mia", "Hold that thought, here she comes."),
-        ("cleo", "Hi, I'm Cleo, I'm here for an interview."),
-        ("cleo", "Thank you. And who are these two?"),
-        ("mia", "Not bad for something I unboxed this morning. You're hired!"),
+        ("ben", "I'm Ben and I'm very hungry."),
+        ("ben", "Tell us a long story to pass the time."),
+        ("mia", "Hold on, I think that's dinner."),
+        ("cleo", "Hi, I'm Cleo, I have four pizzas."),
+        ("cleo", "Thank you. Is Ben around?"),
+        ("ben", "Best receptionist we ever had."),
     ]
     assert _plays(scenario) == [
         ("mia", ["f_turn_right_60"]),
@@ -92,7 +92,7 @@ def test_mia_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
             "cleo",
             ["f_walk_start", "f_walk_neutral_01", "f_walk_stop", "f_turn_left_60", "f_wave_01"],
         ),
-        # Ben holds still while the speech is made to him.
+        # Ben holds still while the story is told to him.
         ("ben", ["m_idle_neutral_01", "m_idle_neutral_01", "m_idle_neutral_01"]),
         # While the robot greets her, then answers each of her lines.
         ("cleo", ["f_gestic_listen_neutral_01"]),
@@ -177,6 +177,7 @@ def test_a_person_is_found_by_name() -> None:
         voice="am_michael",
         position=(0.8, -0.65),
         turned_deg=0.0,
+        carries=None,
     )
     with pytest.raises(KeyError, match=r"Nobody named 'cleo'; there are \['mia', 'ben'\]"):
         scene.person("cleo")

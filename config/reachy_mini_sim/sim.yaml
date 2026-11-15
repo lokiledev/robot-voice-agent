@@ -7,13 +7,13 @@ avatars:
   commit: 0943055db6ec570bcef9f2c8b41c9e5467c808f9
   directory: ~/.cache/robot-voice-agent/rocketbox
   blender: /snap/bin/blender
-# The rooms of the scenes that have one, downloaded on first use.
+# The rooms of the scenes that have one and what their people carry, downloaded on first use.
 interiors:
   directory: ~/.cache/robot-voice-agent/interiors
 # What happens around the robot: a scenario of rva_robot_sim/scenarios.py, by name, which picks
 # its scene (the table and the people) and gives each person a script. `newcomer`: the robot's
-# first day at the front desk; Mia and Ben chat, introduce themselves and cut its welcome
-# speech short, then Cleo walks in, a visitor it asks the name of; `newcomer_as_mia`: you speak
+# first day at the front desk; Mia and Ben wait for pizzas, introduce themselves and cut its
+# story short as Cleo walks in with them, whom it asks the name of; `newcomer_as_mia`: you speak
 # for Mia into the microphone. `greeting`: Mia
 # greets the robot and asks it things, Ben listens; `greeting_as_ben` and `greeting_as_mia`: you
 # speak for one of them. `still`: Mia and Ben stand in an A-pose. `--scenario` runs another, with

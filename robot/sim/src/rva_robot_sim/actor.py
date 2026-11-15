@@ -17,10 +17,13 @@ from rva_robot_sim.skinning import (
     Floats,
     Motion,
     Skin,
+    aimed,
     deform,
     displacement,
+    heading,
     load_clip,
     load_skin,
+    placement,
     pose,
     rest,
     retarget,
@@ -33,6 +36,15 @@ STILL_BONES: Final = frozenset({"Bip01 REye", "Bip01 LEye", "Bip01 MJaw"})
 eyes and the jaw keep the avatar's, and the face shapes move them."""
 HEAD_BONE: Final = "Bip01 Head"
 """The bone a person's voice comes from, near enough."""
+_CARRYING_HAND: Final = "Bip01 L Hand"
+_CARRYING_ARM: Final = (
+    # The upper arm down along the body, the forearm level ahead: -y is ahead, +x their left.
+    ("Bip01 L UpperArm", "Bip01 L Forearm", (0.15, 0.0, -1.0)),
+    ("Bip01 L Forearm", _CARRYING_HAND, (-0.25, -1.0, 0.05)),
+)
+_CARRIED_FROM_HAND: Final = (-0.02, -0.05, 0.03)
+"""Where the middle of what they carry rests, from the hand under it: to their left, behind and
+up, in meters."""
 _BLINK_PERIOD_S: Final = 3.7
 _BLINK_S: Final = 0.16
 
@@ -133,6 +145,14 @@ class Actor:
         """3: where their head is, posed by `bones`, in the world."""
         return bones[self.skin.bone_names.index(HEAD_BONE), :3, 3]
 
+    def carrying(self, bones: Floats) -> Floats:
+        """4×4: where the bottom of what they carry is, posed by `bones`: level, turned as they."""
+        turned = bones[0, :3, :3] @ self.skin.bone_rest[0, :3, :3].T
+        frame = placement(0.0, 0.0, heading(turned))
+        hand = bones[self.skin.bone_names.index(_CARRYING_HAND), :3, 3]
+        frame[:3, 3] = hand + frame[:3, :3] @ _CARRIED_FROM_HAND
+        return frame
+
     def _act(self, acting: list[tuple[ClipName, Motion]], time: float) -> None:
         self._advance(time)
         self._move_on(time)
@@ -202,6 +222,9 @@ def cast(
         name: retarget(skin, load_clip(install_clip(config, name, client)), STILL_BONES)
         for name in dict.fromkeys((*idle, *clips))
     }
+    if person.carries is not None:
+        # The clips swing both arms: the one under what they carry holds still instead.
+        motions = {name: aimed(skin, motion, _CARRYING_ARM) for name, motion in motions.items()}
     return glb, Actor(skin, idle, motions, standing(person.position, person.turned_deg), mouth)
 
 
