@@ -133,7 +133,9 @@ uv run lune
 ```
 
 It starts the LLM server, the mock robot and MediaMTX, waits until they are ready, then runs Lune
-with its session page: open <http://127.0.0.1:8700> and talk to it. Ctrl+C stops everything. No
+with its session page: open <http://127.0.0.1:8700> and talk to it. Ctrl+C stops everything. The
+default profile is Lune in a computer, with a camera and a microphone and no body: it talks,
+knows who is there, and has no tool to move anything. `config/thor` is the humanoid. No
 microphone at hand? `uv run lune --text` lets you type, in the terminal or on the page.
 
 The servers' output goes to `~/Captures/robot-voice-agent/servers/`. A server you start yourself

@@ -165,7 +165,9 @@ class BodyTools:
         walking = _WALKING if capabilities.walks else ()
         # Walking to someone needs to see them.
         to_people = _WALKING_TO_PEOPLE if capabilities.walks and vision is not None else ()
-        self.specs: Final = walking + _GESTURES + to_people
+        # A body that neither walks nor gestures has nothing to stop either.
+        gestures = _GESTURES if capabilities.walks or capabilities.animations else ()
+        self.specs: Final = walking + gestures + to_people
         """The tools this body has; the agent offers no others."""
 
     async def call(self, call: ToolCall) -> ToolResult:

@@ -1,1 +1,60 @@
-../default/capabilities.yaml
+body: a humanoid robot
+walks: true
+# Example skills until the real VLA's training phrasings are known. They show the kind and the
+# phrasing of commands the body understands; they are not a closed list.
+skills:
+  - name: pick and place
+    description: Pick up an object and put it somewhere, or move it from one place to another.
+    examples:
+      - pick up the red cup
+      - put the cup on the shelf
+      - move the toolbox to the workbench
+  - name: fetch and hand over
+    description: Bring an object to someone, take an object from them, or give it back.
+    examples:
+      - hand the red cup to the person
+      - hand the screwdriver to the person
+      - take the bottle from the person
+  - name: search
+    description: Look around a place for an object and report whether it is there.
+    examples:
+      - look for glasses on the workbench
+      - search the shelf for the blue toolbox
+      - check if the cup is on the kitchen counter
+  - name: tidy and sort
+    description: Gather, sort, stack or arrange objects; coil and bundle cables; put things back where they belong.
+    examples:
+      - gather the cables on the workbench
+      - coil the cable on the floor
+      - stack the boxes by the shelf
+      - put the tools back in the toolbox
+  - name: clean
+    description: Wipe a surface, sweep small debris, throw something in the bin.
+    examples:
+      - wipe the workbench
+      - throw the paper cup in the bin
+  - name: open and close
+    description: Open or close drawers, doors, cabinets, lids and boxes.
+    examples:
+      - open the drawer
+      - close the cabinet door
+      - open the box on the table
+  - name: operate
+    description: Press buttons, flip switches, turn knobs, push or pull things.
+    examples:
+      - press the coffee machine button
+      - turn off the desk lamp
+      - push the chair under the table
+# Played with the play_animation tool, not as tasks.
+animations:
+  - wave_left_hand
+  - wave_right_hand
+  - dance
+  - sit_down
+  - stand_up
+  - turn_around
+greeting_animation: wave_right_hand
+constraints:
+  - Cannot climb stairs or leave the lab.
+  - Cannot lift more than about five kilograms.
+  - Is not trusted with knives, hot liquids or anything that could hurt someone.

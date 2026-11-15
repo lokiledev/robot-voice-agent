@@ -140,6 +140,21 @@ def test_system_prompt_explains_people_only_with_a_camera() -> None:
     assert "# People around you" not in render_system_prompt(PROFILE, vision=False)
 
 
+def test_system_prompt_tells_an_assistant_without_a_body_of_no_gesture_or_tool_for_one() -> None:
+    capabilities = PROFILE.capabilities.model_copy(
+        update={"skills": (), "walks": False, "animations": (), "greeting_animation": None}
+    )
+    bodiless = PROFILE.model_copy(update={"capabilities": capabilities})
+
+    prompt = render_system_prompt(bodiless, vision=True)
+
+    assert "have no body to move" in prompt
+    assert "play_animation" not in prompt
+    assert "# Gestures" not in prompt
+    assert "# How to talk about your actions" not in prompt
+    assert "play_animation" in render_system_prompt(PROFILE, vision=True)
+
+
 def test_a_name_is_found_among_the_words_said_however_it_is_written() -> None:
     assert _names("My name is jean luc.", "Jean-Luc")
     assert _names("I'm Chloé, hi!", "Chloe")
