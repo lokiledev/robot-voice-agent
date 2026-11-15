@@ -737,8 +737,10 @@ targets.
   a turn clip, and walking in is a walk's start, cycles and stop, then a turn: where they end up
   is where Rocketbox's clips take them, a few centimetres off a straight line. The default,
   `newcomer`, has Mia and Ben chat, then meet the robot one after the other, before Cleo walks
-  in from out of view; Mia cuts the robot's story short only if it still goes on. On first use each
-  avatar and clip is downloaded from GitHub at a pinned commit and baked once by headless
+  in from out of view; Mia cuts the robot's speech short only if it still goes on. Its scene has
+  an interior, a furnished room as one glTF model, seen and not touched: the robot stands on an
+  unseen box inside one of its counters, and point lights under the ceiling replace the sun. On
+  first use each avatar and clip is downloaded from GitHub at a pinned commit and baked once by headless
   Blender, since Genesis cannot read their FBX: the face FBX's mesh in its A-pose as a GLB, with
   its skin and face shapes as arrays, and each clip as its bones' rotations. Genesis shows the
   mesh with vertices the sim sets: before each frame, `rva_robot_sim.actor` poses each person

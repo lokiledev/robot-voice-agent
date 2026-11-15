@@ -10,7 +10,7 @@ from rva_pydantic import load_yaml
 from rva_robot_sim.animation_assets import ClipName
 from rva_robot_sim.config import SimConfig
 from rva_robot_sim.scenarios import SCENARIOS, Scenario, describe
-from rva_robot_sim.scenes import Person, Scene, chatting_by_the_table, two_by_the_table
+from rva_robot_sim.scenes import Person, Scene, at_the_front_desk, two_by_the_table
 from rva_robot_sim.steps import Play, RobotVoice, Say, Stage
 
 SIM_YAML = Path(__file__).parents[5] / "config" / "reachy_mini_sim" / "sim.yaml"
@@ -74,16 +74,16 @@ def test_mia_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
     scenario = describe("newcomer")
 
     assert _lines(scenario) == [
-        ("mia", "So, did you get the demo working in the end?"),
-        ("ben", "Almost. The head still wobbles when it turns."),
-        ("mia", "Look, it's watching us. Let's say hi."),
-        ("mia", "Hi Milo! I'm Mia."),
-        ("ben", "And I'm Ben."),
-        ("ben", "Can you tell us a story about a robot who learns to dance?"),
-        ("mia", "Sorry, hold on. Someone's coming."),
-        ("cleo", "Hi, I'm Cleo. I just joined the team."),
-        ("cleo", "Nice to meet you. Who else is here?"),
-        ("ben", "Right, back to work. See you later!"),
+        ("mia", "We have a visitor at ten. What are we supposed to tell them?"),
+        ("ben", "No idea. Ask the robot, welcoming people is its job now."),
+        ("mia", "Good point. Let's see what it knows."),
+        ("mia", "I'm Mia."),
+        ("ben", "I'm Ben and I fix whatever she breaks."),
+        ("ben", "Please give us the long version of your welcome speech for visitors."),
+        ("mia", "Hold that thought, here she comes."),
+        ("cleo", "Hi, I'm Cleo, I'm here for an interview."),
+        ("cleo", "Thank you. And who are these two?"),
+        ("mia", "Not bad for something I unboxed this morning. You're hired!"),
     ]
     assert _plays(scenario) == [
         ("mia", ["f_turn_right_60"]),
@@ -92,7 +92,7 @@ def test_mia_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
             "cleo",
             ["f_walk_start", "f_walk_neutral_01", "f_walk_stop", "f_turn_left_60", "f_wave_01"],
         ),
-        # Ben holds still while the story is told to him.
+        # Ben holds still while the speech is made to him.
         ("ben", ["m_idle_neutral_01", "m_idle_neutral_01", "m_idle_neutral_01"]),
         # While the robot greets her, then answers each of her lines.
         ("cleo", ["f_gestic_listen_neutral_01"]),
@@ -102,7 +102,7 @@ def test_mia_and_ben_chat_then_meet_the_robot_and_cleo_walks_in() -> None:
 
 
 def test_mia_and_ben_face_each_other_and_cleo_starts_out_of_the_robots_view() -> None:
-    scene = chatting_by_the_table()
+    scene = at_the_front_desk()
 
     assert [(p.name, p.turned_deg) for p in scene.people[:2]] == [("mia", 60.0), ("ben", -60.0)]
     x, y = scene.person("cleo").position
@@ -165,7 +165,7 @@ def test_names_in_a_scene_are_unique() -> None:
     mia = two_by_the_table().person("mia")
 
     with pytest.raises(ValidationError, match="each name once"):
-        Scene(table_height=1.0, people=(mia, mia))
+        Scene(table_height=1.0, people=(mia, mia), interior=None)
 
 
 def test_a_person_is_found_by_name() -> None:

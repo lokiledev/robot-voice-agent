@@ -18,7 +18,7 @@ from pydantic import model_validator
 
 from rva_pydantic import RVABaseModel
 from rva_robot_sim.animation_assets import ClipName
-from rva_robot_sim.scenes import Scene, chatting_by_the_table, two_by_the_table
+from rva_robot_sim.scenes import Scene, at_the_front_desk, two_by_the_table
 from rva_robot_sim.steps import (
     Play,
     RobotVoice,
@@ -147,19 +147,29 @@ def greeting(live: Literal["mia", "ben"] | None) -> Scenario:
 
 
 def newcomer(live: Literal["mia"] | None) -> Scenario:
-    """Mia and Ben chat, then introduce themselves to the robot; Cleo walks in, a stranger.
+    """The robot's first day at the front desk: Mia and Ben try it out, then Cleo walks in.
+
+    The story: the office has a new receptionist, a robot on the front desk. Mia wonders what to
+    tell the visitor they expect, and Ben sends her to ask the robot, whose job it now is. They
+    introduce themselves and have it rehearse its welcome speech, when the visitor walks in, Cleo,
+    here for an interview; it greets her, and tells her who the two are.
 
     What it shows, in order: speech not said to the robot, while the head turns to whoever
-    speaks; Mia engaging and giving her name, the first, who becomes the operator; Ben asking for
-    a story and Mia cutting it short; Cleo walking in from out of view and waving, greeted and
-    asked her name as an unknown face; then who is here, recognized. Start with an empty face
-    database.
+    speaks; Mia engaging and giving her name, the first, who becomes the operator; Ben doing the
+    same, then asking for a long speech, which Mia cuts short; Cleo walking in from out of view
+    and waving, greeted and asked her name as an unknown face; then who is here, recognized.
+    Start with an empty face database.
+
+    Nobody says another's name to the robot, which takes it for the speaker's. What is said to
+    it has no pause before its end, least of all after a name: "I'm Mia, the one who unboxed
+    you" was heard as two utterances, the second cutting its answer to the first.
 
     Each turns to the robot and lets it greet them before speaking: a line said as they engage
     would cut the greeting off. Each then waits for its answer before the next line, but only
-    a couple of seconds for it to start: a robot that says nothing leaves no long gap. Cleo starts walking once the story is
-    under way, and Mia cuts it short five seconds in, only if it still goes on then. Cleo listens to the robot
-    with a clip that keeps her facing it, rather than idle and look away.
+    a couple of seconds for it to start: a robot that says nothing leaves no long gap. Cleo
+    starts walking once the speech is under way, and Mia cuts it short five seconds in, only if
+    it still goes on then. Cleo listens to the robot with a clip that keeps her facing it, rather
+    than idle and look away.
 
     Args:
         live: Whom you speak for at the microphone. Mia: you replace her lines, chatting with
@@ -192,26 +202,30 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
             children=[
                 Wait(stage, 2.0),
                 mia_says(
-                    "So, did you get the demo working in the end?",
+                    "We have a visitor at ten. What are we supposed to tell them?",
                     "static/f_gestic_talk_neutral_01",
                 ),
                 Wait(stage, 0.7),
                 Say(
                     stage,
                     "ben",
-                    "Almost. The head still wobbles when it turns.",
+                    "No idea. Ask the robot, welcoming people is its job now.",
                     ClipName.parse("static/m_gestic_talk_neutral_01"),
                 ),
                 Wait(stage, 0.7),
                 mia_says(
-                    "Look, it's watching us. Let's say hi.", "static/f_gestic_talk_neutral_02"
+                    "Good point. Let's see what it knows.",
+                    "static/f_gestic_talk_neutral_02",
                 ),
                 Parallel(
                     "mia turns to the robot, which greets her",
                     ParallelPolicy.SuccessOnAll(),
                     [Play(stage, "mia", _clips("xyz/f_turn_right_60")), greeted(_GREETS_WITHIN_S)],
                 ),
-                mia_says("Hi Milo! I'm Mia.", "static/f_gestic_talk_relaxed_01"),
+                mia_says(
+                    "I'm Mia.",
+                    "static/f_gestic_talk_relaxed_01",
+                ),
                 answered(_ANSWERS_A_NAME_WITHIN_S),
                 Parallel(
                     "ben turns to the robot, which greets him",
@@ -222,26 +236,26 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
                 Say(
                     stage,
                     "ben",
-                    "And I'm Ben.",
+                    "I'm Ben and I fix whatever she breaks.",
                     ClipName.parse("static/m_gestic_talk_relaxed_01"),
                 ),
                 answered(_ANSWERS_A_NAME_WITHIN_S),
                 Say(
                     stage,
                     "ben",
-                    "Can you tell us a story about a robot who learns to dance?",
+                    "Please give us the long version of your welcome speech for visitors.",
                     ClipName.parse("static/m_gestic_talk_neutral_01"),
                 ),
-                # The story is told to Ben, and stops if he looks away: he keeps to the idle clip
+                # The speech is made to Ben, and stops if he looks away: he keeps to the idle clip
                 # that turns his head least, 24 degrees at most. His listening clips turn it 40.
                 alongside(
                     Sequence(
-                        "the story, cut short as cleo walks in",
+                        "the speech, cut short as cleo walks in",
                         memory=True,
                         children=[
                             anyway(WaitUntilRobotSpoke(stage, robot, for_s=1.5, within_s=6.0)),
                             Parallel(
-                                "cleo walks in, and mia cuts the story short",
+                                "cleo walks in, and mia cuts the speech short",
                                 ParallelPolicy.SuccessOnAll(),
                                 [
                                     Play(
@@ -255,18 +269,18 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
                                             "static/f_wave_01",
                                         ),
                                     ),
-                                    # Not said to a robot that has finished its story already:
+                                    # Not said to a robot that has finished its speech already:
                                     # a short one is two sentences, ten seconds.
                                     anyway(
                                         Sequence(
-                                            "mia cuts the story short",
+                                            "mia cuts the speech short",
                                             memory=True,
                                             children=[
                                                 WaitUntilRobotSpoke(
                                                     stage, robot, for_s=5.0, within_s=6.0
                                                 ),
                                                 mia_says(
-                                                    "Sorry, hold on. Someone's coming.",
+                                                    "Hold that thought, here she comes.",
                                                     "static/f_gestic_talk_excited_01",
                                                 ),
                                             ],
@@ -283,28 +297,26 @@ def newcomer(live: Literal["mia"] | None) -> Scenario:
                 Say(
                     stage,
                     "cleo",
-                    "Hi, I'm Cleo. I just joined the team.",
+                    "Hi, I'm Cleo, I'm here for an interview.",
                     ClipName.parse("static/f_gestic_talk_relaxed_02"),
                 ),
                 cleo_listens(answered(_ANSWERS_A_NAME_WITHIN_S)),
                 Say(
                     stage,
                     "cleo",
-                    "Nice to meet you. Who else is here?",
+                    "Thank you. And who are these two?",
                     ClipName.parse("static/f_gestic_talk_neutral_03"),
                 ),
                 cleo_listens(answered(_ANSWERS_WITHIN_S)),
-                Say(
-                    stage,
-                    "ben",
-                    "Right, back to work. See you later!",
-                    ClipName.parse("static/m_gestic_talk_neutral_02"),
+                mia_says(
+                    "Not bad for something I unboxed this morning. You're hired!",
+                    "static/f_gestic_talk_excited_01",
                 ),
             ],
         )
 
     return Scenario(
-        scene=chatting_by_the_table(),
+        scene=at_the_front_desk(),
         idle={
             "mia": _clips("static/f_idle_neutral_01", "static/f_idle_neutral_02"),
             "ben": _clips("static/m_idle_neutral_01", "static/m_idle_neutral_02"),

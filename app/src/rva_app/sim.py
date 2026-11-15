@@ -23,6 +23,7 @@ from rva_robot_sim.bus import RobotBus
 from rva_robot_sim.config import CameraRenderer, NyxRenderer, Rasterizer, SimConfig
 from rva_robot_sim.description import install_reachy_mini
 from rva_robot_sim.hdri import install_hdri
+from rva_robot_sim.interior import install_interior
 from rva_robot_sim.room import Room
 from rva_robot_sim.scenarios import SCENARIOS, Scenario, describe
 from rva_robot_sim.scene import ReachyMiniScene
@@ -91,6 +92,10 @@ def main(
             for person in people
         }
         hdri = _hdri(config.camera_renderer, client)
+        room = played.scene.interior
+        interior = (
+            None if room is None else (install_interior(room, config.interiors, client), room)
+        )
     # One environment steps faster on the CPU than it takes to launch kernels on a GPU.
     gs.init(backend=backend.cpu, logging_level="warning")
     logging.getLogger("genesis").addFilter(_without_get_trimesh)
@@ -98,6 +103,7 @@ def main(
     world = ReachyMiniScene(
         mjcf,
         played.scene.table_height,
+        interior,
         cast_people,
         config.servos,
         config.passive_joints,

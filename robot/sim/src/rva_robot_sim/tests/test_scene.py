@@ -30,6 +30,7 @@ def scene() -> ReachyMiniScene:
     return ReachyMiniScene(
         mjcf,
         two_by_the_table().table_height,
+        None,
         {},
         config.servos,
         config.passive_joints,

@@ -4,9 +4,14 @@ Scenes are written as code, each a function; a scenario (`scenarios.py`) picks o
 happens in it.
 """
 
+from typing import Final
+
 from pydantic import field_validator
 
 from rva_pydantic import RVABaseModel
+
+_LAMPS: Final = tuple((x, y, 2.6) for x in (-2.0, 1.0, 4.0, 7.0, 10.0) for y in (-3.0, -0.5))
+"""Over the reception's counter and down its lounge, under the ceiling."""
 
 
 class Person(RVABaseModel):
@@ -27,11 +32,42 @@ class Person(RVABaseModel):
     above; 0 faces it."""
 
 
+class Interior(RVABaseModel):
+    """A furnished room around the robot, seen and not touched: one glTF model.
+
+    The robot stands on a piece of its furniture, which the scene's `table_height` is the height
+    of.
+    """
+
+    name: str
+    """What the model is kept as once downloaded, e.g. `reception`."""
+    url: str
+    """Where the model is downloaded from on first use, as a binary glTF."""
+    sha256: str
+    """Of the download, in hexadecimal."""
+    scale: float
+    """Meters per unit of the model: 0.01 for one in centimeters."""
+    robot_at: tuple[float, float]
+    """Where the robot stands in the model, in meters: along the model's x, and along its -z,
+    which Genesis makes y as it stands a glTF's y axis up."""
+    robot_faces_deg: float
+    """Which way the robot faces there, in degrees, counterclockwise seen from above; 0 faces
+    the model's +x."""
+    lamps: tuple[tuple[float, float, float], ...]
+    """Where the lamps that light the room hang, in meters, in the robot's frame: a closed room
+    gets no light from the panorama around the world."""
+    lamp_lumens: float
+    """How much light each lamp gives."""
+
+
 class Scene(RVABaseModel):
     table_height: float
     """Of the table top the robot stands on, in meters. The head camera sits about 0.15 m above
     it."""
     people: tuple[Person, ...]
+    interior: Interior | None
+    """The room all of it is in. None, and the robot's table stands on a bare floor under the
+    panorama's sky."""
 
     @field_validator("people")
     @classmethod
@@ -78,42 +114,60 @@ def two_by_the_table() -> Scene:
                 turned_deg=0.0,
             ),
         ),
+        interior=None,
     )
 
 
-def chatting_by_the_table() -> Scene:
-    """Mia and Ben chatting in front of the robot, and Cleo out of its view on its right.
+def at_the_front_desk() -> Scene:
+    """The robot on a reception's counter, Mia and Ben chatting in front, Cleo out of its view.
 
-    Mia and Ben stand 0.6 m apart, each turned 60 degrees to the other: their faces are seen, but
-    not looking at the robot. A 60-degree turn clip faces each of them to it. Cleo stands 3.6 m
-    to the robot's right, 74 degrees off its axis and out of view, facing its left: Rocketbox's
-    walk clips take her to (1.06, -0.75), 35 degrees off its axis, where a 60-degree turn to her
-    left faces her to it.
+    The room is "Luiz IEDA - Recepção" by SrMonteiro, CC BY 4.0, from Sketchfab through
+    Objaverse: a reception with a lounge. The robot stands at the end of its counter, 1.08 m
+    high, and looks down the lounge.
+
+    Mia and Ben stand 1.2 m away and 0.5 m apart, each turned 60 degrees to the other: their
+    faces are seen, but not looking at the robot. A 60-degree turn clip faces each of them to it.
+    Where they stand is what lets them engage in time: at 1.5 m, Mia was not engaged when she
+    gave her name, and 18 degrees off the robot's axis, her gaze read as looking away. Cleo stands
+    3.6 m to the robot's right, 71 degrees off its axis and out of view, facing its left:
+    Rocketbox's walk clips take her to (1.3, -0.75), 30 degrees off its axis, where a 60-degree
+    turn to her left faces her to it; at 34 degrees, her name was not heard as said to the robot.
+    She starts between a plant and an armchair.
     """
     return Scene(
-        table_height=1.1,
+        table_height=1.08,
         people=(
             Person(
                 name="mia",
                 avatar="Adults/Female_Adult_01",
                 voice="af_bella",
-                position=(1.2, 0.45),
+                position=(1.2, 0.3),
                 turned_deg=60.0,
             ),
             Person(
                 name="ben",
                 avatar="Adults/Male_Adult_04",
                 voice="am_michael",
-                position=(1.2, -0.15),
+                position=(1.2, -0.2),
                 turned_deg=-60.0,
             ),
             Person(
                 name="cleo",
                 avatar="Adults/Female_Adult_05",
                 voice="bf_emma",
-                position=(1.0, -3.6),
+                position=(1.24, -3.6),
                 # Facing the robot's left, along +y.
-                turned_deg=-15.5,
+                turned_deg=-19.0,
             ),
+        ),
+        interior=Interior(
+            name="reception",
+            url="https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-152/d28ffb65c0be48e2b1821e649be0984e.glb",
+            sha256="5c12dea2c86d0a19464f7467090b49c01649843b64e4220f6a8125167464b849",
+            scale=0.01,
+            robot_at=(171.5, -9.28),
+            robot_faces_deg=-90.0,
+            lamps=_LAMPS,
+            lamp_lumens=18.0,
         ),
     )

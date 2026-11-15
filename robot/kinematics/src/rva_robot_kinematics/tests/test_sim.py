@@ -37,6 +37,7 @@ class _Robot:
         self.scene = ReachyMiniScene(
             mjcf,
             table_height,
+            None,
             {},
             config.servos,
             config.passive_joints,

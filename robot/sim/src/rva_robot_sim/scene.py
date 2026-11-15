@@ -1,3 +1,4 @@
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Final, assert_never
@@ -22,6 +23,7 @@ from rva_robot_sim.hearing import heard_azimuth
 from rva_robot_sim.mjcf import CameraMount, read_facts
 from rva_robot_sim.npc import PersonPose
 from rva_robot_sim.people import standing
+from rva_robot_sim.scenes import Interior
 from rva_robot_sim.servos import PassiveJointsConfig, ServoConfig, Servos
 from rva_robot_sim.skinning import Floats
 
@@ -32,8 +34,13 @@ _TABLE_X: Final = -0.15
 _TABLE_COLOR: Final = (0.55, 0.4, 0.28)
 _FLOOR_COLOR: Final = (0.42, 0.4, 0.37)
 """A grey concrete, rather than Genesis' checkerboard."""
-_SUN: Final = {"type": "directional", "dir": (-0.3, 0.2, -0.9), "intensity": 3.0, "shadow": True}
-"""High, from behind the robot on its left, for Nyx."""
+_SUN: Final[Mapping[str, object]] = {
+    "type": "directional",
+    "dir": (-0.3, 0.2, -0.9),
+    "intensity": 3.0,
+    "shadow": True,
+}
+"""High, from behind the robot on its left, for Nyx, where no room keeps it out."""
 _SPEAKING: Final = 0.1
 """How loud a person must be, as their mouth opens from 0 to 1, to be heard speaking."""
 _NEAR_M: Final = 0.02
@@ -58,6 +65,7 @@ class ReachyMiniScene:
         self,
         mjcf: Path,
         table_height: float,
+        interior: tuple[Path, Interior] | None,
         people: Mapping[str, tuple[Path, Actor]],
         servos: Sequence[ServoConfig],
         passive: PassiveJointsConfig,
@@ -71,6 +79,8 @@ class ReachyMiniScene:
         Args:
             mjcf: Reachy Mini's MJCF.
             table_height: Of the table top the robot stands on, in meters.
+            interior: The room around it and its model, from `install_interior`, whose furniture
+                the robot then stands on; None, and it stands on a table on a bare floor.
             people: Each person's avatar and the actor that plays it, from `actor.cast`, by their
                 name.
             servos: What drives each actuated joint, in place of the MJCF's actuators.
@@ -99,12 +109,17 @@ class ReachyMiniScene:
                 realtime_factor=None,
             ),
         )
-        self._scene.add_entity(gs.morphs.Plane(), surface=gs.surfaces.Rough(color=_FLOOR_COLOR))
+        if interior is None:
+            self._scene.add_entity(gs.morphs.Plane(), surface=gs.surfaces.Rough(color=_FLOOR_COLOR))
+        else:
+            self._scene.add_entity(_room(*interior))
         self._scene.add_entity(
             gs.morphs.Box(
                 size=(*_TABLE_SIZE, table_height),
                 pos=(_TABLE_X, 0.0, table_height / 2),
                 fixed=True,
+                # Inside the room's furniture, which is only seen: this holds the robot.
+                visualization=interior is None,
             ),
             surface=gs.surfaces.Default(color=_TABLE_COLOR),
         )
@@ -132,7 +147,10 @@ class ReachyMiniScene:
             # Nyx would show the people still, in their rest pose.
             nyx_skinned.install()
         # A sensor fixed to the head's link, which renders when read rather than at every step.
-        self._camera: Final = self._scene.add_sensor(_camera(renderer, hdri, mount, self._robot))
+        lights = [_SUN] if interior is None else _lamps(interior[1])
+        self._camera: Final = self._scene.add_sensor(
+            _camera(renderer, hdri, lights, mount, self._robot)
+        )
         self.camera_size: Final = (mount.width, mount.height)
         """Width and height of the head camera's frames, the MJCF's."""
         self._scene.build()
@@ -243,8 +261,37 @@ class ReachyMiniScene:
         return CameraFrame(timestamp=timestamp, image=np.ascontiguousarray(rgb[..., ::-1]))
 
 
+def _room(model: Path, interior: Interior) -> gs.morphs.Mesh:
+    """The room's model, turned and moved so that the robot stands where the scene puts it."""
+    turn = math.radians(-interior.robot_faces_deg)
+    x, y = interior.robot_at
+    return gs.morphs.Mesh(
+        file=str(model),
+        scale=interior.scale,
+        pos=(
+            -(x * math.cos(turn) - y * math.sin(turn)),
+            -(x * math.sin(turn) + y * math.cos(turn)),
+            0.0,
+        ),
+        euler=(0.0, 0.0, -interior.robot_faces_deg),
+        fixed=True,
+        collision=False,
+    )
+
+
+def _lamps(interior: Interior) -> list[Mapping[str, object]]:
+    return [
+        {"type": "point", "pos": lamp, "intensity": interior.lamp_lumens, "shadow": True}
+        for lamp in interior.lamps
+    ]
+
+
 def _camera(
-    renderer: CameraRenderer, hdri: Path | None, mount: CameraMount, robot: RigidEntity
+    renderer: CameraRenderer,
+    hdri: Path | None,
+    lights: Sequence[Mapping[str, object]],
+    mount: CameraMount,
+    robot: RigidEntity,
 ) -> NyxCameraOptions | gs.sensors.RasterizerCameraOptions:
     link = robot.get_link(mount.body).idx_local
     match renderer:
@@ -262,7 +309,7 @@ def _camera(
                 spp=renderer.samples_per_pixel,
                 render_mode=npr.ERenderMode.FastPathTracer,
                 env_maps=(sky,),
-                lights=[_SUN],
+                lights=[dict(light) for light in lights],
             )
         case Rasterizer():
             return gs.sensors.RasterizerCameraOptions(

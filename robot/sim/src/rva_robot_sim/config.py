@@ -5,6 +5,7 @@ from pydantic import Field, field_validator
 
 from rva_pydantic import RVABaseModel
 from rva_robot_sim.hdri import HdriConfig
+from rva_robot_sim.interior import InteriorsConfig
 from rva_robot_sim.people import AvatarsConfig
 from rva_robot_sim.scenarios import SCENARIOS
 from rva_robot_sim.servos import PassiveJointsConfig, ServoConfig
@@ -51,6 +52,8 @@ class SimConfig(RVABaseModel):
     description: ReachyMiniDescriptionConfig
     avatars: AvatarsConfig
     """Where the people of the scenes (`scenes.py`) come from."""
+    interiors: InteriorsConfig
+    """Where the rooms of the scenes are kept."""
     scenario: str
     """What happens around the robot, in which scene: one of `scenarios.SCENARIOS`, by name, e.g.
     `greeting`. `lune-sim --scenario` and `lune --scenario` run another."""
