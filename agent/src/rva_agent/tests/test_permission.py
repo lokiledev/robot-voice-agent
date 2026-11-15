@@ -20,6 +20,7 @@ from rva_agent.tests.fakes import (
     idle_body,
     person,
 )
+from rva_agent.tools import ToolResult
 from rva_schemas.dialogue import TextDelta, ToolCall, ToolResultMessage
 from rva_schemas.profile import Admins
 from rva_schemas.record import ToolInvocation
@@ -131,14 +132,23 @@ async def _call(tools: PeopleTools, name: str, arguments: str) -> str:
 async def test_the_first_person_a_fresh_robot_knows_becomes_an_operator() -> None:
     vision, tools = _people_tools([_face(1, None, nearest=True), _face(2, None, nearest=False)])
 
-    first = await _call(tools, "remember_person", '{"track_id": 1, "name": "Dana"}')
-    second = await _call(tools, "remember_person", '{"track_id": 2, "name": "Eve"}')
-
-    assert first == (
-        '{"status": "remembered", "name": "Dana", "operator": "The first person you know, and now'
-        ' one of your operators: tell them so."}'
+    first = await tools.call(
+        ToolCall(id="1", name="remember_person", arguments='{"track_id": 1, "name": "Dana"}')
     )
-    assert second == '{"status": "remembered", "name": "Eve"}'
+    second = await tools.call(
+        ToolCall(id="2", name="remember_person", arguments='{"track_id": 2, "name": "Eve"}')
+    )
+
+    assert first == ToolResult(
+        content='{"status": "remembered", "name": "Dana", "operator": "The first person you know,'
+        " and so one of your operators now. Tell them just that, in one short sentence without"
+        ' their name, like \\"And you are my first operator!\\": you greeted them already."}',
+        needs_reply=True,
+    )
+    # Nothing to tell Eve that the reply with the call did not say: the turn ends there.
+    assert second == ToolResult(
+        content='{"status": "remembered", "name": "Eve"}', needs_reply=False
+    )
     # Nobody else could have granted it.
     assert vision.granted == {person("Dana").user_id: person("Dana").user_id}
 

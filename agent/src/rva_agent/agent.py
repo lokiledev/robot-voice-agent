@@ -500,7 +500,11 @@ class Agent:
             )
             if not tool_calls:
                 return called
-            needs_reply = False
+            # Someone whose name was remembered without a word is still owed an answer: the
+            # LLM now and then calls first, to speak after.
+            needs_reply = not "".join(text).strip() and any(
+                call.name == "remember_person" for call in tool_calls
+            )
             for call in tool_calls:
                 result = await self._run_tool(call, called)
                 needs_reply = needs_reply or result.needs_reply

@@ -548,10 +548,76 @@ async def test_asks_an_unknown_person_their_name_and_remembers_it() -> None:
             arguments='{"track_id": 8, "name": "Alice"}',
             # Nobody was known: she is the robot's first person, and its first operator.
             result='{"status": "remembered", "name": "Alice", "operator": "The first person you'
-            ' know, and now one of your operators: tell them so."}',
+            " know, and so one of your operators now. Tell them just that, in one short sentence"
+            ' without their name, like \\"And you are my first operator!\\": you greeted them'
+            ' already."}',
         )
     ]
     assert vision.faces() == (face.model_copy(update={"person": person("Alice")}),)
+
+
+async def test_someone_remembered_is_not_greeted_again_after_the_call() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [
+                TextDelta(text="Nice to meet you, Cleo!"),
+                ToolCall(
+                    id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Cleo"}'
+                ),
+            ],
+            # What it said when asked again, about the call's result: never asked for.
+            [TextDelta(text="Great to have you here, Cleo!")],
+        ]
+    )
+    vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
+    # Mia is known already: Cleo is not the first, and has no news to be told.
+    vision.known["Mia"] = person("Mia")
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("I'm Cleo.")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        vision,
+        None,
+    ).run()
+
+    assert speech.said == ["Nice to meet you, Cleo!"]
+    assert vision.faces()[0].person == person("Cleo")
+
+
+async def test_someone_remembered_without_a_word_is_answered_after_the_call() -> None:
+    llm = ScriptedLanguageModel(
+        [
+            [
+                ToolCall(
+                    id="call_1", name="remember_person", arguments='{"track_id": 9, "name": "Cleo"}'
+                )
+            ],
+            [TextDelta(text="Nice to meet you, Cleo!")],
+        ]
+    )
+    vision = FakeVision([TrackedFace(track_id=9, box=BOX, person=None, nearest=True)])
+    vision.known["Mia"] = person("Mia")
+    user, speech, recorder = QueueUserInput(), RecordingSpeech(interrupt_after=None), ListRecorder()
+    user.say("I'm Cleo.")
+    user.leave()
+
+    await _agent(
+        llm,
+        TaskRunner(TerminalPolicy(asyncio.Queue(), fallback=None)),
+        user,
+        speech,
+        recorder,
+        vision,
+        None,
+    ).run()
+
+    assert speech.said == ["Nice to meet you, Cleo!"]
 
 
 async def test_a_turn_is_tagged_with_the_face_seen_speaking_not_the_one_in_front() -> None:

@@ -16,6 +16,12 @@ from rva_schemas.vision import (
     UnknownTrackError,
 )
 
+_FIRST_OPERATOR: Final = (
+    "The first person you know, and so one of your operators now. Tell them just that, in one"
+    ' short sentence without their name, like "And you are my first operator!": you greeted them'
+    " already."
+)
+
 
 class RememberPersonArgs(RVABaseModel):
     track_id: int
@@ -149,10 +155,11 @@ class PeopleTools:
             user_id = remembered.person.user_id
             # Nobody else could have granted it: they grant it to themselves.
             await self._vision.grant_operator(user_id, user_id)
-            result["operator"] = (
-                "The first person you know, and now one of your operators: tell them so."
-            )
-        return _result(result)
+            result["operator"] = _FIRST_OPERATOR
+        # Without news to tell, another reply would only greet them again, by name: the LLM
+        # said "Nice to meet you, Mia!" with its call, then "Great to meet you, Mia!" after it.
+        news = first or remembered.previous is not None
+        return ToolResult(content=json.dumps(result), needs_reply=news)
 
     def _who_is_here(self) -> ToolResult:
         return _result(
